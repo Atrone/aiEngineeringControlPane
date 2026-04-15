@@ -98,6 +98,72 @@ class LinearConnectEndpointTests(unittest.TestCase):
         self.assertTrue(linear_status["connected"])
         self.assertEqual(linear_status["mode"], "live")
 
+    def test_connect_linear_accepts_team_keys_for_scoped_issue_lookup(self) -> None:
+        """Loads scoped issues when the saved team scope is a Linear team key instead of a team ID."""
+
+        # Create an authorized session for the integration update request.
+        session_token = self._sign_in()
+
+        def mock_linear_request(
+            url: str,
+            *,
+            method: str = "GET",
+            headers=None,
+            payload=None,
+        ):
+            """Returns GraphQL fixtures that emulate a successful team-key fallback lookup."""
+
+            query_text = (payload or {}).get("query", "")
+
+            if "viewer" in query_text:
+                # Return a successful auth check for the saved Linear credentials.
+                return {"data": {"viewer": {"id": "viewer-123"}}}
+
+            if "team: { id:" in query_text:
+                # Return no issues for the team-id attempt so the provider retries other scope formats.
+                return {"data": {"issues": {"nodes": []}}}
+
+            if "team: { key:" in query_text:
+                # Return a matching issue when the provider retries using the team key.
+                return {
+                    "data": {
+                        "issues": {
+                            "nodes": [
+                                {
+                                    "id": "issue-1",
+                                    "identifier": "ENG-123",
+                                    "title": "Scoped issue",
+                                    "description": "Issue found through the team key fallback.",
+                                    "priority": 2,
+                                    "url": "https://linear.app/example/issue/ENG-123",
+                                    "state": {"name": "Backlog"},
+                                    "assignee": {"name": "Taylor", "email": "taylor@example.com"},
+                                }
+                            ]
+                        }
+                    }
+                }
+
+            # Return no issues for any other query shape used in the fallback chain.
+            return {"data": {"issues": {"nodes": []}}}
+
+        with patch("app.providers._request_json", side_effect=mock_linear_request):
+            # Save a team key so the provider must retry team lookup formats.
+            response = self.client.post(
+                "/api/integrations/linear/connect",
+                json={"apiKey": "lin_api_example", "teamId": "ENG"},
+                headers={"Authorization": f"Bearer {session_token}"},
+            )
+
+        # Confirm the request succeeded for a valid team key scope.
+        self.assertEqual(response.status_code, 200)
+
+        # Confirm the scoped Linear status now reports live issue availability.
+        linear_status = next(item for item in response.json()["statuses"] if item["id"] == "linear")
+        self.assertTrue(linear_status["connected"])
+        self.assertEqual(linear_status["mode"], "live")
+        self.assertEqual(linear_status["details"], "1 issues available")
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

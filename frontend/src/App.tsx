@@ -1352,7 +1352,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
           title="Connect Linear"
           body={
             <form className="form-grid" onSubmit={(event) => { void handleLinearConnect(event); }}>
-              <p className="muted-copy">Step 1: create a Linear API key. Step 2: add an optional team ID if you want intake scoped to one team.</p>
+              <p className="muted-copy">Step 1: create a Linear API key. Step 2: add an optional team ID, key, or exact name if you want intake scoped to one team.</p>
               <label className="field-group">
                 <span>API key</span>
                 <input
@@ -1363,10 +1363,10 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
                 />
               </label>
               <label className="field-group">
-                <span>Team ID</span>
+                <span>Team ID or key</span>
                 <input
                   onChange={(event) => { setLinearForm({ ...linearForm, teamId: event.target.value }); }}
-                  placeholder="Optional team scope"
+                  placeholder="Optional team ID, key, or name"
                   type="text"
                   value={linearForm.teamId}
                 />
