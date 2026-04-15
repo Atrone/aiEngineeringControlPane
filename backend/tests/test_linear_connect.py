@@ -204,7 +204,11 @@ class LinearConnectEndpointTests(unittest.TestCase):
                 # Return a successful auth check for the saved Linear credentials.
                 return {"data": {"viewer": {"id": "viewer-123"}}}
 
-            if "teams(filter:" in query_text and variables.get("teamScope") == "b86658c9-96ae-4e47-a20d-669a1b1fc569":
+            if (
+                "query ControlPaneTeams($teamScope: ID!)" in query_text
+                and "teams(filter:" in query_text
+                and variables.get("teamScope") == "b86658c9-96ae-4e47-a20d-669a1b1fc569"
+            ):
                 # Return the matching team when the provider looks it up by UUID.
                 return {
                     "data": {

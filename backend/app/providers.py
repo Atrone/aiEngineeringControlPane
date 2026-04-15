@@ -162,9 +162,11 @@ def _build_linear_issue_query(team_field: Optional[str] = None) -> str:
 def _build_linear_team_lookup_query(team_field: str, comparator: str = "eq") -> str:
     """Builds a Linear team lookup query for a specific team field and comparator."""
 
+    variable_type = "ID!" if team_field == "id" else "String!"
+
     # Return the team lookup query for the requested field match strategy.
     return f"""
-    query ControlPaneTeams($teamScope: String!) {{
+    query ControlPaneTeams($teamScope: {variable_type}) {{
       teams(filter: {{ {team_field}: {{ {comparator}: $teamScope }} }}, first: 1) {{
         nodes {{
           id
