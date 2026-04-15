@@ -1,11 +1,23 @@
 export type RunStatus = 'Running' | 'Review' | 'Blocked' | 'Retry' | 'Merged';
 export type RiskLevel = 'Low' | 'Medium' | 'High';
+export type UserRole = 'admin' | 'tech_lead' | 'engineer';
 
 export type CurrentUser = {
   name: string;
   email: string;
-  role: string;
+  role: UserRole;
   provider: string;
+};
+
+export type AuthSession = {
+  sessionToken: string;
+  currentUser: CurrentUser;
+};
+
+export type SignInRequest = {
+  name: string;
+  email: string;
+  role: UserRole;
 };
 
 export type RepositoryRecord = {
@@ -49,6 +61,12 @@ export type IntegrationStatus = {
   capabilities: string[];
   configured: boolean;
   details: string;
+  requiredRole: UserRole;
+  recommendedAction: string;
+  connection?: {
+    label: string;
+    values: Record<string, string>;
+  } | null;
   checkedAt: string;
 };
 
@@ -175,4 +193,19 @@ export type ApprovalDecisionRequest = {
   runId: string;
   decision: string;
   notes: string;
+};
+
+export type GitHubConnectRequest = {
+  owner: string;
+  repositories: string;
+  token: string;
+};
+
+export type LinearConnectRequest = {
+  apiKey: string;
+  teamId: string;
+};
+
+export type DocsConnectRequest = {
+  docsDirectory: string;
 };

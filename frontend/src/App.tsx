@@ -3,6 +3,10 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useApiQuery } from './hooks/useApiQuery';
 import {
+  clearSessionToken,
+  connectDocs,
+  connectGitHub,
+  connectLinear,
   createApprovalDecision,
   createRun,
   createTask,
@@ -13,37 +17,166 @@ import {
   fetchIntakeOptions,
   fetchPolicies,
   fetchRunDetail,
+  hasSessionToken,
+  signIn,
+  signOut,
 } from './lib/api';
 import type {
   ApprovalDecisionRequest,
   ApprovalItem,
   CurrentUser,
   DashboardMetric,
+  DocsConnectRequest,
   DocumentRecord,
+  GitHubConnectRequest,
   IntegrationStatus,
   IssueRecord,
+  LinearConnectRequest,
   RiskLevel,
   RunSummary,
   RunStatus,
+  SignInRequest,
   TaskCreateRequest,
+  UserRole,
 } from './types/controlPane';
+
+const reviewerRoles: UserRole[] = ['admin', 'tech_lead'];
+const roleOptions: Array<{ role: UserRole; title: string; description: string }> = [
+  {
+    role: 'admin',
+    title: 'Admin',
+    description: 'Manage sign-in, policies, integrations, and reviewer workflows.',
+  },
+  {
+    role: 'tech_lead',
+    title: 'Tech Lead',
+    description: 'Launch work, review runs, and guide GitHub, Linear, and docs setup.',
+  },
+  {
+    role: 'engineer',
+    title: 'Engineer',
+    description: 'Launch and inspect work without reviewer or integration-admin access.',
+  },
+];
 
 /**
  * Renders the top-level routed application.
  */
 function App() {
-  // Route the user into the product shell and default dashboard view.
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [isRestoringSession, setIsRestoringSession] = useState<boolean>(true);
+
+  useEffect(() => {
+    let isActive = true;
+
+    /**
+     * Restores a saved session token into a current-user payload.
+     */
+    async function restoreSession(): Promise<void> {
+      if (!hasSessionToken()) {
+        // Skip the session restore call when the browser has no saved token.
+        setCurrentUser(null);
+        setIsRestoringSession(false);
+        return;
+      }
+
+      try {
+        // Fetch the current user so the app can rebuild the signed-in shell.
+        const restoredUser = await fetchCurrentUser();
+
+        if (isActive) {
+          // Save the restored user once the backend validates the token.
+          setCurrentUser(restoredUser);
+        }
+      } catch {
+        if (isActive) {
+          // Clear invalid tokens so the app falls back to the sign-in route.
+          clearSessionToken();
+          setCurrentUser(null);
+        }
+      } finally {
+        if (isActive) {
+          // Mark the restore attempt as complete after the request settles.
+          setIsRestoringSession(false);
+        }
+      }
+    }
+
+    // Start the session restore flow once on initial page load.
+    void restoreSession();
+
+    return () => {
+      // Ignore late async work after the top-level app unmounts.
+      isActive = false;
+    };
+  }, []);
+
+  /**
+   * Saves the newly signed-in user inside the routed app shell.
+   */
+  function handleSignedIn(user: CurrentUser): void {
+    // Update the top-level auth state once sign-in succeeds.
+    setCurrentUser(user);
+  }
+
+  /**
+   * Signs the current user out and clears the app-shell auth state.
+   */
+  async function handleSignedOut(): Promise<void> {
+    // Delete the current backend session and local token.
+    await signOut();
+
+    // Reset the routed shell back to the signed-out state.
+    setCurrentUser(null);
+  }
+
+  if (isRestoringSession && hasSessionToken()) {
+    // Show a full-page loading state while the saved session is being restored.
+    return <StandaloneStatePanel eyebrow="Restoring session" title="Checking your sign-in..." body="Loading your role and workspace access." />;
+  }
+
+  // Route the user into the auth screen or the signed-in product shell.
   return (
     <Routes>
-      <Route element={<RootLayout />}>
-        <Route element={<Navigate replace to="/dashboard" />} index />
-        <Route element={<DashboardPage />} path="/dashboard" />
-        <Route element={<WorkIntakePage />} path="/intake" />
-        <Route element={<TaskDetailPage />} path="/tasks/:runId" />
-        <Route element={<ApprovalInboxPage />} path="/approvals" />
-        <Route element={<PoliciesPage />} path="/policies" />
-        <Route element={<IntegrationsPage />} path="/integrations" />
-      </Route>
+      <Route
+        element={currentUser ? <Navigate replace to="/dashboard" /> : <SignInPage onSignedIn={handleSignedIn} />}
+        path="/sign-in"
+      />
+      {currentUser ? (
+        <Route element={<RootLayout currentUser={currentUser} onSignedOut={handleSignedOut} />}>
+          <Route element={<Navigate replace to="/dashboard" />} index />
+          <Route element={<DashboardPage />} path="/dashboard" />
+          <Route element={<WorkIntakePage />} path="/intake" />
+          <Route element={<TaskDetailPage currentUser={currentUser} />} path="/tasks/:runId" />
+          <Route
+            element={
+              <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Approval inbox">
+                <ApprovalInboxPage />
+              </RoleGate>
+            }
+            path="/approvals"
+          />
+          <Route
+            element={
+              <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Policy center">
+                <PoliciesPage />
+              </RoleGate>
+            }
+            path="/policies"
+          />
+          <Route
+            element={
+              <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Integrations">
+                <IntegrationsPage currentUser={currentUser} />
+              </RoleGate>
+            }
+            path="/integrations"
+          />
+          <Route element={<Navigate replace to="/dashboard" />} path="*" />
+        </Route>
+      ) : (
+        <Route element={<Navigate replace to="/sign-in" />} path="*" />
+      )}
     </Routes>
   );
 }
@@ -51,9 +184,25 @@ function App() {
 /**
  * Builds the shared frame around each primary page.
  */
-function RootLayout() {
+function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promise<void> }) {
   const location = useLocation();
-  const userQuery = useApiQuery(fetchCurrentUser, []);
+  const [isSigningOut, setIsSigningOut] = useState<boolean>(false);
+  const canReview = canAccessRole(props.currentUser.role, reviewerRoles);
+
+  /**
+   * Signs the user out from the shell header action.
+   */
+  async function handleSignOutClick(): Promise<void> {
+    setIsSigningOut(true);
+
+    try {
+      // Forward the sign-out request to the top-level auth handler.
+      await props.onSignedOut();
+    } finally {
+      // Restore the button state after the sign-out flow completes.
+      setIsSigningOut(false);
+    }
+  }
 
   // Keep the shell visible so the app feels like a real control center.
   return (
@@ -74,15 +223,21 @@ function RootLayout() {
           <Link className={getNavLinkClassName(location.pathname, '/intake')} to="/intake">
             Work Intake
           </Link>
-          <Link className={getNavLinkClassName(location.pathname, '/approvals')} to="/approvals">
-            Approval Inbox
-          </Link>
-          <Link className={getNavLinkClassName(location.pathname, '/policies')} to="/policies">
-            Policy Center
-          </Link>
-          <Link className={getNavLinkClassName(location.pathname, '/integrations')} to="/integrations">
-            Integrations
-          </Link>
+          {canReview ? (
+            <Link className={getNavLinkClassName(location.pathname, '/approvals')} to="/approvals">
+              Approval Inbox
+            </Link>
+          ) : null}
+          {canReview ? (
+            <Link className={getNavLinkClassName(location.pathname, '/policies')} to="/policies">
+              Policy Center
+            </Link>
+          ) : null}
+          {canReview ? (
+            <Link className={getNavLinkClassName(location.pathname, '/integrations')} to="/integrations">
+              Integrations
+            </Link>
+          ) : null}
           {location.pathname.startsWith('/tasks/') ? (
             <Link className="nav-link active" to={location.pathname}>
               Task Detail
@@ -92,8 +247,8 @@ function RootLayout() {
 
         <div className="sidebar-card">
           <p className="sidebar-label">Current user</p>
-          <p className="sidebar-stat">{buildUserHeadline(userQuery.data)}</p>
-          <p className="muted-copy">{buildUserSubtitle(userQuery.data, userQuery.isLoading, userQuery.error)}</p>
+          <p className="sidebar-stat">{buildUserHeadline(props.currentUser)}</p>
+          <p className="muted-copy">{buildUserSubtitle(props.currentUser)}</p>
         </div>
       </aside>
 
@@ -104,12 +259,18 @@ function RootLayout() {
             <h2>Team operations view</h2>
           </div>
           <div className="topbar-actions">
-            <Link className="ghost-button link-button" to="/integrations">
-              View integrations
-            </Link>
+            <span className="pill">{buildRoleLabel(props.currentUser.role)}</span>
+            {canReview ? (
+              <Link className="ghost-button link-button" to="/integrations">
+                View integrations
+              </Link>
+            ) : null}
             <Link className="primary-button link-button" to="/intake">
               New task
             </Link>
+            <button className="ghost-button" disabled={isSigningOut} onClick={() => { void handleSignOutClick(); }} type="button">
+              {isSigningOut ? 'Signing out...' : 'Sign out'}
+            </button>
           </div>
         </header>
 
@@ -117,6 +278,129 @@ function RootLayout() {
       </main>
     </div>
   );
+}
+
+/**
+ * Renders the guided sign-in screen before a session exists.
+ */
+function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
+  const navigate = useNavigate();
+  const [name, setName] = useState<string>('Maya Chen');
+  const [email, setEmail] = useState<string>('maya.chen@example.com');
+  const [role, setRole] = useState<UserRole>('tech_lead');
+  const [submitError, setSubmitError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const roleCapabilityItems = buildRoleCapabilityItems(role);
+
+  /**
+   * Creates the guided sign-in session from the submitted identity form.
+   */
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    // Prevent the browser from performing a full page form submission.
+    event.preventDefault();
+    setSubmitError('');
+    setIsSubmitting(true);
+
+    const payload: SignInRequest = {
+      name,
+      email,
+      role,
+    };
+
+    try {
+      // Create the signed-in session and receive the current-user payload.
+      const session = await signIn(payload);
+
+      // Save the current user in the top-level app shell.
+      props.onSignedIn(session.currentUser);
+
+      // Route directly into the dashboard once sign-in succeeds.
+      navigate('/dashboard');
+    } catch (caughtError) {
+      // Surface sign-in failures directly inside the auth screen.
+      setSubmitError(caughtError instanceof Error ? caughtError.message : 'Unable to sign in.');
+    } finally {
+      // Restore the submit button state after the auth request settles.
+      setIsSubmitting(false);
+    }
+  }
+
+  // Present the signed-out auth shell and role guidance together.
+  return (
+    <div className="auth-shell">
+      <section className="auth-panel auth-panel-hero">
+        <p className="eyebrow">Guided sign-in</p>
+        <h1>Choose your role before you enter mission control.</h1>
+        <p className="muted-copy">
+          This demo now signs users in, maps them to roles, and unlocks guided connection flows for GitHub, Linear, and docs.
+        </p>
+        <div className="auth-role-grid">
+          {roleOptions.map((roleOption) => (
+            <button
+              className={roleOption.role === role ? 'role-card role-card-active' : 'role-card'}
+              key={roleOption.role}
+              onClick={() => { setRole(roleOption.role); }}
+              type="button"
+            >
+              <strong>{roleOption.title}</strong>
+              <span className="muted-copy">{roleOption.description}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="auth-panel">
+        <form className="form-grid" onSubmit={(event) => { void handleSubmit(event); }}>
+          <label className="field-group">
+            <span>Name</span>
+            <input onChange={(event) => { setName(event.target.value); }} placeholder="Maya Chen" type="text" value={name} />
+          </label>
+
+          <label className="field-group">
+            <span>Email</span>
+            <input onChange={(event) => { setEmail(event.target.value); }} placeholder="maya.chen@example.com" type="email" value={email} />
+          </label>
+
+          <label className="field-group">
+            <span>Role</span>
+            <select onChange={(event) => { setRole(event.target.value as UserRole); }} value={role}>
+              {roleOptions.map((roleOption) => (
+                <option key={roleOption.role} value={roleOption.role}>
+                  {roleOption.title}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="field-group field-group-wide">
+            <span>What this role unlocks</span>
+            <ul className="detail-list compact-list">{roleCapabilityItems}</ul>
+          </div>
+
+          {submitError ? <p className="error-copy">{submitError}</p> : null}
+
+          <div className="form-actions">
+            <button className="primary-button" disabled={isSubmitting || !name || !email} type="submit">
+              {isSubmitting ? 'Signing in...' : 'Enter mission control'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Blocks a route when the signed-in user lacks the required role.
+ */
+function RoleGate(props: { currentUser: CurrentUser; allowedRoles: UserRole[]; title: string; children: ReactNode }) {
+  if (canAccessRole(props.currentUser.role, props.allowedRoles)) {
+    // Render the protected route when the user role has access.
+    return <>{props.children}</>;
+  }
+
+  // Render a friendly access-denied state for unauthorized routes.
+  return <AccessDeniedState currentUser={props.currentUser} title={props.title} />;
 }
 
 /**
@@ -467,7 +751,7 @@ function WorkIntakePage() {
 /**
  * Shows the full evidence package for a single task.
  */
-function TaskDetailPage() {
+function TaskDetailPage(props: { currentUser: CurrentUser }) {
   const params = useParams();
   const runId = params.runId ?? '';
   const query = useApiQuery(() => fetchRunDetail(runId), [runId]);
@@ -476,6 +760,7 @@ function TaskDetailPage() {
   const [mutationError, setMutationError] = useState<string>('');
   const [isMutating, setIsMutating] = useState<boolean>(false);
   const selectedRun = runOverride ?? query.data;
+  const canReview = canAccessRole(props.currentUser.role, reviewerRoles);
 
   if (query.isLoading && !selectedRun) {
     // Render a focused loading state while the selected run is being fetched.
@@ -607,28 +892,39 @@ function TaskDetailPage() {
         <Panel
           body={
             <div className="action-stack">
-              <button className="primary-button" disabled={isMutating} onClick={() => { void handleDecision('approve'); }} type="button">
-                Approve
-              </button>
-              <button className="ghost-button" disabled={isMutating} onClick={() => { void handleDecision('retry'); }} type="button">
-                Request retry
-              </button>
-              <button className="ghost-button" disabled={isMutating} onClick={() => { void handleDecision('re-scope'); }} type="button">
-                Re-scope task
-              </button>
-              <button className="ghost-button" disabled={isMutating} onClick={() => { void handleDecision('escalate'); }} type="button">
-                Escalate to human
-              </button>
+              {canReview ? (
+                <button className="primary-button" disabled={isMutating} onClick={() => { void handleDecision('approve'); }} type="button">
+                  Approve
+                </button>
+              ) : null}
+              {canReview ? (
+                <button className="ghost-button" disabled={isMutating} onClick={() => { void handleDecision('retry'); }} type="button">
+                  Request retry
+                </button>
+              ) : null}
+              {canReview ? (
+                <button className="ghost-button" disabled={isMutating} onClick={() => { void handleDecision('re-scope'); }} type="button">
+                  Re-scope task
+                </button>
+              ) : null}
+              {canReview ? (
+                <button className="ghost-button" disabled={isMutating} onClick={() => { void handleDecision('escalate'); }} type="button">
+                  Escalate to human
+                </button>
+              ) : null}
               <button className="ghost-button" disabled={isMutating} onClick={() => { void handleRunStart(); }} type="button">
                 Start run
               </button>
-              <textarea
-                className="notes-input"
-                onChange={(event) => { setDecisionNotes(event.target.value); }}
-                placeholder="Optional approval or retry notes"
-                rows={3}
-                value={decisionNotes}
-              />
+              {canReview ? (
+                <textarea
+                  className="notes-input"
+                  onChange={(event) => { setDecisionNotes(event.target.value); }}
+                  placeholder="Optional approval or retry notes"
+                  rows={3}
+                  value={decisionNotes}
+                />
+              ) : null}
+              {!canReview ? <p className="muted-copy">Your role can inspect runs and start work, but reviewer decisions stay limited to tech leads and admins.</p> : null}
               {mutationError ? <p className="error-copy">{mutationError}</p> : null}
             </div>
           }
@@ -826,9 +1122,49 @@ function PoliciesPage() {
 /**
  * Shows the integration management view.
  */
-function IntegrationsPage() {
-  const query = useApiQuery(fetchIntegrations, []);
+function IntegrationsPage(props: { currentUser: CurrentUser }) {
+  const [refreshKey, setRefreshKey] = useState<number>(0);
+  const [githubForm, setGithubForm] = useState<GitHubConnectRequest>({
+    owner: '',
+    repositories: '',
+    token: '',
+  });
+  const [linearForm, setLinearForm] = useState<LinearConnectRequest>({
+    apiKey: '',
+    teamId: '',
+  });
+  const [docsForm, setDocsForm] = useState<DocsConnectRequest>({
+    docsDirectory: '',
+  });
+  const [mutationError, setMutationError] = useState<string>('');
+  const [mutationSuccess, setMutationSuccess] = useState<string>('');
+  const [activeSetupId, setActiveSetupId] = useState<string>('');
+  const query = useApiQuery(fetchIntegrations, [refreshKey]);
   const integrationCards: ReactNode[] = [];
+
+  useEffect(() => {
+    const githubStatus = findIntegrationStatus(query.data?.statuses ?? [], 'github');
+    const linearStatus = findIntegrationStatus(query.data?.statuses ?? [], 'linear');
+    const docsStatus = findIntegrationStatus(query.data?.statuses ?? [], 'repo_docs');
+
+    // Mirror the saved GitHub connection into the setup form defaults.
+    setGithubForm({
+      owner: getConnectionValue(githubStatus, 'owner'),
+      repositories: getConnectionValue(githubStatus, 'repositories'),
+      token: '',
+    });
+
+    // Mirror the saved Linear connection into the setup form defaults.
+    setLinearForm({
+      apiKey: '',
+      teamId: getConnectionValue(linearStatus, 'teamId'),
+    });
+
+    // Mirror the saved docs path into the setup form defaults.
+    setDocsForm({
+      docsDirectory: getConnectionValue(docsStatus, 'docsDirectory'),
+    });
+  }, [query.data]);
 
   if (query.isLoading) {
     // Render a loading state while the provider status payload is fetched.
@@ -845,22 +1181,213 @@ function IntegrationsPage() {
     integrationCards.push(<IntegrationStatusCard key={status.id} status={status} />);
   }
 
+  /**
+   * Saves the GitHub setup selected by the user.
+   */
+  async function handleGitHubConnect(event: FormEvent<HTMLFormElement>): Promise<void> {
+    // Prevent the browser from performing a full page form submission.
+    event.preventDefault();
+    setActiveSetupId('github');
+    setMutationError('');
+    setMutationSuccess('');
+
+    try {
+      // Save the GitHub setup for the current signed-in session.
+      await connectGitHub(githubForm);
+
+      // Show a success message and refresh the status view.
+      setMutationSuccess('GitHub connection saved for this session.');
+      setRefreshKey((currentValue) => currentValue + 1);
+    } catch (caughtError) {
+      // Surface GitHub setup failures directly inside the integrations view.
+      setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to connect GitHub.');
+    } finally {
+      // Clear the active submit state when the request settles.
+      setActiveSetupId('');
+    }
+  }
+
+  /**
+   * Saves the Linear setup selected by the user.
+   */
+  async function handleLinearConnect(event: FormEvent<HTMLFormElement>): Promise<void> {
+    // Prevent the browser from performing a full page form submission.
+    event.preventDefault();
+    setActiveSetupId('linear');
+    setMutationError('');
+    setMutationSuccess('');
+
+    try {
+      // Save the Linear setup for the current signed-in session.
+      await connectLinear(linearForm);
+
+      // Show a success message and refresh the status view.
+      setMutationSuccess('Linear connection saved for this session.');
+      setRefreshKey((currentValue) => currentValue + 1);
+    } catch (caughtError) {
+      // Surface Linear setup failures directly inside the integrations view.
+      setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to connect Linear.');
+    } finally {
+      // Clear the active submit state when the request settles.
+      setActiveSetupId('');
+    }
+  }
+
+  /**
+   * Saves the docs path selected by the user.
+   */
+  async function handleDocsConnect(event: FormEvent<HTMLFormElement>): Promise<void> {
+    // Prevent the browser from performing a full page form submission.
+    event.preventDefault();
+    setActiveSetupId('repo_docs');
+    setMutationError('');
+    setMutationSuccess('');
+
+    try {
+      // Save the docs path for the current signed-in session.
+      await connectDocs(docsForm);
+
+      // Show a success message and refresh the status view.
+      setMutationSuccess('Docs connection saved for this session.');
+      setRefreshKey((currentValue) => currentValue + 1);
+    } catch (caughtError) {
+      // Surface docs setup failures directly inside the integrations view.
+      setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to connect docs.');
+    } finally {
+      // Clear the active submit state when the request settles.
+      setActiveSetupId('');
+    }
+  }
+
   // Render the integrations management view.
   return (
     <div className="page-grid">
       <section className="hero-panel compact-panel">
         <div>
           <p className="eyebrow">Integrations</p>
-          <h3>See which providers are live, which are using fallbacks, and what capabilities each category unlocks.</h3>
+          <h3>See which providers are live, which are using fallbacks, and walk through guided setup for GitHub, Linear, and docs.</h3>
         </div>
         <div className="hero-pills">
-          <span className="pill">{query.data.currentUser.name}</span>
-          <span className="pill">{query.data.currentUser.provider}</span>
+          <span className="pill">{props.currentUser.name}</span>
+          <span className="pill">{buildRoleLabel(props.currentUser.role)}</span>
           <span className="pill">{query.data.statuses.length} providers</span>
         </div>
       </section>
 
       <Panel body={<div className="integration-grid">{integrationCards}</div>} title="Provider status" />
+
+      <section className="content-grid approvals-grid">
+        <Panel
+          title="Connect GitHub"
+          body={
+            <form className="form-grid" onSubmit={(event) => { void handleGitHubConnect(event); }}>
+              <p className="muted-copy">Step 1: choose an org or owner. Step 2: list the repos agents may target. Step 3: add an optional token for private repos and higher rate limits.</p>
+              <label className="field-group">
+                <span>Owner or org</span>
+                <input
+                  onChange={(event) => { setGithubForm({ ...githubForm, owner: event.target.value }); }}
+                  placeholder="your-org"
+                  type="text"
+                  value={githubForm.owner}
+                />
+              </label>
+              <label className="field-group">
+                <span>Repositories</span>
+                <input
+                  onChange={(event) => { setGithubForm({ ...githubForm, repositories: event.target.value }); }}
+                  placeholder="web-app, api-service"
+                  type="text"
+                  value={githubForm.repositories}
+                />
+              </label>
+              <label className="field-group">
+                <span>Token</span>
+                <input
+                  onChange={(event) => { setGithubForm({ ...githubForm, token: event.target.value }); }}
+                  placeholder="Optional for public repos"
+                  type="password"
+                  value={githubForm.token}
+                />
+              </label>
+              <div className="form-actions">
+                <button className="primary-button" disabled={activeSetupId === 'github'} type="submit">
+                  {activeSetupId === 'github' ? 'Saving GitHub...' : 'Connect GitHub'}
+                </button>
+              </div>
+            </form>
+          }
+        />
+
+        <Panel
+          title="Connect Linear"
+          body={
+            <form className="form-grid" onSubmit={(event) => { void handleLinearConnect(event); }}>
+              <p className="muted-copy">Step 1: create a Linear API key. Step 2: add an optional team ID if you want intake scoped to one team.</p>
+              <label className="field-group">
+                <span>API key</span>
+                <input
+                  onChange={(event) => { setLinearForm({ ...linearForm, apiKey: event.target.value }); }}
+                  placeholder="lin_api_..."
+                  type="password"
+                  value={linearForm.apiKey}
+                />
+              </label>
+              <label className="field-group">
+                <span>Team ID</span>
+                <input
+                  onChange={(event) => { setLinearForm({ ...linearForm, teamId: event.target.value }); }}
+                  placeholder="Optional team scope"
+                  type="text"
+                  value={linearForm.teamId}
+                />
+              </label>
+              <div className="form-actions">
+                <button className="primary-button" disabled={activeSetupId === 'linear'} type="submit">
+                  {activeSetupId === 'linear' ? 'Saving Linear...' : 'Connect Linear'}
+                </button>
+              </div>
+            </form>
+          }
+        />
+      </section>
+
+      <section className="content-grid approvals-grid">
+        <Panel
+          title="Connect docs"
+          body={
+            <form className="form-grid" onSubmit={(event) => { void handleDocsConnect(event); }}>
+              <p className="muted-copy">Step 1: point the control pane at the docs folder you want indexed. Step 2: save it so intake and review screens ground agent work in the right markdown sources.</p>
+              <label className="field-group">
+                <span>Docs directory</span>
+                <input
+                  onChange={(event) => { setDocsForm({ docsDirectory: event.target.value }); }}
+                  placeholder="C:\repo\docs"
+                  type="text"
+                  value={docsForm.docsDirectory}
+                />
+              </label>
+              <div className="form-actions">
+                <button className="primary-button" disabled={activeSetupId === 'repo_docs'} type="submit">
+                  {activeSetupId === 'repo_docs' ? 'Saving docs...' : 'Connect docs'}
+                </button>
+              </div>
+            </form>
+          }
+        />
+
+        <Panel
+          title="Guided setup notes"
+          body={
+            <div className="stacked-copy">
+              <p>Roles: only admins and tech leads can manage provider connections.</p>
+              <p>GitHub Actions piggybacks on the GitHub repo connection so CI status activates automatically.</p>
+              <p>Sessions are stored in memory for this demo, so reconnect after a backend restart.</p>
+              {mutationSuccess ? <p className="success-copy">{mutationSuccess}</p> : null}
+              {mutationError ? <p className="error-copy">{mutationError}</p> : null}
+            </div>
+          }
+        />
+      </section>
     </div>
   );
 }
@@ -871,6 +1398,64 @@ function IntegrationsPage() {
 function getNavLinkClassName(pathname: string, targetPath: string): string {
   // Highlight the current section so navigation stays oriented.
   return pathname === targetPath ? 'nav-link active' : 'nav-link';
+}
+
+/**
+ * Reports whether a given role can access a protected route or action.
+ */
+function canAccessRole(role: UserRole, allowedRoles: UserRole[]): boolean {
+  // Return true when the signed-in role is included in the allowed role list.
+  return allowedRoles.includes(role);
+}
+
+/**
+ * Builds a human-readable label for the current role badge.
+ */
+function buildRoleLabel(role: UserRole): string {
+  if (role === 'tech_lead') {
+    // Expand the tech-lead role into a readable badge label.
+    return 'Tech Lead';
+  }
+
+  if (role === 'engineer') {
+    // Expand the engineer role into a readable badge label.
+    return 'Engineer';
+  }
+
+  // Fall back to the admin label for the remaining supported role.
+  return 'Admin';
+}
+
+/**
+ * Builds the sign-in capability list for the selected role.
+ */
+function buildRoleCapabilityItems(role: UserRole): ReactNode[] {
+  const capabilities: string[] = role === 'engineer'
+    ? [
+        'Launch new work from the intake flow.',
+        'Inspect active tasks, evidence, and attached docs.',
+        'Start or restart runs without reviewer privileges.',
+      ]
+    : role === 'tech_lead'
+      ? [
+          'Launch work and review approval-ready runs.',
+          'Manage guided setup for GitHub, Linear, and docs.',
+          'Publish policy decisions and escalation outcomes.',
+        ]
+      : [
+          'Access every route in the control pane.',
+          'Manage reviewer workflows, policies, and integrations.',
+          'Act as the top-level owner for sign-in and governance.',
+        ];
+  const capabilityItems: ReactNode[] = [];
+
+  // Convert each capability string into a rendered list item.
+  for (const capability of capabilities) {
+    capabilityItems.push(<li key={capability}>{capability}</li>);
+  }
+
+  // Return the rendered role capability list for the auth screen.
+  return capabilityItems;
 }
 
 /**
@@ -906,6 +1491,35 @@ function findIssueById(issues: IssueRecord[], issueId: string): IssueRecord | nu
 }
 
 /**
+ * Finds an integration status record by provider ID.
+ */
+function findIntegrationStatus(statuses: IntegrationStatus[], integrationId: string): IntegrationStatus | null {
+  // Search the fetched integration status list for the requested provider record.
+  for (const status of statuses) {
+    if (status.id === integrationId) {
+      // Return the first matching provider status record.
+      return status;
+    }
+  }
+
+  // Return null when the requested provider record does not exist.
+  return null;
+}
+
+/**
+ * Reads a single saved connection field from an integration status.
+ */
+function getConnectionValue(status: IntegrationStatus | null, key: string): string {
+  if (!status?.connection) {
+    // Return an empty string when the provider has no saved connection payload.
+    return '';
+  }
+
+  // Return the saved connection value or an empty string when it is missing.
+  return status.connection.values[key] ?? '';
+}
+
+/**
  * Toggles a selection value inside a string array.
  */
 function toggleSelection(currentValues: string[], value: string): string[] {
@@ -932,26 +1546,16 @@ function buildUserHeadline(user: CurrentUser | null): string {
 }
 
 /**
- * Builds the sidebar subtitle from the user query state.
+ * Builds the sidebar subtitle from the resolved current user.
  */
-function buildUserSubtitle(user: CurrentUser | null, isLoading: boolean, error: string | null): string {
-  if (isLoading) {
-    // Explain that the identity layer is still resolving.
-    return 'Resolving current identity from the backend integration layer.';
-  }
-
-  if (error) {
-    // Surface a readable error description when the identity request fails.
-    return error;
-  }
-
+function buildUserSubtitle(user: CurrentUser | null): string {
   if (!user) {
     // Fall back to a neutral subtitle when no user payload is available.
     return 'No identity payload available.';
   }
 
   // Return the resolved role and provider for the sidebar summary.
-  return `${user.email} · ${user.role} · ${user.provider}`;
+  return `${user.email} · ${buildRoleLabel(user.role)} · ${user.provider}`;
 }
 
 /**
@@ -1000,6 +1604,9 @@ function IntegrationStatusCard(props: { status: IntegrationStatus }) {
         <span className={`pill integration-pill integration-pill-${props.status.mode}`}>{props.status.mode}</span>
       </div>
       <p className="muted-copy">{props.status.details}</p>
+      <p className="subtle-copy">Required role: {buildRoleLabel(props.status.requiredRole)}</p>
+      <p className="subtle-copy">{props.status.recommendedAction}</p>
+      {props.status.connection ? <p className="subtle-copy">Connected as: {props.status.connection.label}</p> : null}
       <ul className="detail-list compact-list">{capabilityItems}</ul>
       <p className="subtle-copy">Checked: {props.status.checkedAt}</p>
     </article>
@@ -1030,6 +1637,38 @@ function ErrorState(props: { message: string }) {
       <p className="eyebrow">Request failed</p>
       <h3>Unable to load this control-pane view.</h3>
       <p className="muted-copy">{props.message}</p>
+    </section>
+  );
+}
+
+/**
+ * Renders a standalone full-page state panel for auth flows.
+ */
+function StandaloneStatePanel(props: { eyebrow: string; title: string; body: string }) {
+  // Keep loading and transition states visually consistent outside the app shell.
+  return (
+    <div className="auth-shell">
+      <section className="auth-panel auth-panel-centered">
+        <p className="eyebrow">{props.eyebrow}</p>
+        <h1>{props.title}</h1>
+        <p className="muted-copy">{props.body}</p>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Renders a friendly access-denied state for gated routes.
+ */
+function AccessDeniedState(props: { currentUser: CurrentUser; title: string }) {
+  // Keep gated routes readable instead of dropping the user onto a blank page.
+  return (
+    <section className="panel state-panel">
+      <p className="eyebrow">Access denied</p>
+      <h3>{props.title} is limited to reviewers.</h3>
+      <p className="muted-copy">
+        {buildRoleLabel(props.currentUser.role)} sessions can still inspect dashboards and task detail, but only admins and tech leads can manage approvals, policies, and integrations.
+      </p>
     </section>
   );
 }

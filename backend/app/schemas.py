@@ -31,3 +31,32 @@ class ApprovalDecisionRequest(BaseModel):
     run_id: str = Field(alias="runId")
     decision: str
     notes: str = ""
+
+
+class SignInRequest(BaseModel):
+    """Defines the payload used to create a guided sign-in session."""
+
+    name: str
+    email: str
+    role: str
+
+
+class GitHubConnectRequest(BaseModel):
+    """Defines the payload used to connect GitHub during guided setup."""
+
+    owner: str
+    repositories: str
+    token: str = ""
+
+
+class LinearConnectRequest(BaseModel):
+    """Defines the payload used to connect Linear during guided setup."""
+
+    api_key: str = Field(alias="apiKey")
+    team_id: str = Field(default="", alias="teamId")
+
+
+class DocsConnectRequest(BaseModel):
+    """Defines the payload used to connect a docs directory during guided setup."""
+
+    docs_directory: str = Field(alias="docsDirectory")

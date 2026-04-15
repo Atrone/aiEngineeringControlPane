@@ -247,6 +247,48 @@ def resolve_current_user(settings: Settings, headers: Mapping[str, str]) -> Dict
     }
 
 
+def _build_connection_payload(settings: Settings, integration_id: str) -> Optional[Dict[str, Any]]:
+    """Builds the non-secret connection details shown in the integrations UI."""
+
+    if integration_id == "github" and settings.github_owner and settings.github_repositories:
+        # Return the GitHub owner and repository list without exposing the token.
+        return {
+            "label": f"{settings.github_owner} / {len(settings.github_repositories)} repos",
+            "values": {
+                "owner": settings.github_owner,
+                "repositories": ", ".join(settings.github_repositories),
+            },
+        }
+
+    if integration_id == "linear" and settings.linear_api_key:
+        # Return the Linear team hint without exposing the API key.
+        return {
+            "label": settings.linear_team_id or "Workspace access configured",
+            "values": {
+                "teamId": settings.linear_team_id,
+            },
+        }
+
+    if integration_id == "repo_docs" and settings.docs_directory:
+        # Return the docs directory currently used for markdown discovery.
+        return {
+            "label": settings.docs_directory,
+            "values": {
+                "docsDirectory": settings.docs_directory,
+            },
+        }
+
+    if integration_id == "google_sso":
+        # Return the guided sign-in label used by the session-backed auth flow.
+        return {
+            "label": "Guided sign-in",
+            "values": {},
+        }
+
+    # Return no connection payload when the integration has not been configured.
+    return None
+
+
 def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
     """Builds the integration status list for all required provider categories."""
 
@@ -269,6 +311,9 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
             ],
             "configured": bool(settings.github_owner and settings.github_repositories),
             "details": f"{len(repositories)} repositories available" if repositories else "Using fallback repository catalog",
+            "requiredRole": "tech_lead",
+            "recommendedAction": "Connect an org and repository list to launch work against real repos.",
+            "connection": _build_connection_payload(settings, "github"),
             "checkedAt": timestamp,
         },
         {
@@ -283,6 +328,9 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
             ],
             "configured": bool(settings.github_owner and settings.github_repositories),
             "details": "Readiness depends on GitHub repository access",
+            "requiredRole": "tech_lead",
+            "recommendedAction": "GitHub Actions becomes active automatically after GitHub is connected.",
+            "connection": _build_connection_payload(settings, "github"),
             "checkedAt": timestamp,
         },
         {
@@ -297,6 +345,9 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
             ],
             "configured": bool(settings.linear_api_key),
             "details": f"{len(issues)} issues available" if issues else "Using fallback issue catalog",
+            "requiredRole": "tech_lead",
+            "recommendedAction": "Connect a Linear API key so intake can pull live issues and team ownership.",
+            "connection": _build_connection_payload(settings, "linear"),
             "checkedAt": timestamp,
         },
         {
@@ -311,6 +362,9 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
             ],
             "configured": bool(settings.docs_directory),
             "details": f"{len(documents)} markdown documents indexed" if documents else "No repo documents found",
+            "requiredRole": "tech_lead",
+            "recommendedAction": "Choose the docs directory that should ground agent context and reviewer evidence.",
+            "connection": _build_connection_payload(settings, "repo_docs"),
             "checkedAt": timestamp,
         },
         {
@@ -325,6 +379,9 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
             ],
             "configured": bool(settings.google_client_id),
             "details": "Header-based identity fallback is active" if not settings.google_client_id else "OIDC client configured",
+            "requiredRole": "admin",
+            "recommendedAction": "Use the guided sign-in screen to choose a role for this demo session.",
+            "connection": _build_connection_payload(settings, "google_sso"),
             "checkedAt": timestamp,
         },
     ]

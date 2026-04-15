@@ -50,6 +50,58 @@ ul {
   min-height: 100vh;
 }
 
+.auth-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.9fr);
+  gap: 1.5rem;
+  min-height: 100vh;
+  padding: 2rem;
+  align-items: center;
+}
+
+.auth-panel {
+  padding: 1.5rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  box-shadow: var(--panel-shadow);
+  border-radius: 24px;
+}
+
+.auth-panel-hero,
+.auth-panel-centered {
+  display: grid;
+  gap: 1rem;
+}
+
+.auth-panel-centered {
+  max-width: 40rem;
+  margin: 0 auto;
+}
+
+.auth-role-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.role-card {
+  display: grid;
+  gap: 0.5rem;
+  text-align: left;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(155, 179, 209, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: #e5eef9;
+  cursor: pointer;
+}
+
+.role-card-active,
+.role-card:hover {
+  border-color: rgba(125, 211, 252, 0.3);
+  background: rgba(125, 211, 252, 0.08);
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
@@ -387,6 +439,10 @@ ul {
   color: #fecdd3;
 }
 
+.success-copy {
+  color: #bbf7d0;
+}
+
 .mini-row {
   display: grid;
   gap: 0.2rem;
@@ -514,6 +570,8 @@ ul {
 }
 
 @media (max-width: 1180px) {
+  .auth-shell,
+  .auth-role-grid,
   .metric-grid,
   .task-grid,
   .evidence-grid,
@@ -527,6 +585,10 @@ ul {
 @media (max-width: 920px) {
   .app-shell {
     grid-template-columns: 1fr;
+  }
+
+  .auth-shell {
+    padding: 1.25rem;
   }
 
   .sidebar {
