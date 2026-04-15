@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from fastapi import status
 
 from app.config import Settings
+from app.providers import normalize_linear_api_key
 
 
 ALLOWED_ROLES: Sequence[str] = ("admin", "tech_lead", "engineer")
@@ -219,7 +220,7 @@ def connect_github(session: SessionRecord, owner: str, repositories: str, token:
 def connect_linear(session: SessionRecord, api_key: str, team_id: str) -> None:
     """Stores the Linear connection details selected during guided setup."""
 
-    normalized_api_key = api_key.strip()
+    normalized_api_key = normalize_linear_api_key(api_key)
 
     if not normalized_api_key:
         # Reject incomplete Linear setup requests before mutating the session.

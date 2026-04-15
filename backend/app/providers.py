@@ -45,6 +45,19 @@ def _request_json(
         return json.loads(response.read().decode("utf-8"))
 
 
+def normalize_linear_api_key(api_key: str) -> str:
+    """Normalizes a pasted Linear API key into the raw token format Linear expects."""
+
+    normalized_api_key = api_key.strip()
+
+    if normalized_api_key.lower().startswith("bearer "):
+        # Drop an accidental bearer prefix because Linear personal keys are sent raw.
+        return normalized_api_key[7:].strip()
+
+    # Return the caller-provided key when no prefix cleanup is needed.
+    return normalized_api_key
+
+
 def _read_markdown_title(path: Path) -> str:
     """Extracts a readable title from a markdown document."""
 
@@ -161,34 +174,61 @@ def list_linear_issues(settings: Settings) -> List[Dict[str, Any]]:
         # Return no live issue records when Linear is not configured.
         return []
 
-    query = """
-    query ControlPaneIssues($teamId: String) {
-      issues(first: 20, filter: { team: { id: { eq: $teamId } } }) {
-        nodes {
-          id
-          identifier
-          title
-          description
-          priority
-          url
-          state {
-            name
-          }
-          assignee {
-            name
-            email
+    team_id = settings.linear_team_id.strip()
+
+    if team_id:
+        # Scope the issue query only when the caller provided a concrete team identifier.
+        query = """
+        query ControlPaneIssues($teamId: String!) {
+          issues(first: 20, filter: { team: { id: { eq: $teamId } } }) {
+            nodes {
+              id
+              identifier
+              title
+              description
+              priority
+              url
+              state {
+                name
+              }
+              assignee {
+                name
+                email
+              }
+            }
           }
         }
-      }
-    }
-    """
+        """
+        payload = {"query": query, "variables": {"teamId": team_id}}
+    else:
+        # Request unscoped issues when no team filter is configured for the session.
+        query = """
+        query ControlPaneIssues {
+          issues(first: 20) {
+            nodes {
+              id
+              identifier
+              title
+              description
+              priority
+              url
+              state {
+                name
+              }
+              assignee {
+                name
+                email
+              }
+            }
+          }
+        }
+        """
+        payload = {"query": query}
 
     headers = {
-        "Authorization": settings.linear_api_key,
+        "Authorization": normalize_linear_api_key(settings.linear_api_key),
         "Content-Type": "application/json",
     }
-
-    payload = {"query": query, "variables": {"teamId": settings.linear_team_id or None}}
 
     try:
         response = _request_json(
@@ -201,7 +241,24 @@ def list_linear_issues(settings: Settings) -> List[Dict[str, Any]]:
         # Return no live issues when the Linear request fails.
         return []
 
-    nodes = response.get("data", {}).get("issues", {}).get("nodes", [])
+    data = response.get("data")
+
+    if not isinstance(data, dict):
+        # Fall back to mock mode when Linear returns GraphQL errors without a data payload.
+        return []
+
+    issues_payload = data.get("issues")
+
+    if not isinstance(issues_payload, dict):
+        # Fall back to mock mode when the issues envelope is missing or malformed.
+        return []
+
+    nodes = issues_payload.get("nodes", [])
+
+    if not isinstance(nodes, list):
+        # Fall back to mock mode when Linear returns an unexpected nodes payload.
+        return []
+
     issues: List[Dict[str, Any]] = []
 
     # Normalize each Linear issue into the app's shared issue shape.
