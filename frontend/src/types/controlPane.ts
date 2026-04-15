@@ -70,6 +70,26 @@ export type IntegrationStatus = {
   checkedAt: string;
 };
 
+export type CloudAgentRecord = {
+  id: string;
+  name?: string;
+  status: string;
+  createdAt?: string;
+  summary?: string;
+  source?: {
+    repository?: string;
+    ref?: string;
+  };
+  target?: {
+    branchName?: string;
+    url?: string;
+    prUrl?: string;
+    autoCreatePr?: boolean;
+    openAsCursorGithubApp?: boolean;
+    skipReviewerRequest?: boolean;
+  };
+};
+
 export type RunEvidence = {
   diff: string[];
   tests: string[];
@@ -159,6 +179,7 @@ export type RunSummary = {
   documents?: DocumentRecord[];
   requestedBy?: CurrentUser;
   approvalHistory?: ApprovalHistoryEntry[];
+  cloudAgent?: CloudAgentRecord;
   liveView?: RunLiveView;
 };
 
@@ -250,6 +271,11 @@ export type GitHubConnectRequest = {
 export type LinearConnectRequest = {
   apiKey: string;
   teamId: string;
+};
+
+export type CursorConnectRequest = {
+  apiKey: string;
+  model: string;
 };
 
 export type DocsConnectRequest = {

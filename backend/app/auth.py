@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from fastapi import status
 
 from app.config import Settings
+from app.providers import normalize_cursor_api_key
 from app.providers import normalize_linear_api_key
 
 
@@ -31,6 +32,8 @@ class SessionRecord:
     github_token: str = ""
     linear_api_key: str = ""
     linear_team_id: str = ""
+    cursor_api_key: str = ""
+    cursor_model: str = "default"
     docs_directory: str = ""
 
 
@@ -166,6 +169,8 @@ def build_effective_settings(settings: Settings, session: SessionRecord) -> Sett
         github_repositories=session.github_repositories or settings.github_repositories,
         linear_api_key=session.linear_api_key or settings.linear_api_key,
         linear_team_id=session.linear_team_id or settings.linear_team_id,
+        cursor_api_key=session.cursor_api_key or settings.cursor_api_key,
+        cursor_model=session.cursor_model or settings.cursor_model,
         docs_directory=session.docs_directory or settings.docs_directory,
     )
 
@@ -229,6 +234,21 @@ def connect_linear(session: SessionRecord, api_key: str, team_id: str) -> None:
     # Save the Linear inputs to the signed-in session.
     session.linear_api_key = normalized_api_key
     session.linear_team_id = team_id.strip()
+
+
+def connect_cursor(session: SessionRecord, api_key: str, model: str) -> None:
+    """Stores the Cursor Cloud Agents connection details selected during guided setup."""
+
+    normalized_api_key = normalize_cursor_api_key(api_key)
+    normalized_model = model.strip() or "default"
+
+    if not normalized_api_key:
+        # Reject incomplete Cursor setup requests before mutating the session.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cursor API key is required.")
+
+    # Save the Cursor Cloud Agents inputs to the signed-in session.
+    session.cursor_api_key = normalized_api_key
+    session.cursor_model = normalized_model
 
 
 def connect_docs(session: SessionRecord, docs_directory: str) -> None:

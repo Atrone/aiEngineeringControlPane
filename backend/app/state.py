@@ -5,10 +5,16 @@ from datetime import datetime, timedelta, timezone
 import re
 from typing import Any, Dict, List, Mapping, Optional
 
+from fastapi import HTTPException
+from fastapi import status
+
 from app.config import Settings
 from app.mock_data import POLICY_RULES
 from app.mock_data import RUN_SUMMARIES
+from app.providers import CursorAgentError
+from app.providers import get_cursor_agent
 from app.providers import get_integration_statuses
+from app.providers import launch_cursor_agent
 from app.providers import list_github_repositories
 from app.providers import list_linear_issues
 from app.providers import list_repo_documents
@@ -434,6 +440,91 @@ def _build_stream_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _build_cursor_cloud_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
+    """Builds the task detail live view for a run backed by Cursor Cloud Agents."""
+
+    cloud_agent = run.get("_cursorAgent", {}) or {}
+    target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
+    created_at = str(cloud_agent.get("createdAt", "")).strip() or _utc_timestamp()
+    cursor_status = str(cloud_agent.get("status", "CREATING"))
+    timeline_status = "complete" if run["status"] != "Running" else "active"
+    review_status = "pending" if run["status"] == "Running" else "complete"
+    timeline = [
+        {
+            "id": "cursor-launch",
+            "title": "Cursor Cloud Agent launched",
+            "detail": f"{cloud_agent.get('id', 'Unknown agent')} was started for {run['repo']}.",
+            "timestamp": created_at,
+            "status": "complete",
+        },
+        {
+            "id": "cursor-progress",
+            "title": f"Cursor status: {cursor_status}",
+            "detail": run["currentStep"],
+            "timestamp": _utc_timestamp(),
+            "status": timeline_status,
+        },
+        {
+            "id": "cursor-review",
+            "title": "Review handoff",
+            "detail": "The task will move into review once the Cursor Cloud Agent finishes.",
+            "timestamp": _utc_timestamp(),
+            "status": review_status,
+        },
+    ]
+    logs = [
+        {
+            "id": "cursor-log-launch",
+            "timestamp": created_at,
+            "level": "info",
+            "source": "cursor-cloud",
+            "message": f"Launched agent {cloud_agent.get('id', 'unknown')} for repository {run['repo']}.",
+        },
+        {
+            "id": "cursor-log-status",
+            "timestamp": _utc_timestamp(),
+            "level": "warning" if run["status"] == "Blocked" else "success" if run["status"] == "Review" else "info",
+            "source": "cursor-cloud",
+            "message": run["currentStep"],
+        },
+    ]
+    rationale_entries = [
+        {
+            "id": "cursor-rationale-launch",
+            "timestamp": created_at,
+            "summary": "Live cloud agent launched",
+            "detail": str(run.get("_cursorPromptSummary", "The run was sent to Cursor Cloud Agents using the selected task context.")),
+            "status": "captured" if run["status"] != "Running" else "running",
+        },
+    ]
+
+    if str(target_payload.get("prUrl", "")).strip():
+        # Add the generated pull request URL when Cursor already created one.
+        rationale_entries.append(
+            {
+                "id": "cursor-rationale-pr",
+                "timestamp": _utc_timestamp(),
+                "summary": "Pull request link available",
+                "detail": f"Cursor attached PR {target_payload.get('prUrl')}.",
+                "status": "captured",
+            }
+        )
+
+    # Return the live execution snapshot consumed by the task detail page.
+    return {
+        "isLive": run["status"] == "Running",
+        "statusLabel": "Cursor Cloud Agent running" if run["status"] == "Running" else "Cursor Cloud Agent complete",
+        "lastUpdatedAt": _utc_timestamp(),
+        "timeline": timeline,
+        "logs": logs,
+        "evidenceTabs": {
+            "diff": [],
+            "tests": [],
+            "rationale": rationale_entries,
+        },
+    }
+
+
 def _build_static_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
     """Builds the timeline, logs, and evidence tabs for a static run."""
 
@@ -458,6 +549,10 @@ def _build_static_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
 def _build_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
     """Builds the task detail live view for the requested run."""
 
+    if run.get("_cursorAgent"):
+        # Prefer the Cursor-specific live view when the run is backed by a cloud agent.
+        return _build_cursor_cloud_live_view(run)
+
     if run.get("_streamStartedAt"):
         # Prefer the streaming execution view when the run was started in the live simulator.
         return _build_stream_live_view(run)
@@ -466,8 +561,42 @@ def _build_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
     return _build_static_live_view(run)
 
 
-def _sync_run_progress(run: Dict[str, Any]) -> None:
+def _sync_run_progress(run: Dict[str, Any], settings: Settings) -> None:
     """Updates a live run based on elapsed time inside the simulated stream."""
+
+    if run.get("_cursorAgent"):
+        # Poll the Cursor-backed run so the control pane reflects the latest agent status.
+        try:
+            latest_agent = get_cursor_agent(settings, str(run["_cursorAgent"].get("id", "")))
+        except CursorAgentError:
+            # Keep the last known state when the Cursor status lookup fails.
+            return
+
+        cursor_status = str(latest_agent.get("status", "CREATING"))
+        mapped_status = _map_cursor_agent_status(cursor_status)
+        target_payload = latest_agent.get("target", {}) if isinstance(latest_agent, dict) else {}
+        run["_cursorAgent"] = latest_agent
+        run["status"] = mapped_status
+        run["branch"] = str(target_payload.get("branchName", "")).strip() or run["branch"]
+
+        if cursor_status == "FINISHED":
+            # Move finished Cursor runs into the review-ready state.
+            run["currentStep"] = "Cursor Cloud Agent finished and prepared the review handoff"
+            run["blockers"] = ["No active blockers", "Waiting for reviewer decision"]
+        elif cursor_status in {"ERROR", "EXPIRED"}:
+            # Move failed Cursor runs into the blocked state with a readable reason.
+            run["currentStep"] = f"Cursor Cloud Agent ended with status {cursor_status}"
+            run["blockers"] = [f"Cursor status is {cursor_status}", "Review the Cursor agent log and retry after unblocking the issue"]
+        else:
+            # Keep active Cursor runs in the running state until the provider reports completion.
+            run["currentStep"] = f"Cursor Cloud Agent status: {cursor_status}"
+            run["blockers"] = ["Cursor Cloud Agent is still running", "Reviewer controls unlock after the live agent finishes"]
+
+        if str(latest_agent.get("summary", "")).strip():
+            # Replace the placeholder task summary when Cursor returns a richer summary.
+            run["summary"] = str(latest_agent["summary"])
+
+        return
 
     if run["status"] != "Running" or not run.get("_streamStartedAt"):
         # Skip progress updates when the run is not currently in the live streaming state.
@@ -596,6 +725,21 @@ def _find_issue(issues: List[Dict[str, Any]], issue_id: Optional[str]) -> Option
     return None
 
 
+def _find_repository(repositories: List[Dict[str, Any]], repo_name: str) -> Optional[Dict[str, Any]]:
+    """Finds a repository record by display name from the provided repository catalog."""
+
+    normalized_repo_name = repo_name.strip()
+
+    # Search the repository catalog for the selected record.
+    for repository in repositories:
+        if str(repository.get("name", "")).strip() == normalized_repo_name:
+            # Return the matching repository record.
+            return repository
+
+    # Return no repository when the selected repo cannot be found.
+    return None
+
+
 def _select_documents(all_documents: List[Dict[str, Any]], document_ids: List[str]) -> List[Dict[str, Any]]:
     """Selects the documents attached to a task request."""
 
@@ -611,6 +755,96 @@ def _select_documents(all_documents: List[Dict[str, Any]], document_ids: List[st
     return selected_documents
 
 
+def _build_cursor_issue_block(issue: Dict[str, Any]) -> str:
+    """Builds the issue-context section used inside the Cursor Cloud Agent prompt."""
+
+    issue_lines: List[str] = [
+        f"Ticket: {issue.get('ticket', 'Unknown ticket')}",
+        f"Title: {issue.get('title', 'Untitled task')}",
+        f"Status: {issue.get('status', 'Unknown')}",
+        f"Priority: {issue.get('priority', 'Unknown')}",
+        f"Provider: {issue.get('provider', 'unknown')}",
+    ]
+    description = str(issue.get("description", "")).strip()
+    assignee = issue.get("assignee", {}) or {}
+    assignee_name = str(assignee.get("name", "")).strip()
+
+    if assignee_name:
+        # Add the assignee when the originating issue included one.
+        issue_lines.append(f"Assignee: {assignee_name}")
+
+    if description:
+        # Add the issue description when the originating issue included one.
+        issue_lines.append(f"Description: {description}")
+
+    # Return the issue block as a newline-delimited prompt section.
+    return "\n".join(issue_lines)
+
+
+def _build_cursor_docs_block(documents: List[Dict[str, Any]]) -> str:
+    """Builds the attached-documents section used inside the Cursor Cloud Agent prompt."""
+
+    if not documents:
+        # Return a neutral docs section when the task was launched without attached docs.
+        return "Attached docs:\n- No repo markdown documents were attached."
+
+    document_lines = ["Attached docs:"]
+
+    # Add each attached document path so the launched agent knows the intended grounding set.
+    for document in documents:
+        document_lines.append(f"- {document.get('path', document.get('title', 'Unknown document'))}")
+
+    # Return the docs block as a newline-delimited prompt section.
+    return "\n".join(document_lines)
+
+
+def _build_cursor_prompt(
+    run: Dict[str, Any],
+    *,
+    issue: Dict[str, Any],
+    documents: List[Dict[str, Any]],
+    repository: Dict[str, Any],
+) -> str:
+    """Builds the Cursor Cloud Agent prompt from the task, issue, and docs context."""
+
+    task_prompt = str(run.get("_taskPrompt", run.get("summary", ""))).strip()
+    acceptance_criteria = str(run.get("_acceptanceCriteria", "")).strip()
+    repo_full_name = str(repository.get("fullName", repository.get("name", run.get("repo", "repository"))))
+    issue_block = _build_cursor_issue_block(issue)
+    docs_block = _build_cursor_docs_block(documents)
+    prompt_sections = [
+        f"You are launching work for the GitHub repository {repo_full_name}.",
+        "Use the issue context below to scope the implementation and keep the work traceable to the originating Linear ticket.",
+        issue_block,
+        f"Task summary:\n{task_prompt or run.get('summary', 'No task summary was provided.')}",
+        f"Acceptance criteria:\n{acceptance_criteria or 'Use the issue details and repository context to determine completion.'}",
+        docs_block,
+        "Implementation instructions:",
+        "- Make the requested code changes in the target repository.",
+        "- Keep the branch and pull request aligned with the issue ticket.",
+        "- Run the most relevant validation before handing off the work.",
+        "- Summarize the changes and any follow-up reviewer notes in the final response.",
+    ]
+
+    # Return the composed task prompt that will be sent to the Cursor Cloud Agents API.
+    return "\n\n".join(prompt_sections)
+
+
+def _map_cursor_agent_status(cursor_status: str) -> str:
+    """Maps a Cursor Cloud Agent status into the control pane's run-status model."""
+
+    if cursor_status == "FINISHED":
+        # Map completed Cursor runs into the app's review-ready state.
+        return "Review"
+
+    if cursor_status in {"ERROR", "EXPIRED"}:
+        # Map failed or expired Cursor runs into the app's blocked state.
+        return "Blocked"
+
+    # Keep all remaining Cursor states inside the app's running state.
+    return "Running"
+
+
 def _build_run_extensions(
     run: Dict[str, Any],
     *,
@@ -620,8 +854,8 @@ def _build_run_extensions(
 ) -> Dict[str, Any]:
     """Adds integration context fields to a run record."""
 
-    attached_documents = documents or []
-    resolved_issue = issue or {
+    attached_documents = documents or deepcopy(run.get("_documentSnapshots", [])) or []
+    resolved_issue = issue or deepcopy(run.get("_issueSnapshot")) or {
         "id": run["id"],
         "ticket": run["ticket"],
         "title": run["title"],
@@ -629,17 +863,19 @@ def _build_run_extensions(
         "provider": "fallback",
         "url": "",
     }
-    resolved_user = current_user or {
+    resolved_user = current_user or deepcopy(run.get("_requestedBySnapshot")) or {
         "name": run["owner"],
         "email": f"{run['owner'].lower()}@example.com",
         "role": "tech_lead",
         "provider": "fallback",
     }
-
+    cloud_agent = deepcopy(run.get("_cursorAgent"))
+    target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
+    pull_request_url = str(target_payload.get("prUrl", "")).strip()
     pull_request = {
         "number": run["ticket"],
         "status": "draft" if run["status"] == "Running" else "ready_for_review",
-        "url": f"https://github.com/example/{run['repo']}/pull/{run['ticket'].lower()}",
+        "url": pull_request_url or f"https://github.com/example/{run['repo']}/pull/{run['ticket'].lower()}",
     }
     ci_status = {
         "workflow": "CI",
@@ -659,6 +895,7 @@ def _build_run_extensions(
         "documents": attached_documents,
         "requestedBy": resolved_user,
         "approvalHistory": approval_history,
+        "cloudAgent": cloud_agent,
         "liveView": _build_live_view(run),
     }
 
@@ -740,7 +977,7 @@ def get_dashboard_payload(settings: Settings, headers: Mapping[str, str]) -> Dic
 
     # Enrich each run with integration context for the task detail view.
     for run in RUN_STORE:
-        _sync_run_progress(run)
+        _sync_run_progress(run, settings)
         documents = integration_catalog["documents"][:2]
         runs.append(
             _build_run_extensions(
@@ -780,7 +1017,7 @@ def get_run_detail(run_id: str, settings: Settings, headers: Mapping[str, str]) 
     # Search the in-memory run store for the requested record.
     for run in RUN_STORE:
         if run["id"] == run_id:
-            _sync_run_progress(run)
+            _sync_run_progress(run, settings)
             documents = integration_catalog["documents"][:2]
 
             # Return the matching run with integration context attached.
@@ -806,7 +1043,7 @@ def get_approval_payload(settings: Settings, headers: Mapping[str, str]) -> Dict
 
     # Build the review queue and queue summary from the current run store.
     for run in RUN_STORE:
-        _sync_run_progress(run)
+        _sync_run_progress(run, settings)
         enriched_runs.append(
             _build_run_extensions(
                 run,
@@ -933,6 +1170,11 @@ def create_task(
         "approvalHistory": [],
         "_streamStartedAt": _utc_timestamp(),
         "_executionMode": str(payload.get("executionMode", "implement")),
+        "_taskPrompt": str(payload.get("prompt", "")),
+        "_acceptanceCriteria": str(payload.get("acceptanceCriteria", "")),
+        "_issueSnapshot": deepcopy(issue) if issue else None,
+        "_documentSnapshots": deepcopy(selected_documents),
+        "_requestedBySnapshot": deepcopy(current_user),
     }
 
     # Add the newly created run to the top of the in-memory run store.
@@ -947,12 +1189,87 @@ def create_task(
     )
 
 
-def create_run(payload: Dict[str, Any]) -> Dict[str, Any]:
+def create_run(
+    settings: Settings,
+    headers: Mapping[str, str],
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
     """Starts or restarts an AI run for an existing task."""
+
+    integration_catalog = get_integration_catalog(settings, headers)
 
     # Search the in-memory run store for the task being started.
     for run in RUN_STORE:
         if run["id"] == payload["taskId"]:
+            issue = deepcopy(run.get("_issueSnapshot")) or {
+                "id": run["id"],
+                "ticket": run["ticket"],
+                "title": run["title"],
+                "description": run["summary"],
+                "status": run["status"],
+                "priority": "2",
+                "provider": "fallback",
+                "assignee": {},
+            }
+            documents = deepcopy(run.get("_documentSnapshots", []))
+            current_user = deepcopy(run.get("_requestedBySnapshot")) or integration_catalog["currentUser"]
+
+            if settings.cursor_api_key:
+                repository = _find_repository(integration_catalog["repositories"], run["repo"])
+
+                if not repository or not str(repository.get("url", "")).strip():
+                    # Reject live launches when GitHub is not configured for the selected repository.
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Connect GitHub for the selected repository before launching a live Cursor Cloud Agent.",
+                    )
+
+                prompt_text = _build_cursor_prompt(
+                    run,
+                    issue=issue,
+                    documents=documents,
+                    repository=repository,
+                )
+
+                try:
+                    launched_agent = launch_cursor_agent(
+                        settings,
+                        repository_url=str(repository["url"]),
+                        base_ref=str(repository.get("defaultBranch", "main")),
+                        branch_name=str(run.get("branch", "")),
+                        prompt_text=prompt_text,
+                    )
+                except CursorAgentError as error:
+                    # Translate provider launch failures into a clear API response.
+                    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+
+                target_payload = launched_agent.get("target", {}) if isinstance(launched_agent, dict) else {}
+                run["status"] = "Running"
+                run["agent"] = "cursor-cloud-agent"
+                run["currentStep"] = "Cursor Cloud Agent launched against the connected GitHub repository"
+                run["runtime"] = "00:00"
+                run["cost"] = "$0.00"
+                run["branch"] = str(target_payload.get("branchName", "")).strip() or run["branch"]
+                run["blockers"] = ["Cursor Cloud Agent is still running", "Reviewer controls unlock after the live agent finishes"]
+                run["_streamStartedAt"] = ""
+                run["_executionMode"] = str(payload.get("executionMode", "implement"))
+                run["_cursorAgent"] = launched_agent
+                run["_cursorPromptSummary"] = f"Launched Cursor Cloud Agent {launched_agent.get('id', 'unknown')} for {issue.get('ticket', run['ticket'])}."
+                run["evidence"]["commands"] = [f"POST /v0/agents -> {launched_agent.get('id', 'unknown')}"]
+                run["evidence"]["diff"] = ["Waiting for the live Cursor Cloud Agent to produce changes."]
+                run["evidence"]["tests"] = ["Waiting for the live Cursor Cloud Agent to report validation results."]
+                run["evidence"]["rationale"] = [
+                    f"Live launch targeted {repository.get('fullName', repository.get('name', run['repo']))} using issue {issue.get('ticket', run['ticket'])}.",
+                ]
+
+                # Return the updated run record with the live Cursor metadata attached.
+                return _build_run_extensions(
+                    run,
+                    issue=issue,
+                    documents=documents,
+                    current_user=current_user,
+                )
+
             run["status"] = "Running"
             run["agent"] = payload.get("agentName", "impl-agent")
             run["currentStep"] = "Loading task context"
@@ -961,9 +1278,16 @@ def create_run(payload: Dict[str, Any]) -> Dict[str, Any]:
             run["blockers"] = ["Streaming execution in progress", "Reviewer controls will unlock after the run completes"]
             run["_streamStartedAt"] = _utc_timestamp()
             run["_executionMode"] = str(payload.get("executionMode", "implement"))
+            run.pop("_cursorAgent", None)
+            run.pop("_cursorPromptSummary", None)
 
-            # Return the updated run record.
-            return deepcopy(run)
+            # Return the updated simulated run record.
+            return _build_run_extensions(
+                run,
+                issue=issue,
+                documents=documents,
+                current_user=current_user,
+            )
 
     # Raise a key error when the task ID cannot be found.
     raise KeyError(payload["taskId"])

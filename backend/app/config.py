@@ -15,6 +15,8 @@ class Settings:
     github_repositories: List[str]
     linear_api_key: str
     linear_team_id: str
+    cursor_api_key: str
+    cursor_model: str
     docs_directory: str
     default_user_name: str
     default_user_email: str
@@ -67,6 +69,8 @@ def get_settings() -> Settings:
         github_repositories=github_repositories,
         linear_api_key=os.getenv("LINEAR_API_KEY", "").strip(),
         linear_team_id=os.getenv("LINEAR_TEAM_ID", "").strip(),
+        cursor_api_key=os.getenv("CURSOR_API_KEY", "").strip(),
+        cursor_model=os.getenv("CURSOR_MODEL", "default").strip() or "default",
         docs_directory=_resolve_docs_directory(),
         default_user_name=os.getenv("CONTROL_PANE_DEFAULT_USER_NAME", "Maya Chen").strip(),
         default_user_email=os.getenv("CONTROL_PANE_DEFAULT_USER_EMAIL", "maya.chen@example.com").strip(),

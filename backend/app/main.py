@@ -11,6 +11,7 @@ from app.auth import SessionRecord
 from app.auth import build_current_user
 from app.auth import build_effective_settings
 from app.auth import build_request_headers
+from app.auth import connect_cursor
 from app.auth import connect_docs
 from app.auth import connect_github
 from app.auth import connect_linear
@@ -20,6 +21,7 @@ from app.auth import require_session
 from app.auth import sign_out_session
 from app.config import get_settings
 from app.schemas import ApprovalDecisionRequest
+from app.schemas import CursorConnectRequest
 from app.schemas import DocsConnectRequest
 from app.schemas import GitHubConnectRequest
 from app.schemas import LinearConnectRequest
@@ -211,11 +213,11 @@ def post_task(
 def post_run(payload: RunCreateRequest, request: Request) -> Dict[str, Any]:
     """Creates or restarts an agent run for an existing task."""
 
-    _authorized_request(request)
+    effective_settings, request_headers, _ = _authorized_request(request)
 
     try:
         # Start or restart the selected run using the simplified in-memory workflow.
-        return create_run(payload.model_dump(by_alias=True))
+        return create_run(effective_settings, request_headers, payload.model_dump(by_alias=True))
     except KeyError as error:
         # Translate missing task IDs into a clear client-facing error response.
         raise HTTPException(status_code=404, detail=f"Task '{payload.task_id}' was not found.") from error
@@ -278,4 +280,18 @@ def post_docs_connect(payload: DocsConnectRequest, request: Request) -> Dict[str
     request_headers = build_request_headers(request.headers, session)
 
     # Return the refreshed integrations payload after saving the docs setup.
+    return get_integrations_payload(effective_settings, request_headers)
+
+
+@app.post("/integrations/cursor/connect")
+@app.post("/api/integrations/cursor/connect")
+def post_cursor_connect(payload: CursorConnectRequest, request: Request) -> Dict[str, Any]:
+    """Stores the Cursor Cloud Agents setup selected in the guided integrations flow."""
+
+    _, _, session = _authorized_request_with_roles(request, ("admin", "tech_lead"))
+    connect_cursor(session, payload.api_key, payload.model)
+    effective_settings = build_effective_settings(settings, session)
+    request_headers = build_request_headers(request.headers, session)
+
+    # Return the refreshed integrations payload after saving the Cursor setup.
     return get_integrations_payload(effective_settings, request_headers)

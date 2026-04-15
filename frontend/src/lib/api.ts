@@ -3,6 +3,7 @@ import type {
   ApprovalPayload,
   AuthSession,
   CurrentUser,
+  CursorConnectRequest,
   DashboardPayload,
   DocsConnectRequest,
   GitHubConnectRequest,
@@ -248,6 +249,14 @@ export async function connectGitHub(payload: GitHubConnectRequest): Promise<Inte
 export async function connectLinear(payload: LinearConnectRequest): Promise<IntegrationsPayload> {
   // Save the Linear connection and fetch the refreshed integrations payload.
   return sendJson<IntegrationsPayload, LinearConnectRequest>('/api/integrations/linear/connect', 'POST', payload);
+}
+
+/**
+ * Stores the Cursor Cloud Agents setup chosen in the guided integrations flow.
+ */
+export async function connectCursor(payload: CursorConnectRequest): Promise<IntegrationsPayload> {
+  // Save the Cursor setup and fetch the refreshed integrations payload.
+  return sendJson<IntegrationsPayload, CursorConnectRequest>('/api/integrations/cursor/connect', 'POST', payload);
 }
 
 /**

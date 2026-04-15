@@ -56,6 +56,13 @@ class LinearConnectRequest(BaseModel):
     team_id: str = Field(default="", alias="teamId")
 
 
+class CursorConnectRequest(BaseModel):
+    """Defines the payload used to connect Cursor Cloud Agents during guided setup."""
+
+    api_key: str = Field(alias="apiKey")
+    model: str = "default"
+
+
 class DocsConnectRequest(BaseModel):
     """Defines the payload used to connect a docs directory during guided setup."""
 

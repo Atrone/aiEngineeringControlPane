@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useApiQuery } from './hooks/useApiQuery';
 import {
+  connectCursor,
   clearSessionToken,
   connectDocs,
   connectGitHub,
@@ -25,6 +26,7 @@ import type {
   ApprovalDecisionRequest,
   ApprovalItem,
   CurrentUser,
+  CursorConnectRequest,
   DashboardMetric,
   DocsConnectRequest,
   DocumentRecord,
@@ -894,6 +896,7 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
               <p>Requested by: {activeRun.requestedBy?.name ?? activeRun.owner}</p>
               <p>Current step: {activeRun.currentStep}</p>
               <p>Runtime: {activeRun.runtime}</p>
+              <p>Cloud agent: {activeRun.cloudAgent?.id ?? 'Not launched'}</p>
               <p>Last updated: {formatEventTime(liveView.lastUpdatedAt)}</p>
             </div>
           }
@@ -953,8 +956,10 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
           body={
             <div className="stacked-copy">
               <p>Pull request: {activeRun.pullRequest?.status ?? 'Not linked'}</p>
+              <p>Cursor status: {activeRun.cloudAgent?.status ?? 'Unavailable'}</p>
               <p>CI workflow: {activeRun.ci?.workflow ?? 'Unavailable'}</p>
               <p>CI status: {activeRun.ci?.status ?? 'Unavailable'}</p>
+              <p>Cloud agent URL: {activeRun.cloudAgent?.target?.url ?? 'Unavailable'}</p>
               <p>{activeRun.ci?.summary ?? 'No CI summary available.'}</p>
             </div>
           }
@@ -1163,6 +1168,10 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     apiKey: '',
     teamId: '',
   });
+  const [cursorForm, setCursorForm] = useState<CursorConnectRequest>({
+    apiKey: '',
+    model: 'default',
+  });
   const [docsForm, setDocsForm] = useState<DocsConnectRequest>({
     docsDirectory: '',
   });
@@ -1175,6 +1184,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
   useEffect(() => {
     const githubStatus = findIntegrationStatus(query.data?.statuses ?? [], 'github');
     const linearStatus = findIntegrationStatus(query.data?.statuses ?? [], 'linear');
+    const cursorStatus = findIntegrationStatus(query.data?.statuses ?? [], 'cursor_cloud_agents');
     const docsStatus = findIntegrationStatus(query.data?.statuses ?? [], 'repo_docs');
 
     // Mirror the saved GitHub connection into the setup form defaults.
@@ -1188,6 +1198,12 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     setLinearForm({
       apiKey: '',
       teamId: getConnectionValue(linearStatus, 'teamId'),
+    });
+
+    // Mirror the saved Cursor connection into the setup form defaults.
+    setCursorForm({
+      apiKey: '',
+      model: getConnectionValue(cursorStatus, 'model') || 'default',
     });
 
     // Mirror the saved docs path into the setup form defaults.
@@ -1257,6 +1273,32 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     } catch (caughtError) {
       // Surface Linear setup failures directly inside the integrations view.
       setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to connect Linear.');
+    } finally {
+      // Clear the active submit state when the request settles.
+      setActiveSetupId('');
+    }
+  }
+
+  /**
+   * Saves the Cursor Cloud Agents setup selected by the user.
+   */
+  async function handleCursorConnect(event: FormEvent<HTMLFormElement>): Promise<void> {
+    // Prevent the browser from performing a full page form submission.
+    event.preventDefault();
+    setActiveSetupId('cursor_cloud_agents');
+    setMutationError('');
+    setMutationSuccess('');
+
+    try {
+      // Save the Cursor setup for the current signed-in session.
+      await connectCursor(cursorForm);
+
+      // Show a success message and refresh the status view.
+      setMutationSuccess('Cursor Cloud Agents connection saved for this session.');
+      setRefreshKey((currentValue) => currentValue + 1);
+    } catch (caughtError) {
+      // Surface Cursor setup failures directly inside the integrations view.
+      setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to connect Cursor Cloud Agents.');
     } finally {
       // Clear the active submit state when the request settles.
       setActiveSetupId('');
@@ -1383,6 +1425,38 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
 
       <section className="content-grid approvals-grid">
         <Panel
+          title="Connect Cursor Cloud Agents"
+          body={
+            <form className="form-grid" onSubmit={(event) => { void handleCursorConnect(event); }}>
+              <p className="muted-copy">Step 1: add a Cursor API key. Step 2: choose a model. Step 3: use Start run on a task to launch a real agent against the connected GitHub repository with the selected Linear issue context.</p>
+              <label className="field-group">
+                <span>API key</span>
+                <input
+                  onChange={(event) => { setCursorForm({ ...cursorForm, apiKey: event.target.value }); }}
+                  placeholder="cur_..."
+                  type="password"
+                  value={cursorForm.apiKey}
+                />
+              </label>
+              <label className="field-group">
+                <span>Model</span>
+                <input
+                  onChange={(event) => { setCursorForm({ ...cursorForm, model: event.target.value }); }}
+                  placeholder="default"
+                  type="text"
+                  value={cursorForm.model}
+                />
+              </label>
+              <div className="form-actions">
+                <button className="primary-button" disabled={activeSetupId === 'cursor_cloud_agents'} type="submit">
+                  {activeSetupId === 'cursor_cloud_agents' ? 'Saving Cursor...' : 'Connect Cursor'}
+                </button>
+              </div>
+            </form>
+          }
+        />
+
+        <Panel
           title="Connect docs"
           body={
             <form className="form-grid" onSubmit={(event) => { void handleDocsConnect(event); }}>
@@ -1411,6 +1485,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
             <div className="stacked-copy">
               <p>Roles: only admins and tech leads can manage provider connections.</p>
               <p>GitHub Actions piggybacks on the GitHub repo connection so CI status activates automatically.</p>
+              <p>When GitHub plus Cursor are connected, the task detail Start run action launches a real Cursor Cloud Agent instead of the local simulator.</p>
               <p>Sessions are stored in memory for this demo, so reconnect after a backend restart.</p>
               {mutationSuccess ? <p className="success-copy">{mutationSuccess}</p> : null}
               {mutationError ? <p className="error-copy">{mutationError}</p> : null}
