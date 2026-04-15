@@ -58,6 +58,56 @@ def normalize_linear_api_key(api_key: str) -> str:
     return normalized_api_key
 
 
+def is_linear_connected(settings: Settings) -> bool:
+    """Checks whether the configured Linear credentials can authenticate successfully."""
+
+    normalized_api_key = normalize_linear_api_key(settings.linear_api_key)
+
+    if not normalized_api_key:
+        # Report no live connection when Linear has not been configured yet.
+        return False
+
+    headers = {
+        "Authorization": normalized_api_key,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "query": """
+        query ControlPaneViewer {
+          viewer {
+            id
+          }
+        }
+        """,
+    }
+
+    try:
+        response = _request_json(
+            "https://api.linear.app/graphql",
+            method="POST",
+            headers=headers,
+            payload=payload,
+        )
+    except (HTTPError, URLError, json.JSONDecodeError):
+        # Report no live connection when the auth check request fails.
+        return False
+
+    data = response.get("data")
+
+    if not isinstance(data, dict):
+        # Report no live connection when Linear returns a malformed payload.
+        return False
+
+    viewer = data.get("viewer")
+
+    if not isinstance(viewer, dict):
+        # Report no live connection when the auth check did not return a viewer object.
+        return False
+
+    # Report a live connection only when the viewer payload includes a concrete identifier.
+    return bool(str(viewer.get("id", "")).strip())
+
+
 def _read_markdown_title(path: Path) -> str:
     """Extracts a readable title from a markdown document."""
 
@@ -351,6 +401,7 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
 
     documents = list_repo_documents(settings)
     repositories = list_github_repositories(settings)
+    linear_connected = is_linear_connected(settings)
     issues = list_linear_issues(settings)
     timestamp = _utc_timestamp()
 
@@ -393,15 +444,21 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
         {
             "id": "linear",
             "name": "Linear",
-            "mode": "live" if issues else "mock",
-            "connected": bool(issues),
+            "mode": "live" if linear_connected else "mock",
+            "connected": linear_connected,
             "capabilities": [
                 "Issue import",
                 "Acceptance criteria grounding",
                 "Task traceability",
             ],
             "configured": bool(settings.linear_api_key),
-            "details": f"{len(issues)} issues available" if issues else "Using fallback issue catalog",
+            "details": (
+                f"{len(issues)} issues available"
+                if issues
+                else "Connected to Linear, but no issues are currently available for this scope."
+                if linear_connected
+                else "Using fallback issue catalog"
+            ),
             "requiredRole": "tech_lead",
             "recommendedAction": "Connect a Linear API key so intake can pull live issues and team ownership.",
             "connection": _build_connection_payload(settings, "linear"),

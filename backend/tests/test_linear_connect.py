@@ -42,7 +42,14 @@ class LinearConnectEndpointTests(unittest.TestCase):
         # Create an authorized session for the integration update request.
         session_token = self._sign_in()
 
-        with patch("app.providers._request_json", return_value={"data": {"issues": {"nodes": []}}}):
+        with patch(
+            "app.providers._request_json",
+            side_effect=[
+                {"data": {"issues": {"nodes": []}}},
+                {"data": {"viewer": {"id": "viewer-123"}}},
+                {"data": {"issues": {"nodes": []}}},
+            ],
+        ):
             # Post a Linear key copied from an Authorization header.
             response = self.client.post(
                 "/api/integrations/linear/connect",
@@ -56,13 +63,25 @@ class LinearConnectEndpointTests(unittest.TestCase):
         # Confirm the saved session value was normalized back to the raw API key.
         self.assertEqual(SESSION_STORE[session_token].linear_api_key, "lin_api_example")
 
+        # Confirm the Linear integration is reported as live even with zero visible issues.
+        linear_status = next(item for item in response.json()["statuses"] if item["id"] == "linear")
+        self.assertTrue(linear_status["connected"])
+        self.assertEqual(linear_status["mode"], "live")
+
     def test_connect_linear_handles_graphql_error_payloads(self) -> None:
         """Returns a successful connect response even when Linear omits a data payload."""
 
         # Create an authorized session for the integration update request.
         session_token = self._sign_in()
 
-        with patch("app.providers._request_json", return_value={"data": None, "errors": [{"message": "Bad request"}]}):
+        with patch(
+            "app.providers._request_json",
+            side_effect=[
+                {"data": None, "errors": [{"message": "Bad request"}]},
+                {"data": {"viewer": {"id": "viewer-123"}}},
+                {"data": None, "errors": [{"message": "Bad request"}]},
+            ],
+        ):
             # Connect Linear while simulating a GraphQL error-shaped provider response.
             response = self.client.post(
                 "/api/integrations/linear/connect",
@@ -76,6 +95,8 @@ class LinearConnectEndpointTests(unittest.TestCase):
         # Confirm the integration remains marked as configured for the current session.
         linear_status = next(item for item in response.json()["statuses"] if item["id"] == "linear")
         self.assertTrue(linear_status["configured"])
+        self.assertTrue(linear_status["connected"])
+        self.assertEqual(linear_status["mode"], "live")
 
 
 if __name__ == "__main__":
