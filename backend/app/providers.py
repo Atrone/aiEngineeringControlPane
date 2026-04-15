@@ -135,7 +135,7 @@ def _build_linear_issue_query(team_field: Optional[str] = None) -> str:
         }
         """
 
-    # Return the scoped issue query for the requested team field.
+    # Return the legacy scoped issue query for the requested team field.
     return f"""
     query ControlPaneIssues($teamScope: String!) {{
       issues(first: 20, filter: {{ team: {{ {team_field}: {{ eq: $teamScope }} }} }}) {{
@@ -156,6 +156,53 @@ def _build_linear_issue_query(team_field: Optional[str] = None) -> str:
         }}
       }}
     }}
+    """
+
+
+def _build_linear_team_lookup_query(team_field: str, comparator: str = "eq") -> str:
+    """Builds a Linear team lookup query for a specific team field and comparator."""
+
+    # Return the team lookup query for the requested field match strategy.
+    return f"""
+    query ControlPaneTeams($teamScope: String!) {{
+      teams(filter: {{ {team_field}: {{ {comparator}: $teamScope }} }}, first: 1) {{
+        nodes {{
+          id
+          key
+          name
+        }}
+      }}
+    }}
+    """
+
+
+def _build_linear_team_issue_query() -> str:
+    """Builds the Linear query that reads issues from a resolved team record."""
+
+    # Return the team-scoped issue query that traverses the team relation directly.
+    return """
+    query ControlPaneTeamIssues($teamId: String!) {
+      team(id: $teamId) {
+        id
+        issues(first: 20) {
+          nodes {
+            id
+            identifier
+            title
+            description
+            priority
+            url
+            state {
+              name
+            }
+            assignee {
+              name
+              email
+            }
+          }
+        }
+      }
+    }
     """
 
 
@@ -181,6 +228,68 @@ def _extract_linear_issue_nodes(response: Dict[str, Any]) -> Optional[List[Dict[
         return None
 
     # Return the parsed node list when the response shape is valid.
+    return nodes
+
+
+def _extract_linear_team_node(response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Extracts the first matching Linear team node from a GraphQL response payload."""
+
+    data = response.get("data")
+
+    if not isinstance(data, dict):
+        # Return no team when Linear omits the GraphQL data envelope.
+        return None
+
+    teams_payload = data.get("teams")
+
+    if not isinstance(teams_payload, dict):
+        # Return no team when the teams envelope is missing or malformed.
+        return None
+
+    nodes = teams_payload.get("nodes", [])
+
+    if not isinstance(nodes, list) or not nodes:
+        # Return no team when the lookup produced no matching team nodes.
+        return None
+
+    team = nodes[0]
+
+    if not isinstance(team, dict):
+        # Return no team when the first team node is malformed.
+        return None
+
+    # Return the resolved team node for later team-scoped issue queries.
+    return team
+
+
+def _extract_linear_team_issue_nodes(response: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """Extracts issue nodes from a team-scoped Linear GraphQL response payload."""
+
+    data = response.get("data")
+
+    if not isinstance(data, dict):
+        # Return no nodes when Linear omits the GraphQL data envelope.
+        return None
+
+    team = data.get("team")
+
+    if not isinstance(team, dict):
+        # Return no nodes when the team envelope is missing or malformed.
+        return None
+
+    issues_payload = team.get("issues")
+
+    if not isinstance(issues_payload, dict):
+        # Return no nodes when the nested issues envelope is missing or malformed.
+        return None
+
+    nodes = issues_payload.get("nodes", [])
+
+    if not isinstance(nodes, list):
+        # Return no nodes when Linear returns an unexpected nodes payload.
+        return None
+
+    # Return the parsed team issue node list when the response shape is valid.
     return nodes
 
 
@@ -306,64 +415,83 @@ def list_linear_issues(settings: Settings) -> List[Dict[str, Any]]:
         "Authorization": normalize_linear_api_key(settings.linear_api_key),
         "Content-Type": "application/json",
     }
-    request_payloads: List[Dict[str, Any]] = []
 
     if team_scope:
-        # Try the common team scope formats that operators paste into the setup form.
-        request_payloads = [
+        team_lookup_payloads = [
             {
-                "query": _build_linear_issue_query("id"),
+                "query": _build_linear_team_lookup_query("id"),
                 "variables": {"teamScope": team_scope},
             },
             {
-                "query": _build_linear_issue_query("key"),
+                "query": _build_linear_team_lookup_query("key"),
                 "variables": {"teamScope": team_scope.upper()},
             },
             {
-                "query": _build_linear_issue_query("name"),
+                "query": _build_linear_team_lookup_query("name", comparator="eqIgnoreCase"),
                 "variables": {"teamScope": team_scope},
             },
         ]
-    else:
-        # Request unscoped issues when no team filter is configured for the session.
-        request_payloads = [{"query": _build_linear_issue_query()}]
+        resolved_team: Optional[Dict[str, Any]] = None
 
-    nodes: List[Dict[str, Any]] = []
-    has_valid_issue_response = False
+        # Try the common team scope formats that operators paste into the setup form.
+        for payload in team_lookup_payloads:
+            try:
+                response = _request_json(
+                    "https://api.linear.app/graphql",
+                    method="POST",
+                    headers=headers,
+                    payload=payload,
+                )
+            except (HTTPError, URLError, json.JSONDecodeError):
+                # Skip failed lookups so alternate team-scope formats can still succeed.
+                continue
 
-    # Try each supported team-scope shape until Linear returns matching issues.
-    for index, payload in enumerate(request_payloads):
+            resolved_team = _extract_linear_team_node(response)
+
+            if resolved_team:
+                # Stop retrying once a matching Linear team has been resolved.
+                break
+
+        if not resolved_team:
+            # Return no scoped issues when the saved team scope does not resolve to a real team.
+            return []
+
         try:
             response = _request_json(
                 "https://api.linear.app/graphql",
                 method="POST",
                 headers=headers,
-                payload=payload,
+                payload={
+                    "query": _build_linear_team_issue_query(),
+                    "variables": {"teamId": str(resolved_team.get("id", "")).strip()},
+                },
             )
         except (HTTPError, URLError, json.JSONDecodeError):
-            # Skip failed attempts so alternate team-scope formats can still succeed.
-            continue
+            # Fall back to mock mode when the team-scoped issue request fails.
+            return []
 
-        extracted_nodes = _extract_linear_issue_nodes(response)
+        nodes = _extract_linear_team_issue_nodes(response)
 
-        if extracted_nodes is None:
-            # Skip malformed GraphQL responses so alternate team-scope formats can still succeed.
-            continue
+        if nodes is None:
+            # Fall back to mock mode when the team-scoped issue response is malformed.
+            return []
+    else:
+        try:
+            response = _request_json(
+                "https://api.linear.app/graphql",
+                method="POST",
+                headers=headers,
+                payload={"query": _build_linear_issue_query()},
+            )
+        except (HTTPError, URLError, json.JSONDecodeError):
+            # Fall back to mock mode when the unscoped Linear issue request fails.
+            return []
 
-        has_valid_issue_response = True
-        nodes = extracted_nodes
+        nodes = _extract_linear_issue_nodes(response)
 
-        if nodes:
-            # Stop retrying once a scoped lookup returns at least one matching issue.
-            break
-
-        if not team_scope or index == len(request_payloads) - 1:
-            # Stop retrying after the final attempt or the only unscoped request.
-            break
-
-    if not has_valid_issue_response:
-        # Fall back to mock mode when every Linear issue request fails or is malformed.
-        return []
+        if nodes is None:
+            # Fall back to mock mode when the unscoped Linear issue response is malformed.
+            return []
 
     issues: List[Dict[str, Any]] = []
 
