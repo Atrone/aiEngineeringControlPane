@@ -6,16 +6,21 @@ type QueryState<T> = {
   isLoading: boolean;
 };
 
+type QueryOptions = {
+  pollIntervalMs?: number;
+};
+
 /**
  * Loads async data for a page-level query and tracks loading state.
  */
-export function useApiQuery<T>(loader: () => Promise<T>, dependencies: readonly unknown[]): QueryState<T> {
+export function useApiQuery<T>(loader: () => Promise<T>, dependencies: readonly unknown[], options?: QueryOptions): QueryState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
     let isActive = true;
+    let pollTimer: number | undefined;
 
     /**
      * Runs the async loader and updates local state if the component is still mounted.
@@ -43,6 +48,13 @@ export function useApiQuery<T>(loader: () => Promise<T>, dependencies: readonly 
           // Mark loading as complete after the request settles.
           setIsLoading(false);
         }
+
+        if (isActive && options?.pollIntervalMs) {
+          // Schedule the next refresh so live task views can keep streaming updates.
+          pollTimer = window.setTimeout(() => {
+            void runLoader();
+          }, options.pollIntervalMs);
+        }
       }
     }
 
@@ -52,8 +64,13 @@ export function useApiQuery<T>(loader: () => Promise<T>, dependencies: readonly 
     return () => {
       // Ignore late responses after the component unmounts or dependencies change.
       isActive = false;
+
+      if (pollTimer) {
+        // Clear the next scheduled poll when the query is torn down.
+        window.clearTimeout(pollTimer);
+      }
     };
-  }, dependencies);
+  }, [...dependencies, options?.pollIntervalMs]);
 
   // Return the standard query state shape to the caller.
   return { data, error, isLoading };

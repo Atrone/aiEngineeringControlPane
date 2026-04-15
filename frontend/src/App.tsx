@@ -32,15 +32,21 @@ import type {
   IntegrationStatus,
   IssueRecord,
   LinearConnectRequest,
+  RunEvidenceEntry,
+  RunEvidenceTabs,
+  RunLiveView,
+  RunLogEntry,
   RiskLevel,
   RunSummary,
   RunStatus,
+  RunTimelineEntry,
   SignInRequest,
   TaskCreateRequest,
   UserRole,
 } from './types/controlPane';
 
 const reviewerRoles: UserRole[] = ['admin', 'tech_lead'];
+type EvidenceTabId = keyof RunEvidenceTabs;
 const roleOptions: Array<{ role: UserRole; title: string; description: string }> = [
   {
     role: 'admin',
@@ -754,13 +760,28 @@ function WorkIntakePage() {
 function TaskDetailPage(props: { currentUser: CurrentUser }) {
   const params = useParams();
   const runId = params.runId ?? '';
-  const query = useApiQuery(() => fetchRunDetail(runId), [runId]);
+  const query = useApiQuery(() => fetchRunDetail(runId), [runId], { pollIntervalMs: 2000 });
   const [runOverride, setRunOverride] = useState<RunSummary | null>(null);
   const [decisionNotes, setDecisionNotes] = useState<string>('');
   const [mutationError, setMutationError] = useState<string>('');
   const [isMutating, setIsMutating] = useState<boolean>(false);
-  const selectedRun = runOverride ?? query.data;
+  const [activeEvidenceTab, setActiveEvidenceTab] = useState<EvidenceTabId>('diff');
   const canReview = canAccessRole(props.currentUser.role, reviewerRoles);
+
+  useEffect(() => {
+    if (query.data) {
+      // Keep the local run snapshot synchronized with the latest polled backend payload.
+      setRunOverride(query.data);
+    }
+  }, [query.data]);
+
+  useEffect(() => {
+    // Reset the visible evidence tab whenever the user navigates to a different run.
+    setActiveEvidenceTab('diff');
+    setRunOverride(null);
+  }, [runId]);
+
+  const selectedRun = runOverride ?? query.data;
 
   if (query.isLoading && !selectedRun) {
     // Render a focused loading state while the selected run is being fetched.
@@ -778,6 +799,7 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
   }
 
   const activeRun = selectedRun;
+  const liveView = activeRun.liveView ?? buildFallbackRunLiveView(activeRun);
 
   /**
    * Posts an approval decision and stores the updated run payload locally.
@@ -872,21 +894,15 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
               <p>Requested by: {activeRun.requestedBy?.name ?? activeRun.owner}</p>
               <p>Current step: {activeRun.currentStep}</p>
               <p>Runtime: {activeRun.runtime}</p>
+              <p>Last updated: {formatEventTime(liveView.lastUpdatedAt)}</p>
             </div>
           }
           title="Context"
         />
 
         <Panel
-          body={
-            <div className="stacked-copy">
-              <p>Pull request: {activeRun.pullRequest?.status ?? 'Not linked'}</p>
-              <p>CI workflow: {activeRun.ci?.workflow ?? 'Unavailable'}</p>
-              <p>CI status: {activeRun.ci?.status ?? 'Unavailable'}</p>
-              <p>{activeRun.ci?.summary ?? 'No CI summary available.'}</p>
-            </div>
-          }
-          title="Repository and CI"
+          body={<TimelineList entries={liveView.timeline} liveLabel={liveView.statusLabel} />}
+          title="Run timeline"
         />
 
         <Panel
@@ -932,12 +948,26 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
         />
       </section>
 
-      <section className="evidence-grid">
-        <Panel body={<DetailList items={activeRun.evidence.diff} />} title="Diff highlights" />
-        <Panel body={<DetailList items={activeRun.evidence.tests} />} title="Tests" />
-        <Panel body={<DetailList items={activeRun.evidence.commands} />} title="Commands" />
-        <Panel body={<DetailList items={activeRun.evidence.rationale} />} title="Rationale" />
+      <section className="content-grid task-detail-live-grid">
+        <Panel
+          body={
+            <div className="stacked-copy">
+              <p>Pull request: {activeRun.pullRequest?.status ?? 'Not linked'}</p>
+              <p>CI workflow: {activeRun.ci?.workflow ?? 'Unavailable'}</p>
+              <p>CI status: {activeRun.ci?.status ?? 'Unavailable'}</p>
+              <p>{activeRun.ci?.summary ?? 'No CI summary available.'}</p>
+            </div>
+          }
+          title="Repository and CI"
+        />
+
+        <Panel body={<LogStream entries={liveView.logs} />} title="Streamed logs" />
       </section>
+
+      <Panel
+        body={<EvidenceTabPanel activeTab={activeEvidenceTab} liveView={liveView} onTabChange={setActiveEvidenceTab} />}
+        title="Evidence"
+      />
 
       <section className="task-grid task-grid-wide">
         <Panel
@@ -1670,6 +1700,287 @@ function AccessDeniedState(props: { currentUser: CurrentUser; title: string }) {
         {buildRoleLabel(props.currentUser.role)} sessions can still inspect dashboards and task detail, but only admins and tech leads can manage approvals, policies, and integrations.
       </p>
     </section>
+  );
+}
+
+/**
+ * Formats an ISO timestamp for task timeline, log, and evidence display.
+ */
+function formatEventTime(timestamp: string): string {
+  const parsedDate = new Date(timestamp);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    // Fall back to the raw value when the timestamp cannot be parsed locally.
+    return timestamp;
+  }
+
+  // Format the timestamp as a compact local time for quick scanning.
+  return parsedDate.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+/**
+ * Builds the CSS class used for each timeline step state.
+ */
+function buildTimelineEntryClassName(status: RunTimelineEntry['status']): string {
+  if (status === 'active') {
+    // Highlight the currently streaming timeline step.
+    return 'timeline-entry timeline-entry-active';
+  }
+
+  if (status === 'pending') {
+    // Dim timeline steps that have not been reached yet.
+    return 'timeline-entry timeline-entry-pending';
+  }
+
+  // Treat every remaining step as completed evidence.
+  return 'timeline-entry timeline-entry-complete';
+}
+
+/**
+ * Builds the CSS class used for each streamed log level.
+ */
+function buildLogEntryClassName(level: RunLogEntry['level']): string {
+  if (level === 'success') {
+    // Color successful log lines with the success treatment.
+    return 'log-entry log-entry-success';
+  }
+
+  if (level === 'warning') {
+    // Color warning log lines with the warning treatment.
+    return 'log-entry log-entry-warning';
+  }
+
+  if (level === 'error') {
+    // Color error log lines with the danger treatment.
+    return 'log-entry log-entry-error';
+  }
+
+  // Use the neutral style for informational log lines.
+  return 'log-entry log-entry-info';
+}
+
+/**
+ * Builds the CSS class used for each evidence status pill.
+ */
+function buildEvidenceStatusClassName(status: RunEvidenceEntry['status']): string {
+  if (status === 'running') {
+    // Highlight evidence that is still being assembled by the live stream.
+    return 'evidence-status evidence-status-running';
+  }
+
+  if (status === 'blocked') {
+    // Surface blocked evidence with the warning treatment.
+    return 'evidence-status evidence-status-blocked';
+  }
+
+  // Default the remaining evidence items to the captured treatment.
+  return 'evidence-status evidence-status-captured';
+}
+
+/**
+ * Expands an evidence tab ID into a human-readable label.
+ */
+function buildEvidenceTabLabel(tab: EvidenceTabId): string {
+  if (tab === 'diff') {
+    // Expand the diff tab into a reviewer-friendly label.
+    return 'Diff';
+  }
+
+  if (tab === 'tests') {
+    // Expand the tests tab into a reviewer-friendly label.
+    return 'Tests';
+  }
+
+  // Expand the rationale tab into a reviewer-friendly label.
+  return 'Rationale';
+}
+
+/**
+ * Builds timestamped fallback evidence entries when the backend response has no live view yet.
+ */
+function buildFallbackEvidenceEntries(items: string[], tab: EvidenceTabId, run: RunSummary): RunEvidenceEntry[] {
+  const fallbackTimestamp = new Date().toISOString();
+  const fallbackEntries: RunEvidenceEntry[] = [];
+  const fallbackStatus: RunEvidenceEntry['status'] = tab === 'tests' && run.status === 'Blocked'
+    ? 'blocked'
+    : run.status === 'Running'
+      ? 'running'
+      : 'captured';
+
+  // Convert legacy string evidence into a richer fallback shape for the tabbed UI.
+  for (const [index, item] of items.entries()) {
+    fallbackEntries.push({
+      id: `${tab}-${index}`,
+      timestamp: fallbackTimestamp,
+      summary: `${buildEvidenceTabLabel(tab)} evidence ${index + 1}`,
+      detail: item,
+      status: fallbackStatus,
+    });
+  }
+
+  // Return the generated fallback evidence entries for the selected tab.
+  return fallbackEntries;
+}
+
+/**
+ * Builds a minimal live-view fallback from the legacy run payload shape.
+ */
+function buildFallbackRunLiveView(run: RunSummary): RunLiveView {
+  const fallbackTimestamp = new Date().toISOString();
+  const logEntries: RunLogEntry[] = [];
+
+  // Convert legacy command evidence into a simple streamed-log fallback.
+  for (const [index, command] of run.evidence.commands.entries()) {
+    logEntries.push({
+      id: `command-${index}`,
+      timestamp: fallbackTimestamp,
+      level: 'info',
+      source: 'runner',
+      message: `Executed: ${command}`,
+    });
+  }
+
+  logEntries.push({
+    id: 'run-state',
+    timestamp: fallbackTimestamp,
+    level: run.status === 'Blocked' ? 'warning' : 'success',
+    source: 'agent',
+    message: run.currentStep,
+  });
+
+  // Return a safe fallback so the task detail view remains usable between polls.
+  return {
+    isLive: run.status === 'Running',
+    statusLabel: run.status === 'Running' ? 'Streaming live' : 'Snapshot loaded',
+    lastUpdatedAt: fallbackTimestamp,
+    timeline: [
+      {
+        id: 'current-step',
+        title: run.currentStep,
+        detail: run.summary,
+        timestamp: fallbackTimestamp,
+        status: run.status === 'Running' ? 'active' : 'complete',
+      },
+    ],
+    logs: logEntries,
+    evidenceTabs: {
+      diff: buildFallbackEvidenceEntries(run.evidence.diff, 'diff', run),
+      tests: buildFallbackEvidenceEntries(run.evidence.tests, 'tests', run),
+      rationale: buildFallbackEvidenceEntries(run.evidence.rationale, 'rationale', run),
+    },
+  };
+}
+
+/**
+ * Renders the run timeline with timestamps and live-state styling.
+ */
+function TimelineList(props: { entries: RunTimelineEntry[]; liveLabel: string }) {
+  if (props.entries.length === 0) {
+    // Return a neutral placeholder when no timeline data is available yet.
+    return <p className="muted-copy">No timeline data is available for this run yet.</p>;
+  }
+
+  const timelineItems: ReactNode[] = [];
+
+  // Render each timeline step with its local timestamp and current execution state.
+  for (const entry of props.entries) {
+    timelineItems.push(
+      <li className={buildTimelineEntryClassName(entry.status)} key={entry.id}>
+        <div className="timeline-entry-header">
+          <strong>{entry.title}</strong>
+          <span className="subtle-copy">{formatEventTime(entry.timestamp)}</span>
+        </div>
+        <p className="muted-copy">{entry.detail}</p>
+      </li>,
+    );
+  }
+
+  // Return the full run timeline together with the current live-state label.
+  return (
+    <div className="timeline-shell">
+      <div className="timeline-meta">
+        <span className="pill">{props.liveLabel}</span>
+      </div>
+      <ul className="timeline-list">{timelineItems}</ul>
+    </div>
+  );
+}
+
+/**
+ * Renders the streamed execution log panel for a run.
+ */
+function LogStream(props: { entries: RunLogEntry[] }) {
+  if (props.entries.length === 0) {
+    // Return a neutral placeholder when no log lines have been recorded.
+    return <p className="muted-copy">No streamed logs have been captured for this run yet.</p>;
+  }
+
+  const logItems: ReactNode[] = [];
+
+  // Render each log line in chronological order with its source and level styling.
+  for (const entry of props.entries) {
+    logItems.push(
+      <div className={buildLogEntryClassName(entry.level)} key={entry.id}>
+        <div className="log-entry-header">
+          <span>{formatEventTime(entry.timestamp)}</span>
+          <span>{entry.source}</span>
+        </div>
+        <p>{entry.message}</p>
+      </div>,
+    );
+  }
+
+  // Return the live log stream panel for the selected run.
+  return <div className="log-stream">{logItems}</div>;
+}
+
+/**
+ * Renders the tabbed evidence view grouped by diff, tests, and rationale.
+ */
+function EvidenceTabPanel(props: { liveView: RunLiveView; activeTab: EvidenceTabId; onTabChange: (tab: EvidenceTabId) => void }) {
+  const availableTabs: EvidenceTabId[] = ['diff', 'tests', 'rationale'];
+  const activeEntries = props.liveView.evidenceTabs[props.activeTab];
+  const tabButtons: ReactNode[] = [];
+  const evidenceRows: ReactNode[] = [];
+
+  // Render the evidence tab buttons with counts from the current live-view snapshot.
+  for (const tab of availableTabs) {
+    tabButtons.push(
+      <button
+        className={tab === props.activeTab ? 'evidence-tab evidence-tab-active' : 'evidence-tab'}
+        key={tab}
+        onClick={() => { props.onTabChange(tab); }}
+        type="button"
+      >
+        {buildEvidenceTabLabel(tab)} ({props.liveView.evidenceTabs[tab].length})
+      </button>,
+    );
+  }
+
+  // Render the selected evidence tab entries with timestamps and capture state.
+  for (const entry of activeEntries) {
+    evidenceRows.push(
+      <div className="evidence-row" key={entry.id}>
+        <div className="evidence-row-header">
+          <strong>{entry.summary}</strong>
+          <span className={buildEvidenceStatusClassName(entry.status)}>{entry.status}</span>
+        </div>
+        <p className="muted-copy">{entry.detail}</p>
+        <p className="subtle-copy">{formatEventTime(entry.timestamp)}</p>
+      </div>,
+    );
+  }
+
+  // Return the grouped tab controls and the currently selected evidence list.
+  return (
+    <div className="evidence-shell">
+      <div className="evidence-tab-list">{tabButtons}</div>
+      {evidenceRows.length > 0 ? <div className="evidence-row-list">{evidenceRows}</div> : <p className="muted-copy">No evidence has streamed into this tab yet.</p>}
+    </div>
   );
 }
 

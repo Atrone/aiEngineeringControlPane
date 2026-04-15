@@ -77,6 +77,51 @@ export type RunEvidence = {
   rationale: string[];
 };
 
+export type RunTimelineStatus = 'complete' | 'active' | 'pending';
+
+export type RunTimelineEntry = {
+  id: string;
+  title: string;
+  detail: string;
+  timestamp: string;
+  status: RunTimelineStatus;
+};
+
+export type RunLogLevel = 'info' | 'success' | 'warning' | 'error';
+
+export type RunLogEntry = {
+  id: string;
+  timestamp: string;
+  level: RunLogLevel;
+  source: string;
+  message: string;
+};
+
+export type RunEvidenceStatus = 'captured' | 'running' | 'blocked';
+
+export type RunEvidenceEntry = {
+  id: string;
+  timestamp: string;
+  summary: string;
+  detail: string;
+  status: RunEvidenceStatus;
+};
+
+export type RunEvidenceTabs = {
+  diff: RunEvidenceEntry[];
+  tests: RunEvidenceEntry[];
+  rationale: RunEvidenceEntry[];
+};
+
+export type RunLiveView = {
+  isLive: boolean;
+  statusLabel: string;
+  lastUpdatedAt: string;
+  timeline: RunTimelineEntry[];
+  logs: RunLogEntry[];
+  evidenceTabs: RunEvidenceTabs;
+};
+
 export type ApprovalHistoryEntry = {
   decision: string;
   notes: string;
@@ -114,6 +159,7 @@ export type RunSummary = {
   documents?: DocumentRecord[];
   requestedBy?: CurrentUser;
   approvalHistory?: ApprovalHistoryEntry[];
+  liveView?: RunLiveView;
 };
 
 export type ApprovalItem = {
