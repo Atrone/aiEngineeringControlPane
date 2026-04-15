@@ -1,4 +1,4 @@
-# AI Control Pane
+# AI Control Pane 
 
 Scaffolded product demo for an AI-assisted engineering control pane with:
 - `frontend`: Vite + React + TypeScript UI
