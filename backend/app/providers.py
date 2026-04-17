@@ -766,7 +766,6 @@ def _build_connection_payload(settings: Settings, integration_id: str) -> Option
 def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
     """Builds the integration status list for all required provider categories."""
 
-    documents = list_repo_documents(settings)
     repositories = list_github_repositories(settings)
     linear_connected = is_linear_connected(settings)
     cursor_connected = is_cursor_connected(settings)
@@ -852,23 +851,6 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
             "requiredRole": "tech_lead",
             "recommendedAction": "Connect a Cursor API key so new runs launch real cloud agents against your GitHub repos.",
             "connection": _build_connection_payload(settings, "cursor_cloud_agents"),
-            "checkedAt": timestamp,
-        },
-        {
-            "id": "repo_docs",
-            "name": "Repo Markdown",
-            "mode": "live" if documents else "mock",
-            "connected": bool(documents),
-            "capabilities": [
-                "Knowledge source discovery",
-                "Task context attachment",
-                "Provenance tracking",
-            ],
-            "configured": bool(settings.docs_directory),
-            "details": f"{len(documents)} markdown documents indexed" if documents else "No repo documents found",
-            "requiredRole": "tech_lead",
-            "recommendedAction": "Choose the docs directory that should ground agent context and reviewer evidence.",
-            "connection": _build_connection_payload(settings, "repo_docs"),
             "checkedAt": timestamp,
         },
         {
