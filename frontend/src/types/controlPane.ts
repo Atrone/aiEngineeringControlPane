@@ -322,3 +322,16 @@ export type IntakeEnrichResponse = {
   model: string;
   docsConsidered: boolean;
 };
+
+export type IntakeIdentifyRepositoryRequest = {
+  issueId: string;
+};
+
+export type IntakeIdentifyRepositoryResponse = {
+  repoName: string;
+  repoFullName: string;
+  confidence: number | null;
+  reasoning: string;
+  model: string;
+  docsConsidered: boolean;
+};

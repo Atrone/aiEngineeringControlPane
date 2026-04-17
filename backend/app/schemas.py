@@ -88,3 +88,11 @@ class IntakeEnrichRequest(BaseModel):
     issue_id: Optional[str] = Field(default=None, alias="issueId")
 
     model_config = {"populate_by_name": True}
+
+
+class IntakeIdentifyRepositoryRequest(BaseModel):
+    """Defines the payload used to ask OpenAI which repository best fits an issue."""
+
+    issue_id: str = Field(alias="issueId")
+
+    model_config = {"populate_by_name": True}

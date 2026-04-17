@@ -39,12 +39,14 @@ from app.schemas import DocsConnectRequest
 from app.schemas import GitHubConnectRequest
 from app.schemas import GoogleAuthExchangeRequest
 from app.schemas import IntakeEnrichRequest
+from app.schemas import IntakeIdentifyRepositoryRequest
 from app.schemas import LinearConnectRequest
 from app.schemas import RunCreateRequest
 from app.schemas import SignInRequest
 from app.schemas import TaskCreateRequest
 from app.providers import OpenAIEnrichmentError
 from app.providers import enrich_intake_field
+from app.providers import identify_repository_for_issue
 from app.state import create_run
 from app.state import create_task
 from app.state import get_approval_payload
@@ -434,6 +436,52 @@ def post_intake_enrich(payload: IntakeEnrichRequest, request: Request) -> Dict[s
     except OpenAIEnrichmentError as enrichment_error:
         # Translate enrichment failures into a clear 4xx/5xx client response.
         raise HTTPException(status_code=502, detail=str(enrichment_error)) from enrichment_error
+
+
+@app.post("/intake/identify-repository")
+@app.post("/api/intake/identify-repository")
+def post_intake_identify_repository(
+    payload: IntakeIdentifyRepositoryRequest,
+    request: Request,
+) -> Dict[str, Any]:
+    """Identifies the repository best matching the selected work intake issue.
+
+    Uses the integrated intake catalog (issues + repositories + repo docs) and
+    delegates the final selection to OpenAI so the button in the work intake UI
+    can automatically set the repository dropdown to the best match.
+    """
+
+    effective_settings, request_headers, _ = _authorized_request(request)
+
+    # Load the current intake catalog so we can resolve the issue and build the candidate list.
+    intake_catalog = get_intake_payload(effective_settings, request_headers)
+    repository_catalog = list(intake_catalog.get("repositories", []))
+    issue_catalog = list(intake_catalog.get("issues", []))
+
+    # Locate the issue record whose ID matches the payload so the model can read its context.
+    selected_issue: Dict[str, Any] | None = None
+    for candidate_issue in issue_catalog:
+        if str(candidate_issue.get("id") or "") == payload.issue_id:
+            selected_issue = candidate_issue
+            break
+
+    if selected_issue is None:
+        # Reject identification requests that reference an unknown issue.
+        raise HTTPException(
+            status_code=404,
+            detail=f"Issue '{payload.issue_id}' was not found in the intake catalog.",
+        )
+
+    try:
+        # Call OpenAI to pick the repository that best fits the selected issue.
+        return identify_repository_for_issue(
+            effective_settings,
+            issue=selected_issue,
+            repositories=repository_catalog,
+        )
+    except OpenAIEnrichmentError as identification_error:
+        # Translate OpenAI-side rejections into a readable upstream error response.
+        raise HTTPException(status_code=502, detail=str(identification_error)) from identification_error
 
 
 @app.post("/tasks")
