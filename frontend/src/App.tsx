@@ -12,6 +12,7 @@ import {
   createApprovalDecision,
   createRun,
   createTask,
+  enrichIntakeField,
   exchangeGoogleAuthCode,
   fetchAuthConfig,
   fetchApprovals,
@@ -35,6 +36,8 @@ import type {
   DocsConnectRequest,
   DocumentRecord,
   GitHubConnectRequest,
+  IntakeEnrichField,
+  IntakeEnrichRequest,
   IntegrationStatus,
   IssueRecord,
   LinearConnectRequest,
@@ -758,6 +761,9 @@ function WorkIntakePage() {
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [enrichingField, setEnrichingField] = useState<IntakeEnrichField | ''>('');
+  const [enrichError, setEnrichError] = useState<string>('');
+  const [enrichNotice, setEnrichNotice] = useState<string>('');
 
   useEffect(() => {
     if (!query.data) {
@@ -896,6 +902,62 @@ function WorkIntakePage() {
     }
   }
 
+  /**
+   * Requests an OpenAI-backed refinement of a single intake field using repo docs.
+   */
+  async function handleEnrichField(field: IntakeEnrichField): Promise<void> {
+    // Reset the inline enrichment status before each new request.
+    setEnrichError('');
+    setEnrichNotice('');
+    setEnrichingField(field);
+
+    const currentValueByField: Record<IntakeEnrichField, string> = {
+      title,
+      prompt,
+      acceptanceCriteria,
+    };
+
+    const enrichPayload: IntakeEnrichRequest = {
+      field,
+      value: currentValueByField[field],
+      title,
+      prompt,
+      acceptanceCriteria,
+      repoName: selectedRepoName,
+      executionMode,
+      issueId: selectedIssueId || undefined,
+    };
+
+    try {
+      // Call the backend enrichment route so OpenAI can rewrite the field with repo context.
+      const enrichedResult = await enrichIntakeField(enrichPayload);
+      const refinedValue = enrichedResult.value;
+
+      if (field === 'title') {
+        // Apply the refined value to the task title textbox.
+        setTitle(refinedValue);
+      } else if (field === 'prompt') {
+        // Apply the refined value to the prompt textbox.
+        setPrompt(refinedValue);
+      } else {
+        // Apply the refined value to the acceptance criteria textbox.
+        setAcceptanceCriteria(refinedValue);
+      }
+
+      setEnrichNotice(
+        enrichedResult.docsConsidered
+          ? `Refined with ${enrichedResult.model} using repo docs context.`
+          : `Refined with ${enrichedResult.model} (no repo docs were available to ground the response).`,
+      );
+    } catch (caughtError) {
+      // Surface enrichment failures so the user can retry or adjust configuration.
+      setEnrichError(caughtError instanceof Error ? caughtError.message : 'Unable to enrich this field.');
+    } finally {
+      // Mark the inline enrichment request as complete.
+      setEnrichingField('');
+    }
+  }
+
   // Render the integrated task intake experience.
   return (
     <div className="page-grid">
@@ -942,20 +1004,59 @@ function WorkIntakePage() {
                 </select>
               </label>
 
-              <label className="field-group field-group-wide">
-                <span>Task title</span>
-                <input onChange={(event) => { setTitle(event.target.value); }} placeholder="Build settings workflow" type="text" value={title} />
-              </label>
+              <div className="field-group field-group-wide">
+                <label className="field-group">
+                  <span>Task title</span>
+                  <input onChange={(event) => { setTitle(event.target.value); }} placeholder="Build settings workflow" type="text" value={title} />
+                </label>
+                <div className="enrich-row">
+                  <button
+                    className="ghost-button enrich-button"
+                    disabled={enrichingField !== '' || isSubmitting}
+                    onClick={() => { void handleEnrichField('title'); }}
+                    type="button"
+                  >
+                    {enrichingField === 'title' ? 'Enriching title...' : 'Enrich title with repo docs'}
+                  </button>
+                </div>
+              </div>
 
-              <label className="field-group field-group-wide">
-                <span>Prompt</span>
-                <textarea onChange={(event) => { setPrompt(event.target.value); }} rows={5} value={prompt} />
-              </label>
+              <div className="field-group field-group-wide">
+                <label className="field-group">
+                  <span>Prompt</span>
+                  <textarea onChange={(event) => { setPrompt(event.target.value); }} rows={5} value={prompt} />
+                </label>
+                <div className="enrich-row">
+                  <button
+                    className="ghost-button enrich-button"
+                    disabled={enrichingField !== '' || isSubmitting}
+                    onClick={() => { void handleEnrichField('prompt'); }}
+                    type="button"
+                  >
+                    {enrichingField === 'prompt' ? 'Enriching prompt...' : 'Enrich prompt with repo docs'}
+                  </button>
+                </div>
+              </div>
 
-              <label className="field-group field-group-wide">
-                <span>Acceptance criteria</span>
-                <textarea onChange={(event) => { setAcceptanceCriteria(event.target.value); }} rows={4} value={acceptanceCriteria} />
-              </label>
+              <div className="field-group field-group-wide">
+                <label className="field-group">
+                  <span>Acceptance criteria</span>
+                  <textarea onChange={(event) => { setAcceptanceCriteria(event.target.value); }} rows={4} value={acceptanceCriteria} />
+                </label>
+                <div className="enrich-row">
+                  <button
+                    className="ghost-button enrich-button"
+                    disabled={enrichingField !== '' || isSubmitting}
+                    onClick={() => { void handleEnrichField('acceptanceCriteria'); }}
+                    type="button"
+                  >
+                    {enrichingField === 'acceptanceCriteria' ? 'Enriching acceptance criteria...' : 'Enrich acceptance criteria with repo docs'}
+                  </button>
+                </div>
+              </div>
+
+              {enrichError ? <p className="error-copy">{enrichError}</p> : null}
+              {enrichNotice ? <p className="muted-copy enrich-notice">{enrichNotice}</p> : null}
 
               <div className="field-group field-group-wide">
                 <span>Knowledge sources</span>

@@ -38,10 +38,13 @@ from app.schemas import CursorConnectRequest
 from app.schemas import DocsConnectRequest
 from app.schemas import GitHubConnectRequest
 from app.schemas import GoogleAuthExchangeRequest
+from app.schemas import IntakeEnrichRequest
 from app.schemas import LinearConnectRequest
 from app.schemas import RunCreateRequest
 from app.schemas import SignInRequest
 from app.schemas import TaskCreateRequest
+from app.providers import OpenAIEnrichmentError
+from app.providers import enrich_intake_field
 from app.state import create_run
 from app.state import create_task
 from app.state import get_approval_payload
@@ -407,6 +410,30 @@ def get_intake(request: Request) -> Dict[str, Any]:
 
     # Return the repositories, issues, docs, and user context for task intake.
     return get_intake_payload(effective_settings, request_headers)
+
+
+@app.post("/intake/enrich")
+@app.post("/api/intake/enrich")
+def post_intake_enrich(payload: IntakeEnrichRequest, request: Request) -> Dict[str, Any]:
+    """Refines a work intake field using OpenAI and the repo docs context."""
+
+    effective_settings, _, _ = _authorized_request(request)
+
+    try:
+        # Call OpenAI to refine the requested intake field against the repo docs.
+        return enrich_intake_field(
+            effective_settings,
+            field=payload.field,
+            value=payload.value,
+            title=payload.title,
+            prompt=payload.prompt,
+            acceptance_criteria=payload.acceptance_criteria,
+            repo_name=payload.repo_name,
+            execution_mode=payload.execution_mode,
+        )
+    except OpenAIEnrichmentError as enrichment_error:
+        # Translate enrichment failures into a clear 4xx/5xx client response.
+        raise HTTPException(status_code=502, detail=str(enrichment_error)) from enrichment_error
 
 
 @app.post("/tasks")

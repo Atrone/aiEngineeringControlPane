@@ -73,3 +73,18 @@ class DocsConnectRequest(BaseModel):
     """Defines the payload used to connect a docs directory during guided setup."""
 
     docs_directory: str = Field(alias="docsDirectory")
+
+
+class IntakeEnrichRequest(BaseModel):
+    """Defines the payload used to refine a work intake field using repo docs."""
+
+    field: str
+    value: str = ""
+    title: str = ""
+    prompt: str = ""
+    acceptance_criteria: str = Field(default="", alias="acceptanceCriteria")
+    repo_name: str = Field(default="", alias="repoName")
+    execution_mode: str = Field(default="implement", alias="executionMode")
+    issue_id: Optional[str] = Field(default=None, alias="issueId")
+
+    model_config = {"populate_by_name": True}

@@ -290,3 +290,23 @@ export type CursorConnectRequest = {
 export type DocsConnectRequest = {
   docsDirectory: string;
 };
+
+export type IntakeEnrichField = 'title' | 'prompt' | 'acceptanceCriteria';
+
+export type IntakeEnrichRequest = {
+  field: IntakeEnrichField;
+  value: string;
+  title: string;
+  prompt: string;
+  acceptanceCriteria: string;
+  repoName: string;
+  executionMode: string;
+  issueId?: string;
+};
+
+export type IntakeEnrichResponse = {
+  field: string;
+  value: string;
+  model: string;
+  docsConsidered: boolean;
+};
