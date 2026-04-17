@@ -38,6 +38,20 @@ GITHUB_APPROVAL_ACTOR: Dict[str, str] = {
 }
 LINEAR_STATUS_IN_PROGRESS = "In Progress"
 LINEAR_STATUS_DONE = "Done"
+# Linear state names (lowercased) that usually mean the issue is already finished when intake ran.
+_TERMINAL_LINEAR_STATUS_NAMES = frozenset(
+    {
+        "done",
+        "completed",
+        "complete",
+        "canceled",
+        "cancelled",
+        "duplicate",
+        "closed",
+        "shipped",
+        "released",
+    }
+)
 
 
 def _utc_now() -> datetime:
@@ -780,6 +794,65 @@ def _select_documents(all_documents: List[Dict[str, Any]], document_ids: List[st
     return selected_documents
 
 
+def _issue_status_was_terminal_at_intake(issue: Dict[str, Any]) -> bool:
+    """Reports whether the issue snapshot looks finished or canceled at intake time."""
+
+    # Read the human-visible workflow label captured during task creation.
+    status_label = str(issue.get("status", "")).strip()
+
+    if not status_label:
+        # Treat missing status as non-terminal so the default handoff guidance still applies.
+        return False
+
+    # Compare using a stable lower-case key so team-specific labels still match intent.
+    normalized = status_label.lower()
+
+    # Return true when the label matches a known terminal bucket or contains terminal hints.
+    if normalized in _TERMINAL_LINEAR_STATUS_NAMES:
+        return True
+
+    # Catch common compound labels such as "Done (QA)" without enumerating every variant.
+    for terminal_token in _TERMINAL_LINEAR_STATUS_NAMES:
+        if terminal_token in normalized:
+            return True
+
+    return False
+
+
+def _build_linear_review_traceability_block(issue: Dict[str, Any]) -> str:
+    """Builds Linear-specific review and traceability guidance for agent prompts."""
+
+    # Only enrich prompts when the originating provider is Linear-backed intake.
+    if str(issue.get("provider", "")).strip().lower() != "linear":
+        return ""
+
+    trace_lines: List[str] = ["Linear review traceability (SIG-style handoff):"]
+
+    # Record the intake-time workflow label so reviewers can relate shipped work to the queue snapshot.
+    intake_status = str(issue.get("status", "")).strip()
+
+    if intake_status:
+        trace_lines.append(f"- Issue status at intake: {intake_status}.")
+
+    if _issue_status_was_terminal_at_intake(issue):
+        # Steer agents away from assuming more in-flight work when the ticket already looks closed.
+        trace_lines.append(
+            "- Review handoff: the issue was already in an intake state that typically means "
+            "closed or shipped in Linear; prioritize review evidence (diff, tests, pull request) "
+            "and confirm the ticket still reflects the desired end state before merging."
+        )
+    else:
+        # Anchor the default path to branch names, pull requests, and the final agent summary.
+        trace_lines.append(
+            "- Review handoff: preserve traceability from the intake status above through the "
+            "Git branch name, pull request title or description, and final response summary so "
+            "reviewers can connect shipped work to this Linear ticket."
+        )
+
+    # Return the assembled traceability section for the composed Cursor prompt.
+    return "\n".join(trace_lines)
+
+
 def _build_cursor_issue_block(issue: Dict[str, Any]) -> str:
     """Builds the issue-context section used inside the Cursor Cloud Agent prompt."""
 
@@ -790,6 +863,12 @@ def _build_cursor_issue_block(issue: Dict[str, Any]) -> str:
         f"Priority: {issue.get('priority', 'Unknown')}",
         f"Provider: {issue.get('provider', 'unknown')}",
     ]
+    issue_url = str(issue.get("url", "")).strip()
+
+    if issue_url:
+        # Surface a stable deeplink when the provider returned one (Linear, GitHub issues, etc.).
+        issue_lines.append(f"Issue URL: {issue_url}")
+
     description = str(issue.get("description", "")).strip()
     issue_url = str(issue.get("url", "")).strip()
     assignee = issue.get("assignee", {}) or {}
@@ -846,6 +925,7 @@ def _build_cursor_prompt(
     acceptance_criteria = str(run.get("_acceptanceCriteria", "")).strip()
     repo_full_name = str(repository.get("fullName", repository.get("name", run.get("repo", "repository"))))
     issue_block = _build_cursor_issue_block(issue)
+    linear_trace_block = _build_linear_review_traceability_block(issue)
     docs_block = _build_cursor_docs_block(documents)
     prompt_sections = [
         f"You are launching work for the GitHub repository {repo_full_name}.",
@@ -860,6 +940,10 @@ def _build_cursor_prompt(
         "- Run the most relevant validation before handing off the work.",
         "- Summarize the changes and any follow-up reviewer notes in the final response.",
     ]
+
+    if linear_trace_block.strip():
+        # Insert Linear-specific traceability guidance immediately after the core issue block.
+        prompt_sections.insert(3, linear_trace_block)
 
     # Return the composed task prompt that will be sent to the Cursor Cloud Agents API.
     return "\n\n".join(prompt_sections)

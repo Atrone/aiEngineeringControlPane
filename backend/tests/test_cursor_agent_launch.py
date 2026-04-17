@@ -202,6 +202,7 @@ class CursorAgentLaunchTests(unittest.TestCase):
         self.assertIn("Launch against GitHub and preserve the Linear issue ticket context.", launch_payload["prompt"]["text"])
         self.assertIn("Issue URL: https://linear.app/acme/issue/ENG-42", launch_payload["prompt"]["text"])
         self.assertIn("Assignee Email: maya@example.com", launch_payload["prompt"]["text"])
+        self.assertIn("Issue status at intake: Todo.", launch_payload["prompt"]["text"])
 
 
 if __name__ == "__main__":
