@@ -730,6 +730,21 @@ ul {
   cursor: not-allowed;
 }
 
+.nav-link:focus-visible,
+.primary-button:focus-visible,
+.ghost-button:focus-visible,
+.link-button:focus-visible,
+.field-group input:focus-visible,
+.field-group select:focus-visible,
+.field-group textarea:focus-visible,
+.notes-input:focus-visible,
+.role-card:focus-visible,
+.selection-row:focus-within,
+.evidence-tab:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
 @media (max-width: 1180px) {
   .auth-shell,
   .auth-role-grid,
@@ -764,5 +779,18 @@ ul {
   .queue-row,
   .policy-row {
     flex-direction: column;
+  }
+
+  .page-shell {
+    padding: 1rem;
+  }
+
+  .panel,
+  .auth-panel {
+    padding: 1rem;
+  }
+
+  .sidebar {
+    padding: 1rem;
   }
 }
