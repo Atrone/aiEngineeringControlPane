@@ -9,6 +9,8 @@ import type {
   DocsConnectRequest,
   GoogleAuthExchangeRequest,
   GitHubConnectRequest,
+  IntakeEnrichRequest,
+  IntakeEnrichResponse,
   IntegrationsPayload,
   IntakePayload,
   LinearConnectRequest,
@@ -233,6 +235,14 @@ export async function fetchCurrentUser(): Promise<CurrentUser> {
 export async function fetchIntakeOptions(): Promise<IntakePayload> {
   // Load the repositories, issues, docs, and provider status data for task creation.
   return getJson<IntakePayload>('/api/intake');
+}
+
+/**
+ * Refines a work intake field using the OpenAI-backed enrichment route.
+ */
+export async function enrichIntakeField(payload: IntakeEnrichRequest): Promise<IntakeEnrichResponse> {
+  // Send the current intake state and target field to the backend enrichment route.
+  return sendJson<IntakeEnrichResponse, IntakeEnrichRequest>('/api/intake/enrich', 'POST', payload);
 }
 
 /**

@@ -892,6 +892,294 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
     ]
 
 
+class OpenAIEnrichmentError(Exception):
+    """Captures a readable OpenAI enrichment API failure."""
+
+
+# Human-readable field labels for the enrichment prompt.
+_ENRICH_FIELD_LABELS: Dict[str, str] = {
+    "title": "Task title",
+    "prompt": "Implementation prompt",
+    "acceptanceCriteria": "Acceptance criteria",
+    "acceptance_criteria": "Acceptance criteria",
+}
+
+# Per-field guidance for the enrichment model output.
+_ENRICH_FIELD_GUIDANCE: Dict[str, str] = {
+    "title": (
+        "Return a single concise task title (max ~12 words) that names the concrete outcome. "
+        "Respond with the title only, no quotes, no trailing period."
+    ),
+    "prompt": (
+        "Return a clear implementation prompt (3-7 sentences). Call out the repository surfaces that "
+        "should change, reference the relevant docs, preserve any user intent already present, and keep "
+        "guardrails the agent must respect. Plain prose, no markdown headings."
+    ),
+    "acceptance_criteria": (
+        "Return 3-6 testable acceptance criteria as a markdown checklist (each line begins with '- [ ] '). "
+        "Each item should be observable, scoped to this task, and aligned with repo policy and evidence expectations."
+    ),
+}
+
+
+def _read_doc_excerpt(path: Path, max_chars: int) -> str:
+    """Reads a truncated markdown excerpt used for enrichment grounding."""
+
+    try:
+        # Read the markdown document from disk so it can ground the enrichment prompt.
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        # Skip documents that cannot be read from disk.
+        return ""
+
+    if len(text) <= max_chars:
+        # Return the full document when it already fits in the context budget.
+        return text
+
+    # Truncate long documents so the combined prompt stays within OpenAI context limits.
+    return text[:max_chars].rstrip() + "\n...[truncated]..."
+
+
+def _collect_doc_context(settings: Settings, *, per_doc_chars: int = 4000, max_docs: int = 8) -> str:
+    """Builds a combined markdown context blob from repo docs."""
+
+    docs_root = Path(settings.docs_directory)
+    context_parts: List[str] = []
+
+    if not docs_root.exists():
+        # Skip context collection when the docs directory is missing.
+        return ""
+
+    markdown_paths: List[Path] = []
+    repo_readme = docs_root.parent / "README.md"
+
+    if repo_readme.exists():
+        # Always anchor enrichment context on the repo README when available.
+        markdown_paths.append(repo_readme)
+
+    # Pull every markdown file from the configured docs directory for grounding.
+    for candidate_path in sorted(docs_root.rglob("*.md")):
+        if candidate_path.is_file():
+            markdown_paths.append(candidate_path)
+
+    # Keep the document set bounded so prompts remain within OpenAI context limits.
+    markdown_paths = markdown_paths[:max_docs]
+
+    for markdown_path in markdown_paths:
+        excerpt = _read_doc_excerpt(markdown_path, per_doc_chars)
+
+        if not excerpt.strip():
+            # Skip empty or unreadable docs so they do not bloat the prompt.
+            continue
+
+        try:
+            relative_label = markdown_path.relative_to(docs_root.parent).as_posix()
+        except ValueError:
+            # Fall back to the filename when the doc lives outside the docs parent.
+            relative_label = markdown_path.name
+
+        context_parts.append(f"### {relative_label}\n{excerpt}")
+
+    # Return a single combined context string suitable for the enrichment prompt.
+    return "\n\n".join(context_parts)
+
+
+def _normalize_enrichment_field(raw_field: str) -> str:
+    """Normalizes the requested enrichment field name."""
+
+    normalized_field = (raw_field or "").strip().lower().replace("-", "_")
+
+    if normalized_field in ("acceptancecriteria", "acceptance_criteria", "criteria"):
+        # Collapse the acceptance criteria aliases into the canonical snake_case form.
+        return "acceptance_criteria"
+
+    if normalized_field in ("title", "task_title"):
+        # Collapse the title aliases into the canonical form.
+        return "title"
+
+    if normalized_field in ("prompt", "description"):
+        # Collapse the prompt aliases into the canonical form.
+        return "prompt"
+
+    # Return the normalized field name so callers can validate it.
+    return normalized_field
+
+
+def _build_enrichment_messages(
+    *,
+    field: str,
+    value: str,
+    title: str,
+    prompt: str,
+    acceptance_criteria: str,
+    repo_name: str,
+    execution_mode: str,
+    docs_context: str,
+) -> List[Dict[str, str]]:
+    """Builds the OpenAI chat messages for a work intake enrichment call."""
+
+    field_label = _ENRICH_FIELD_LABELS.get(field, field)
+    field_guidance = _ENRICH_FIELD_GUIDANCE.get(field, "Return a refined value for this field.")
+
+    system_content = (
+        "You refine work intake fields for the AI Engineering Control Pane. "
+        "Ground every refinement in the repository's docs, the intake context, and the product's "
+        "MVP workflow so the final text is ready for a tech-lead reviewer and an implementing agent. "
+        "Do not invent integrations, repositories, or policies that are not supported by the docs. "
+        "Preserve any user-written intent in the current value while improving clarity, specificity, and alignment."
+    )
+
+    intake_context_lines = [
+        f"- Field to refine: {field_label}",
+        f"- Repository: {repo_name or 'unspecified'}",
+        f"- Execution mode: {execution_mode or 'implement'}",
+        f"- Current task title: {title or '(empty)'}",
+        f"- Current prompt: {prompt or '(empty)'}",
+        f"- Current acceptance criteria: {acceptance_criteria or '(empty)'}",
+    ]
+
+    docs_section = docs_context.strip() or "(no repo docs were available)"
+
+    user_content = (
+        "Repo docs (use these as the source of truth for tone, scope, and terminology):\n"
+        f"{docs_section}\n\n"
+        "Current intake state:\n"
+        + "\n".join(intake_context_lines)
+        + "\n\n"
+        f"Current value of {field_label}:\n"
+        f"{value.strip() or '(empty)'}\n\n"
+        f"Instructions: {field_guidance}\n"
+        "Only return the refined value itself, with no preamble, explanation, or surrounding markdown fences."
+    )
+
+    # Return the chat-completion message list for OpenAI.
+    return [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def _extract_openai_message(response_payload: Dict[str, Any]) -> str:
+    """Extracts the assistant text from an OpenAI chat completion response."""
+
+    choices = response_payload.get("choices") or []
+
+    if not choices:
+        # Reject responses that do not include a usable assistant message.
+        raise OpenAIEnrichmentError("OpenAI returned an empty choices list.")
+
+    first_choice = choices[0] or {}
+    message = first_choice.get("message") or {}
+    content = message.get("content")
+
+    if isinstance(content, list):
+        text_parts: List[str] = []
+
+        # Handle the list-of-parts content shape used by newer OpenAI responses.
+        for part in content:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                text_parts.append(part["text"])
+
+        content = "".join(text_parts)
+
+    if not isinstance(content, str) or not content.strip():
+        # Reject responses that do not contain a non-empty string body.
+        raise OpenAIEnrichmentError("OpenAI response did not contain any text content.")
+
+    # Return the trimmed assistant message so callers can use it directly.
+    return content.strip()
+
+
+def enrich_intake_field(
+    settings: Settings,
+    *,
+    field: str,
+    value: str,
+    title: str,
+    prompt: str,
+    acceptance_criteria: str,
+    repo_name: str,
+    execution_mode: str,
+) -> Dict[str, Any]:
+    """Refines a work intake field with OpenAI using repo doc context."""
+
+    normalized_field = _normalize_enrichment_field(field)
+
+    if normalized_field not in ("title", "prompt", "acceptance_criteria"):
+        # Reject unsupported fields so the frontend does not silently misuse the route.
+        raise OpenAIEnrichmentError(
+            "Only the title, prompt, and acceptance criteria fields can be enriched."
+        )
+
+    if not settings.openai_api_key:
+        # Reject enrichment requests when the OpenAI key is not configured.
+        raise OpenAIEnrichmentError(
+            "OpenAI is not configured for this environment. Set OPENAI_API_KEY to enable enrichment."
+        )
+
+    docs_context = _collect_doc_context(settings)
+    messages = _build_enrichment_messages(
+        field=normalized_field,
+        value=value,
+        title=title,
+        prompt=prompt,
+        acceptance_criteria=acceptance_criteria,
+        repo_name=repo_name,
+        execution_mode=execution_mode,
+        docs_context=docs_context,
+    )
+
+    request_headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    request_payload: Dict[str, Any] = {
+        "model": settings.openai_model,
+        "messages": messages,
+        "temperature": 0.2,
+    }
+    url = f"{settings.openai_base_url}/chat/completions"
+
+    try:
+        # Call OpenAI so the assistant can refine the intake field against repo docs.
+        response_payload = _request_json(
+            url,
+            method="POST",
+            headers=request_headers,
+            payload=request_payload,
+        )
+    except HTTPError as http_error:
+        # Surface upstream rejections with the HTTP status so the UI can display them.
+        try:
+            error_body = http_error.read().decode("utf-8", errors="ignore")
+        except Exception:
+            error_body = ""
+
+        raise OpenAIEnrichmentError(
+            f"OpenAI rejected the enrichment request (status {http_error.code}): {error_body.strip() or http_error.reason}"
+        ) from http_error
+    except URLError as url_error:
+        # Translate transport-level failures into a readable enrichment error.
+        raise OpenAIEnrichmentError(
+            f"Could not reach OpenAI for enrichment: {url_error.reason}"
+        ) from url_error
+    except json.JSONDecodeError as decode_error:
+        # Reject malformed OpenAI responses with a clear error message.
+        raise OpenAIEnrichmentError(
+            "OpenAI returned a response that could not be parsed as JSON."
+        ) from decode_error
+
+    refined_text = _extract_openai_message(response_payload)
+
+    # Return the refined field value plus the metadata the UI may surface.
+    return {
+        "field": normalized_field,
+        "value": refined_text,
+        "model": settings.openai_model,
+        "docsConsidered": bool(docs_context),
+    }
+
+
 def summarize_repository_names(records: Iterable[Dict[str, Any]]) -> List[str]:
     """Builds a repository name list from normalized repository records."""
 

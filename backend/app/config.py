@@ -33,6 +33,9 @@ class Settings:
     google_tech_lead_domains: List[str]
     google_engineer_emails: List[str]
     google_engineer_domains: List[str]
+    openai_api_key: str
+    openai_model: str
+    openai_base_url: str
 
 
 def _parse_csv(raw_value: str) -> List[str]:
@@ -105,4 +108,7 @@ def get_settings() -> Settings:
         google_tech_lead_domains=google_tech_lead_domains,
         google_engineer_emails=google_engineer_emails,
         google_engineer_domains=google_engineer_domains,
+        openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini",
+        openai_base_url=(os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip() or "https://api.openai.com/v1").rstrip("/"),
     )

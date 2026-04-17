@@ -67,6 +67,12 @@ The integration layer runs in `hybrid` mode:
 - `GOOGLE_TECH_LEAD_DOMAINS`
 - `GOOGLE_ENGINEER_EMAILS`
 - `GOOGLE_ENGINEER_DOMAINS`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `OPENAI_BASE_URL`
+
+## Work Intake Enrichment
+The Work Intake page exposes an **Enrich** button underneath the Task title, Prompt, and Acceptance criteria textboxes. Each button calls `POST /api/intake/enrich`, which uses `OPENAI_API_KEY` plus the markdown files under `docs/` (and the repo `README.md`) to refine the targeted field in-place. Set `OPENAI_MODEL` to override the default model (`gpt-4o-mini`) and `OPENAI_BASE_URL` to point at a compatible endpoint.
 
 ## Google SSO
 When `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` are configured, the sign-in screen switches to a Google OAuth flow:
@@ -88,6 +94,7 @@ The backend now exposes the integration-oriented endpoints from the product spec
 - `POST /api/tasks`
 - `POST /api/runs`
 - `POST /api/approvals`
+- `POST /api/intake/enrich`
 
 ## Current Scope
 - Data-backed product shell with live-or-fallback provider integrations served by FastAPI
