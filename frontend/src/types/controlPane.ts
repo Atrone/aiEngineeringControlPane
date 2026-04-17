@@ -283,6 +283,13 @@ export type LinearConnectRequest = {
   teamId: string;
 };
 
+export type JiraConnectRequest = {
+  siteUrl: string;
+  email: string;
+  apiToken: string;
+  projectKey: string;
+};
+
 export type CursorConnectRequest = {
   apiKey: string;
   model: string;

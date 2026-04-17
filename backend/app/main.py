@@ -1,7 +1,7 @@
 """FastAPI entrypoint for the AI Control Pane demo backend."""
 
 import json
-from typing import Any, Dict, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.parse import urlencode
@@ -23,6 +23,7 @@ from app.auth import consume_google_oauth_state
 from app.auth import connect_cursor
 from app.auth import connect_docs
 from app.auth import connect_github
+from app.auth import connect_jira
 from app.auth import connect_linear
 from app.auth import create_google_oauth_state
 from app.auth import create_session
@@ -41,6 +42,7 @@ from app.schemas import GitHubConnectRequest
 from app.schemas import GoogleAuthExchangeRequest
 from app.schemas import IntakeEnrichRequest
 from app.schemas import IntakeIdentifyRepositoryRequest
+from app.schemas import JiraConnectRequest
 from app.schemas import LinearConnectRequest
 from app.schemas import RunCreateRequest
 from app.schemas import SignInRequest
@@ -126,7 +128,13 @@ def _ensure_google_sso_enabled() -> None:
     raise HTTPException(status_code=503, detail="Google SSO is not configured for this environment.")
 
 
-def _request_json(url: str, *, method: str = "GET", headers: Dict[str, str] | None = None, payload: bytes | None = None) -> Dict[str, Any]:
+def _request_json(
+    url: str,
+    *,
+    method: str = "GET",
+    headers: Optional[Dict[str, str]] = None,
+    payload: Optional[bytes] = None,
+) -> Dict[str, Any]:
     """Executes an HTTP request and parses the JSON response body."""
 
     request_headers = headers or {}
@@ -488,7 +496,7 @@ def post_intake_identify_repository(
     issue_catalog = list(intake_catalog.get("issues", []))
 
     # Locate the issue record whose ID matches the payload so the model can read its context.
-    selected_issue: Dict[str, Any] | None = None
+    selected_issue: Optional[Dict[str, Any]] = None
     for candidate_issue in issue_catalog:
         if str(candidate_issue.get("id") or "") == payload.issue_id:
             selected_issue = candidate_issue
@@ -585,6 +593,20 @@ def post_linear_connect(payload: LinearConnectRequest, request: Request) -> Dict
     request_headers = build_request_headers(request.headers, session)
 
     # Return the refreshed integrations payload after saving the Linear setup.
+    return get_integrations_payload(effective_settings, request_headers)
+
+
+@app.post("/integrations/jira/connect")
+@app.post("/api/integrations/jira/connect")
+def post_jira_connect(payload: JiraConnectRequest, request: Request) -> Dict[str, Any]:
+    """Stores the Jira Cloud connection selected in the guided integrations flow."""
+
+    _, _, session = _authorized_request_with_roles(request, ("admin",))
+    connect_jira(session, payload.site_url, payload.email, payload.api_token, payload.project_key)
+    effective_settings = build_effective_settings(settings, session)
+    request_headers = build_request_headers(request.headers, session)
+
+    # Return the refreshed integrations payload after saving the Jira setup.
     return get_integrations_payload(effective_settings, request_headers)
 
 

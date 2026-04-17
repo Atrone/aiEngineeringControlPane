@@ -7,6 +7,7 @@ import {
   connectCursor,
   clearSessionToken,
   connectGitHub,
+  connectJira,
   connectLinear,
   createApprovalDecision,
   createRun,
@@ -37,6 +38,7 @@ import type {
   IntakeEnrichRequest,
   IntegrationStatus,
   IssueRecord,
+  JiraConnectRequest,
   LinearConnectRequest,
   RunEvidenceEntry,
   RunEvidenceTabs,
@@ -220,10 +222,8 @@ function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
   const blockerReasons = collectBlockerReasons(runs);
   const activeRunsHintParts: string[] = [];
 
-  if (runningRuns > 0) {
-    // Call out live runs first since they directly reflect current agent activity.
-    activeRunsHintParts.push(`${runningRuns} running`);
-  }
+  // Call out live runs first since they directly reflect current agent activity.
+  activeRunsHintParts.push(`${runningRuns} running`);
 
   if (reviewReadyRuns > 0) {
     // Highlight review-ready runs so reviewers know where their inbox stands.
@@ -259,6 +259,44 @@ function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
     { label: 'Merged today', value: String(mergedRuns), hint: mergedRunsHint },
     { label: 'Review effort', value: formatReviewEffortValue(reviewCandidateCount, totalReviewRuntimeSeconds), hint: reviewEffortHint },
   ];
+}
+
+/**
+ * Reports whether a provider name belongs to a live issue tracker integration.
+ */
+function isIssueTrackerProvider(provider: string | undefined): boolean {
+  const normalizedProvider = (provider ?? '').trim().toLowerCase();
+
+  // Return true only for live issue tracker providers supported by the app.
+  return normalizedProvider === 'linear' || normalizedProvider === 'jira';
+}
+
+/**
+ * Reports whether a run is linked to a live issue-tracker record.
+ */
+function isIssueTrackerRun(run: RunSummary): boolean {
+  // Reuse the provider helper so dashboard filters stay consistent across issue trackers.
+  return isIssueTrackerProvider(run.issue?.provider);
+}
+
+/**
+ * Builds the provider-specific dashboard label for an issue-linked run.
+ */
+function buildIssueTrackerRunLabel(run: RunSummary): string {
+  const normalizedProvider = (run.issue?.provider ?? '').trim().toLowerCase();
+
+  if (normalizedProvider === 'jira') {
+    // Surface the Jira label when the run originated from Jira Cloud.
+    return 'Jira-linked issue';
+  }
+
+  if (normalizedProvider === 'linear') {
+    // Surface the Linear label when the run originated from Linear.
+    return 'Linear-linked issue';
+  }
+
+  // Fall back to a generic issue-tracker label when the provider is unexpected.
+  return 'Issue-tracker-linked issue';
 }
 
 /**
@@ -590,7 +628,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
         <p className="muted-copy">
           {googleSsoEnabled
             ? 'Your Google account will be validated by the backend before the session is created, and every successful sign-in is treated as an admin session.'
-            : 'This demo signs users in as admins and unlocks guided connection flows for GitHub, Linear, and docs.'}
+            : 'This demo signs users in as admins and unlocks guided connection flows for GitHub, Linear, Jira, and docs.'}
         </p>
 
         {googleSsoEnabled ? (
@@ -797,14 +835,14 @@ function DashboardPage() {
   // Build a stable, comma-joined key so the effect reruns only when the visible run IDs change.
   const visibleRunIdsKey = query.data
     ? query.data.runs
-        .filter((run) => run.issue?.provider === 'linear')
+        .filter((run) => isIssueTrackerRun(run))
         .map((run) => run.id)
         .join(',')
     : '';
 
   useEffect(() => {
     if (!visibleRunIdsKey) {
-      // Skip the suggestions call when there are no visible Linear-linked runs.
+      // Skip the suggestions call when there are no visible issue-tracker-linked runs.
       setSuggestedActions([]);
       setSuggestionsError('');
       setSuggestionsModel('');
@@ -869,9 +907,9 @@ function DashboardPage() {
     return <ErrorState message={query.error ?? 'Dashboard data was unavailable.'} />;
   }
 
-  // Limit the dashboard run feed to runs backed by real Linear issues.
-  const linearLinkedRuns = query.data.runs.filter((run) => run.issue?.provider === 'linear');
-  const derivedMetrics = deriveDashboardMetrics(linearLinkedRuns);
+  // Limit the dashboard run feed to runs backed by real issue-tracker records.
+  const issueTrackerLinkedRuns = query.data.runs.filter((run) => isIssueTrackerRun(run));
+  const derivedMetrics = deriveDashboardMetrics(issueTrackerLinkedRuns);
   const metricCards: ReactNode[] = [];
   const runCards: ReactNode[] = [];
   const suggestedItems: ReactNode[] = [];
@@ -883,7 +921,7 @@ function DashboardPage() {
   }
 
   // Build the active run list from the fetched execution feed.
-  for (const run of linearLinkedRuns) {
+  for (const run of issueTrackerLinkedRuns) {
     runCards.push(
       <Link className="run-row" key={run.id} to={`/tasks/${run.id}`}>
         <div className="run-row-main">
@@ -893,7 +931,7 @@ function DashboardPage() {
           </div>
           <p className="muted-copy">{run.summary}</p>
           <p className="subtle-copy">
-            Linear-linked issue · {run.repo} · {run.agent}
+            {buildIssueTrackerRunLabel(run)} · {run.repo} · {run.agent}
           </p>
         </div>
 
@@ -924,9 +962,9 @@ function DashboardPage() {
   // Choose the suggestions rail body so loading, error, and empty states all read clearly.
   let suggestionsBody: ReactNode;
 
-  if (linearLinkedRuns.length === 0) {
+  if (issueTrackerLinkedRuns.length === 0) {
     // Tell the operator that AI suggestions need visible runs first.
-    suggestionsBody = <p className="muted-copy">No live Linear-linked runs are available to generate suggestions from.</p>;
+    suggestionsBody = <p className="muted-copy">No live issue-tracker-linked runs are available to generate suggestions from.</p>;
   } else if (isSuggestionsLoading) {
     // Surface the OpenAI call in flight so the panel does not look empty while we wait.
     suggestionsBody = <p className="muted-copy">Generating suggestions from the runs above...</p>;
@@ -973,7 +1011,7 @@ function DashboardPage() {
           body={
             runCards.length > 0
               ? <div className="run-list">{runCards}</div>
-              : <p className="muted-copy">No live Linear-linked runs are available yet.</p>
+              : <p className="muted-copy">No live issue-tracker-linked runs are available yet.</p>
           }
           title="Active and recent runs"
         />
@@ -1231,7 +1269,7 @@ function WorkIntakePage() {
       <section className="hero-panel">
         <div>
           <p className="eyebrow">Integrated intake</p>
-          <h3>Create a new AI work item from GitHub repo context, Linear issues, and repo markdown knowledge.</h3>
+          <h3>Create a new AI work item from GitHub repo context, issue-tracker issues, and repo markdown knowledge.</h3>
           <p className="muted-copy">This view uses the hybrid integration layer and falls back safely when provider credentials are missing.</p>
         </div>
         <div className="hero-pills">
@@ -1631,6 +1669,12 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     apiKey: '',
     teamId: '',
   });
+  const [jiraForm, setJiraForm] = useState<JiraConnectRequest>({
+    siteUrl: '',
+    email: '',
+    apiToken: '',
+    projectKey: '',
+  });
   const [cursorForm, setCursorForm] = useState<CursorConnectRequest>({
     apiKey: '',
     model: 'default',
@@ -1644,6 +1688,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     { id: 'provider-status', label: 'Provider status' },
     { id: 'github-settings', label: 'GitHub setup' },
     { id: 'linear-settings', label: 'Linear setup' },
+    { id: 'jira-settings', label: 'Jira setup' },
     { id: 'cursor-settings', label: 'Cursor setup' },
     { id: 'settings-guidance', label: 'Traceability and UX guidance' },
   ];
@@ -1651,6 +1696,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
   useEffect(() => {
     const githubStatus = findIntegrationStatus(query.data?.statuses ?? [], 'github');
     const linearStatus = findIntegrationStatus(query.data?.statuses ?? [], 'linear');
+    const jiraStatus = findIntegrationStatus(query.data?.statuses ?? [], 'jira');
     const cursorStatus = findIntegrationStatus(query.data?.statuses ?? [], 'cursor_cloud_agents');
 
     // Mirror the saved GitHub connection into the setup form defaults.
@@ -1664,6 +1710,14 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     setLinearForm({
       apiKey: '',
       teamId: getConnectionValue(linearStatus, 'teamId'),
+    });
+
+    // Mirror the saved Jira connection into the setup form defaults.
+    setJiraForm({
+      siteUrl: getConnectionValue(jiraStatus, 'siteUrl'),
+      email: getConnectionValue(jiraStatus, 'email'),
+      apiToken: '',
+      projectKey: getConnectionValue(jiraStatus, 'projectKey'),
     });
 
     // Mirror the saved Cursor connection into the setup form defaults.
@@ -1741,6 +1795,32 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
   }
 
   /**
+   * Saves the Jira Cloud setup selected by the user.
+   */
+  async function handleJiraConnect(event: FormEvent<HTMLFormElement>): Promise<void> {
+    // Prevent the browser from performing a full page form submission.
+    event.preventDefault();
+    setActiveSetupId('jira');
+    setMutationError('');
+    setMutationSuccess('');
+
+    try {
+      // Save the Jira Cloud setup for the current signed-in session.
+      await connectJira(jiraForm);
+
+      // Show a success message and refresh the status view.
+      setMutationSuccess('Jira connection saved for this session.');
+      setRefreshKey((currentValue) => currentValue + 1);
+    } catch (caughtError) {
+      // Surface Jira setup failures directly inside the integrations view.
+      setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to connect Jira.');
+    } finally {
+      // Clear the active submit state when the request settles.
+      setActiveSetupId('');
+    }
+  }
+
+  /**
    * Saves the Cursor Cloud Agents setup selected by the user.
    */
   async function handleCursorConnect(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -1772,7 +1852,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
       <section className="hero-panel compact-panel">
         <div>
           <p className="eyebrow">Settings</p>
-          <h3>Manage integrations with a guided, accessible setup flow for GitHub, Linear, and Cursor Cloud Agents.</h3>
+          <h3>Manage integrations with a guided, accessible setup flow for GitHub, Linear, Jira, and Cursor Cloud Agents.</h3>
           <p className="muted-copy">
             Linear traceability: this settings update improves navigation clarity, setup guidance, and review context so operators can tie Git branches, pull requests, and agent runs back to the originating ticket.
           </p>
@@ -1886,6 +1966,62 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
             </form>
           }
         />
+
+        <Panel
+          title="Connect Jira"
+          body={
+            <form aria-describedby="jira-setup-help jira-settings-a11y jira-settings-traceability" className="form-grid" id="jira-settings" onSubmit={(event) => { void handleJiraConnect(event); }}>
+              <p className="muted-copy" id="jira-setup-help">Step 1: add your Jira Cloud site URL. Step 2: add the Atlassian account email and API token. Step 3: add an optional project key if you want intake scoped to one project.</p>
+              <p className="subtle-copy" id="jira-settings-a11y">Accessibility note: use a specific Jira project key when possible so the intake queue remains concise and easier to scan.</p>
+              <p className="subtle-copy" id="jira-settings-traceability">Traceability note: Jira issue keys anchor work from intake through implementation and review evidence.</p>
+              <label className="field-group">
+                <span>Site URL</span>
+                <input
+                  aria-label="Jira Cloud site URL"
+                  onChange={(event) => { setJiraForm({ ...jiraForm, siteUrl: event.target.value }); }}
+                  placeholder="https://your-team.atlassian.net"
+                  type="text"
+                  value={jiraForm.siteUrl}
+                />
+              </label>
+              <label className="field-group">
+                <span>Email</span>
+                <input
+                  aria-label="Jira account email"
+                  onChange={(event) => { setJiraForm({ ...jiraForm, email: event.target.value }); }}
+                  placeholder="you@example.com"
+                  type="email"
+                  value={jiraForm.email}
+                />
+              </label>
+              <label className="field-group">
+                <span>API token</span>
+                <input
+                  aria-label="Jira API token"
+                  onChange={(event) => { setJiraForm({ ...jiraForm, apiToken: event.target.value }); }}
+                  placeholder="Atlassian API token"
+                  type="password"
+                  value={jiraForm.apiToken}
+                />
+              </label>
+              <label className="field-group">
+                <span>Project key</span>
+                <input
+                  aria-label="Jira project key"
+                  onChange={(event) => { setJiraForm({ ...jiraForm, projectKey: event.target.value }); }}
+                  placeholder="Optional project key"
+                  type="text"
+                  value={jiraForm.projectKey}
+                />
+              </label>
+              <div className="form-actions">
+                <button className="primary-button" disabled={activeSetupId === 'jira'} type="submit">
+                  {activeSetupId === 'jira' ? 'Saving Jira...' : 'Connect Jira'}
+                </button>
+              </div>
+            </form>
+          }
+        />
       </section>
 
       <section className="content-grid approvals-grid">
@@ -1893,7 +2029,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
           title="Connect Cursor Cloud Agents"
           body={
             <form aria-describedby="cursor-setup-help cursor-settings-a11y cursor-settings-traceability" className="form-grid" id="cursor-settings" onSubmit={(event) => { void handleCursorConnect(event); }}>
-              <p className="muted-copy" id="cursor-setup-help">Step 1: add a Cursor API key. Step 2: choose a model. Step 3: use Start run on a task to launch a real agent against the connected GitHub repository with the selected Linear issue context.</p>
+              <p className="muted-copy" id="cursor-setup-help">Step 1: add a Cursor API key. Step 2: choose a model. Step 3: use Start run on a task to launch a real agent against the connected GitHub repository with the selected issue context.</p>
               <p className="subtle-copy" id="cursor-settings-a11y">Accessibility note: keep model naming consistent so operators can compare run behavior and evidence with less cognitive load.</p>
               <p className="subtle-copy" id="cursor-settings-traceability">Traceability note: connected agent metadata is surfaced on task detail pages for run-level auditability.</p>
               <label className="field-group">

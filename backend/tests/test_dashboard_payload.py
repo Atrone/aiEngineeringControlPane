@@ -78,17 +78,17 @@ class DashboardPayloadTests(unittest.TestCase):
         self.assertEqual(metrics_by_label["Blocked tasks"]["hint"], "3 unique blocker reasons need follow-up")
 
         # Confirm the merged-today card uses current run-state data instead of a fixture string.
-        self.assertEqual(metrics_by_label["Merged today"]["value"], "0")
+        self.assertEqual(metrics_by_label["Merged today"]["value"], "1")
         self.assertEqual(
             metrics_by_label["Merged today"]["hint"],
-            "No merged runs are recorded in the current session",
+            "1 run reached the merged state in the current session",
         )
 
         # Confirm the review-effort card is derived from the review-ready runtimes.
         self.assertEqual(metrics_by_label["Review effort"]["value"], "11 min")
         self.assertEqual(
             metrics_by_label["Review effort"]["hint"],
-            "Average runtime across 2 runs that reached review or merge",
+            "Average runtime across 3 runs that reached review or merge",
         )
 
         # Confirm the blocked-reasons panel is built from the current blocked and retry runs.

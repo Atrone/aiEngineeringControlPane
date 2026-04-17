@@ -16,6 +16,7 @@ import type {
   IntakeIdentifyRepositoryResponse,
   IntegrationsPayload,
   IntakePayload,
+  JiraConnectRequest,
   LinearConnectRequest,
   RunCreateRequest,
   RunSummary,
@@ -313,6 +314,14 @@ export async function connectGitHub(payload: GitHubConnectRequest): Promise<Inte
 export async function connectLinear(payload: LinearConnectRequest): Promise<IntegrationsPayload> {
   // Save the Linear connection and fetch the refreshed integrations payload.
   return sendJson<IntegrationsPayload, LinearConnectRequest>('/api/integrations/linear/connect', 'POST', payload);
+}
+
+/**
+ * Stores the Jira Cloud setup chosen in the guided integrations flow.
+ */
+export async function connectJira(payload: JiraConnectRequest): Promise<IntegrationsPayload> {
+  // Save the Jira connection and fetch the refreshed integrations payload.
+  return sendJson<IntegrationsPayload, JiraConnectRequest>('/api/integrations/jira/connect', 'POST', payload);
 }
 
 /**

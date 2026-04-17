@@ -17,11 +17,13 @@ from app.providers import get_cursor_agent
 from app.providers import get_integration_statuses
 from app.providers import launch_cursor_agent
 from app.providers import list_github_repositories
+from app.providers import list_jira_issues
 from app.providers import list_linear_issues
 from app.providers import list_repo_documents
 from app.providers import parse_github_pull_request_url
 from app.providers import resolve_current_user
 from app.providers import summarize_repository_names
+from app.providers import update_jira_issue_status
 from app.providers import update_linear_issue_status
 
 
@@ -52,6 +54,8 @@ _TERMINAL_LINEAR_STATUS_NAMES = frozenset(
         "released",
     }
 )
+JIRA_STATUS_IN_PROGRESS = "In Progress"
+JIRA_STATUS_DONE = "Done"
 
 
 def _utc_now() -> datetime:
@@ -734,6 +738,16 @@ def _fallback_documents(settings: Settings) -> List[Dict[str, Any]]:
     return []
 
 
+def _list_connected_issues(settings: Settings) -> List[Dict[str, Any]]:
+    """Builds the combined live issue catalog across connected issue trackers."""
+
+    linear_issues = list_linear_issues(settings)
+    jira_issues = list_jira_issues(settings)
+
+    # Return the combined issue-tracker catalog while preserving provider-local ordering.
+    return [*linear_issues, *jira_issues]
+
+
 def _slugify(value: str) -> str:
     """Creates a stable slug from a task or run title."""
 
@@ -929,7 +943,7 @@ def _build_cursor_prompt(
     docs_block = _build_cursor_docs_block(documents)
     prompt_sections = [
         f"You are launching work for the GitHub repository {repo_full_name}.",
-        "Use the issue context below to scope the implementation and keep the work traceable to the originating Linear ticket.",
+        "Use the issue context below to scope the implementation and keep the work traceable to the originating issue-tracker ticket.",
         issue_block,
         f"Task summary:\n{task_prompt or run.get('summary', 'No task summary was provided.')}",
         f"Acceptance criteria:\n{acceptance_criteria or 'Use the issue details and repository context to determine completion.'}",
@@ -947,6 +961,16 @@ def _build_cursor_prompt(
 
     # Return the composed task prompt that will be sent to the Cursor Cloud Agents API.
     return "\n\n".join(prompt_sections)
+
+
+def _clear_issue_tracker_sync_state(run: Dict[str, Any]) -> None:
+    """Clears any cached issue-tracker sync markers from a run record."""
+
+    # Remove the cached Linear sync marker so the next run state can resync cleanly.
+    run.pop("_linearSyncedStatusName", None)
+
+    # Remove the cached Jira sync marker so the next run state can resync cleanly.
+    run.pop("_jiraSyncedStatusName", None)
 
 
 def _map_cursor_agent_status(cursor_status: str) -> str:
@@ -1157,6 +1181,73 @@ def _sync_linear_issue_status_from_pr(
         run["_linearSyncedStatusName"] = pr_status_name
 
 
+def _sync_jira_issue_status_from_pr(
+    run: Dict[str, Any],
+    *,
+    settings: Settings,
+    pr_state: Dict[str, Any],
+) -> None:
+    """Pushes the mapped PR state into Jira for runs backed by a Jira issue."""
+
+    issue_snapshot = run.get("_issueSnapshot") or {}
+
+    if not isinstance(issue_snapshot, dict):
+        # Skip sync when the run has no structured issue snapshot to target.
+        return
+
+    if str(issue_snapshot.get("provider", "")).strip().lower() != "jira":
+        # Skip sync for fallback or non-Jira issues.
+        return
+
+    issue_id = str(issue_snapshot.get("id", "")).strip()
+
+    if not issue_id:
+        # Skip sync when the issue snapshot does not carry a concrete Jira issue ID.
+        return
+
+    pr_source = str(pr_state.get("source", "")).strip().lower()
+    pr_status_name = ""
+
+    if bool(pr_state.get("merged", False)):
+        # Promote merged PRs into the requested Jira "Done" state.
+        pr_status_name = JIRA_STATUS_DONE
+    elif pr_source == "github":
+        resolved_pr_state = str(pr_state.get("state", "")).strip().lower()
+
+        if resolved_pr_state in {"open", "approved"}:
+            # Treat any open GitHub PR state as "In Progress" for the Jira issue.
+            pr_status_name = JIRA_STATUS_IN_PROGRESS
+
+    if not pr_status_name:
+        # Skip sync when the current PR state does not map to a Jira workflow update.
+        return
+
+    last_synced_status_name = str(run.get("_jiraSyncedStatusName", "")).strip()
+
+    if last_synced_status_name == pr_status_name:
+        # Skip duplicate sync attempts when the target Jira status is already recorded.
+        return
+
+    if update_jira_issue_status(settings, issue_id=issue_id, status_name=pr_status_name):
+        # Cache the applied Jira status so repeated dashboard polls stay idempotent.
+        run["_jiraSyncedStatusName"] = pr_status_name
+
+
+def _sync_issue_tracker_status_from_pr(
+    run: Dict[str, Any],
+    *,
+    settings: Settings,
+    pr_state: Dict[str, Any],
+) -> None:
+    """Routes PR-derived issue status sync to the matching issue tracker provider."""
+
+    # Attempt the Linear sync path when the run originated from Linear.
+    _sync_linear_issue_status_from_pr(run, settings=settings, pr_state=pr_state)
+
+    # Attempt the Jira sync path when the run originated from Jira.
+    _sync_jira_issue_status_from_pr(run, settings=settings, pr_state=pr_state)
+
+
 def _sync_pull_request_status(run: Dict[str, Any], settings: Settings) -> Dict[str, Any]:
     """Updates the run status and approval history based on the current PR state.
 
@@ -1176,7 +1267,7 @@ def _sync_pull_request_status(run: Dict[str, Any], settings: Settings) -> Dict[s
         return {"state": "open", "merged": False, "approved": False, "source": "skipped"}
 
     pr_state = _resolve_pull_request_state(run, settings)
-    _sync_linear_issue_status_from_pr(run, settings=settings, pr_state=pr_state)
+    _sync_issue_tracker_status_from_pr(run, settings=settings, pr_state=pr_state)
 
     if run_status == "Running":
         # Keep actively executing runs in the running state even if a PR already exists.
@@ -1469,9 +1560,8 @@ def _compute_metrics() -> List[Dict[str, str]]:
     review_effort_value = _build_review_effort_value(review_candidate_count, total_review_runtime_seconds)
     active_runs_hint_parts: List[str] = []
 
-    if running_runs:
-        # Call out live runs first since they directly reflect current agent activity.
-        active_runs_hint_parts.append(f"{running_runs} running")
+    # Call out live runs first since they directly reflect current agent activity.
+    active_runs_hint_parts.append(f"{running_runs} running")
 
     if review_ready:
         # Highlight review-ready runs so reviewers know where their inbox stands.
@@ -1537,9 +1627,14 @@ def _build_dashboard_suggested_actions(
     suggested_actions: List[str] = []
     top_blocker = next(iter(blocker_counts), "")
     linear_status = _find_integration_status(integration_statuses, "linear")
+    jira_status = _find_integration_status(integration_statuses, "jira")
     github_status = _find_integration_status(integration_statuses, "github")
     cursor_status = _find_integration_status(integration_statuses, "cursor_cloud_agents")
     docs_status = _find_integration_status(integration_statuses, "repo_docs")
+    issue_tracker_connected = bool(
+        (linear_status and bool(linear_status.get("connected")))
+        or (jira_status and bool(jira_status.get("connected")))
+    )
 
     if review_ready_count:
         # Prompt reviewers to clear the runs already waiting in the approval inbox.
@@ -1555,9 +1650,9 @@ def _build_dashboard_suggested_actions(
             f"Unblock {stalled_runs} stalled run{'s' if stalled_runs != 1 else ''}.{blocker_suffix}"
         )
 
-    if linear_status and not bool(linear_status.get("connected")):
-        # Recommend enabling live Linear tickets when the Linear provider is still disconnected.
-        suggested_actions.append("Connect Linear so dashboard and intake views use real tickets.")
+    if not issue_tracker_connected:
+        # Recommend enabling a live issue tracker when neither Linear nor Jira is connected.
+        suggested_actions.append("Connect Linear or Jira so dashboard and intake views use real tickets.")
     elif github_status and not bool(github_status.get("connected")):
         # Recommend connecting GitHub when real repository launches are still unavailable.
         suggested_actions.append("Connect GitHub so new runs can target real repositories.")
@@ -1586,7 +1681,7 @@ def get_integration_catalog(settings: Settings, headers: Mapping[str, str]) -> D
     """Builds the shared integration catalog used by the intake and integrations views."""
 
     repositories = list_github_repositories(settings)
-    issues = list_linear_issues(settings)
+    issues = _list_connected_issues(settings)
     documents = list_repo_documents(settings)
 
     if not repositories:
@@ -1954,7 +2049,7 @@ def create_run(
                 run.pop("_approvedBy", None)
                 run.pop("_mergedAt", None)
                 run.pop("_pullRequestState", None)
-                run.pop("_linearSyncedStatusName", None)
+                _clear_issue_tracker_sync_state(run)
                 run["evidence"]["commands"] = [f"POST /v0/agents -> {launched_agent.get('id', 'unknown')}"]
                 run["evidence"]["diff"] = ["Waiting for the live Cursor Cloud Agent to produce changes."]
                 run["evidence"]["tests"] = ["Waiting for the live Cursor Cloud Agent to report validation results."]
@@ -1985,7 +2080,7 @@ def create_run(
             run.pop("_approvedBy", None)
             run.pop("_mergedAt", None)
             run.pop("_pullRequestState", None)
-            run.pop("_linearSyncedStatusName", None)
+            _clear_issue_tracker_sync_state(run)
 
             # Return the updated simulated run record.
             return _build_run_extensions(
@@ -2043,7 +2138,7 @@ def record_approval(
                 run.pop("_approvedBy", None)
                 run.pop("_mergedAt", None)
                 run.pop("_pullRequestState", None)
-                run.pop("_linearSyncedStatusName", None)
+                _clear_issue_tracker_sync_state(run)
             elif decision == "re-scope":
                 # Mark re-scoped runs as blocked until the task definition changes.
                 run["status"] = "Blocked"
@@ -2052,7 +2147,7 @@ def record_approval(
                 run.pop("_approvedBy", None)
                 run.pop("_mergedAt", None)
                 run.pop("_pullRequestState", None)
-                run.pop("_linearSyncedStatusName", None)
+                _clear_issue_tracker_sync_state(run)
             else:
                 # Treat all other decisions as escalation to a human engineer.
                 run["status"] = "Blocked"
@@ -2061,7 +2156,7 @@ def record_approval(
                 run.pop("_approvedBy", None)
                 run.pop("_mergedAt", None)
                 run.pop("_pullRequestState", None)
-                run.pop("_linearSyncedStatusName", None)
+                _clear_issue_tracker_sync_state(run)
 
             # Return the updated run with the new approval history.
             return _build_run_extensions(run, current_user=current_user, settings=settings)
