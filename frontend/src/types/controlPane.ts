@@ -210,11 +210,6 @@ export type ApprovalItem = {
   outcomeNeeded: string;
 };
 
-export type PolicyRule = {
-  name: string;
-  value: string;
-};
-
 export type DashboardMetric = {
   label: string;
   value: string;
@@ -240,12 +235,6 @@ export type ApprovalPayload = {
   queue: ApprovalItem[];
   runs: RunSummary[];
   currentUser: CurrentUser;
-};
-
-export type PolicyPayload = {
-  scope: string;
-  version: string;
-  rules: PolicyRule[];
 };
 
 export type IntakePayload = {

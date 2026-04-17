@@ -21,7 +21,6 @@ import {
   fetchDashboardSuggestedActions,
   fetchIntegrations,
   fetchIntakeOptions,
-  fetchPolicies,
   fetchRunDetail,
   hasSessionToken,
   signIn,
@@ -268,7 +267,7 @@ const roleOptions: Array<{ role: UserRole; title: string; description: string }>
   {
     role: 'admin',
     title: 'Admin',
-    description: 'Manage sign-in, policies, integrations, and reviewer workflows.',
+    description: 'Manage sign-in, integrations, and reviewer workflows.',
   },
   {
     role: 'tech_lead',
@@ -389,14 +388,6 @@ function App() {
           />
           <Route
             element={
-              <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Policy center">
-                <PoliciesPage />
-              </RoleGate>
-            }
-            path="/policies"
-          />
-          <Route
-            element={
               <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Settings">
                 <IntegrationsPage currentUser={currentUser} />
               </RoleGate>
@@ -465,11 +456,6 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
           {canReview ? (
             <Link className={getNavLinkClassName(location.pathname, '/approvals')} to="/approvals">
               Approval Inbox
-            </Link>
-          ) : null}
-          {canReview ? (
-            <Link className={getNavLinkClassName(location.pathname, '/policies')} to="/policies">
-              Policy Center
             </Link>
           ) : null}
           {canReview ? (
@@ -1763,73 +1749,6 @@ function ApprovalInboxPage() {
 }
 
 /**
- * Shows the org and repo policy controls for AI runs.
- */
-function PoliciesPage() {
-  const query = useApiQuery(fetchPolicies, []);
-
-  if (query.isLoading) {
-    // Render a loading panel while the current policy pack is fetched.
-    return <LoadingState message="Loading policy pack..." />;
-  }
-
-  if (query.error || !query.data) {
-    // Render a recoverable error panel if the policy request fails.
-    return <ErrorState message={query.error ?? 'Policy data was unavailable.'} />;
-  }
-
-  const ruleCards: ReactNode[] = [];
-
-  // Render the policy pack as readable rules instead of dense admin forms.
-  for (const rule of query.data.rules) {
-    ruleCards.push(
-      <div className="policy-row" key={rule.name}>
-        <h3>{rule.name}</h3>
-        <p className="muted-copy">{rule.value}</p>
-      </div>,
-    );
-  }
-
-  // Emphasize that governance and visibility are core to the product.
-  return (
-    <div className="page-grid">
-      <section className="hero-panel compact-panel">
-        <div>
-          <p className="eyebrow">Policy center</p>
-          <h3>Define what agents can touch, what requires approval, and when runs must stop.</h3>
-        </div>
-        <div className="hero-pills">
-          <span className="pill">Scope: {query.data.scope}</span>
-          <span className="pill">Policy v{query.data.version}</span>
-          <span className="pill">{query.data.rules.length} core rule groups</span>
-        </div>
-      </section>
-
-      <section className="content-grid approvals-grid">
-        <Panel body={<div className="policy-list">{ruleCards}</div>} title="Current rules" />
-
-        <Panel
-          body={
-            <div className="action-stack">
-              <button className="primary-button" type="button">
-                Publish policy
-              </button>
-              <button className="ghost-button" type="button">
-                Save draft
-              </button>
-              <button className="ghost-button" type="button">
-                View audit history
-              </button>
-            </div>
-          }
-          title="Policy actions"
-        />
-      </section>
-    </div>
-  );
-}
-
-/**
  * Shows the integration management view.
  */
 function IntegrationsPage(props: { currentUser: CurrentUser }) {
@@ -2212,11 +2131,11 @@ function buildRoleCapabilityItems(role: UserRole): ReactNode[] {
       ? [
           'Launch work and review approval-ready runs.',
           'Manage guided setup for GitHub, Linear, and docs.',
-          'Publish policy decisions and escalation outcomes.',
+          'Resolve reviewer decisions and escalation outcomes.',
         ]
       : [
           'Access every route in the control pane.',
-          'Manage reviewer workflows, policies, and integrations.',
+          'Manage reviewer workflows and integrations.',
           'Act as the top-level owner for sign-in and governance.',
         ];
   const capabilityItems: ReactNode[] = [];
@@ -2426,7 +2345,7 @@ function AccessDeniedState(props: { currentUser: CurrentUser; title: string }) {
       <p className="eyebrow">Access denied</p>
       <h3>{props.title} is limited to reviewers.</h3>
       <p className="muted-copy">
-        {buildRoleLabel(props.currentUser.role)} sessions can still inspect dashboards and task detail, but only admins and tech leads can manage approvals, policies, and integrations.
+        {buildRoleLabel(props.currentUser.role)} sessions can still inspect dashboards and task detail, but only admins and tech leads can manage approvals and integrations.
       </p>
     </section>
   );
@@ -2932,7 +2851,7 @@ function PullRequestPanelBody(props: { run: RunSummary }) {
  * Wraps page sections in a consistent panel treatment.
  */
 function Panel(props: { title: string; body: ReactNode }) {
-  // Keep content framing consistent across dashboard, review, and policy views.
+  // Keep content framing consistent across dashboard and review views.
   return (
     <section className="panel">
       <div className="panel-header">
