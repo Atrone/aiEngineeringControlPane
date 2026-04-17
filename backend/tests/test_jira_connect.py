@@ -55,7 +55,7 @@ class JiraConnectEndpointTests(unittest.TestCase):
                 # Return a successful auth-check payload for the saved Jira credentials.
                 return {"accountId": "acct-123"}
 
-            if url.endswith("/rest/api/3/search"):
+            if url.endswith("/rest/api/3/search/jql"):
                 # Return a visible Jira issue for both catalog and status refresh reads.
                 return {
                     "issues": [
@@ -143,7 +143,7 @@ class JiraConnectEndpointTests(unittest.TestCase):
                 # Return a successful auth-check payload for the saved Jira credentials.
                 return {"accountId": "acct-456"}
 
-            if url.endswith("/rest/api/3/search"):
+            if url.endswith("/rest/api/3/search/jql"):
                 # Record the JQL used by the Jira issue catalog read.
                 seen_jql_values.append((payload or {}).get("jql", ""))
 
