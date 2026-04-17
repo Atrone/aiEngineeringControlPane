@@ -779,13 +779,13 @@ def _build_cursor_issue_block(issue: Dict[str, Any]) -> str:
         # Add the assignee email so reviewers can trace issue ownership across systems.
         issue_lines.append(f"Assignee Email: {assignee_email}")
 
-    if issue_url:
-        # Add the provider issue URL so the launched agent can reference the exact source ticket.
-        issue_lines.append(f"Issue URL: {issue_url}")
-
     if description:
         # Add the issue description when the originating issue included one.
         issue_lines.append(f"Description: {description}")
+
+    if issue_url:
+        # Add the canonical issue URL so launched agents keep ticket traceability in context.
+        issue_lines.append(f"Issue URL: {issue_url}")
 
     # Return the issue block as a newline-delimited prompt section.
     return "\n".join(issue_lines)
