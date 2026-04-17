@@ -993,9 +993,6 @@ function DashboardPage() {
         <div>
           <p className="eyebrow">Live operations</p>
           <h3>Track AI work across planning, implementation, testing, review, and integration status.</h3>
-          <p className="muted-copy">
-            The dashboard now mixes real provider integrations when configured and safe fallbacks when credentials are absent.
-          </p>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
@@ -1270,7 +1267,6 @@ function WorkIntakePage() {
         <div>
           <p className="eyebrow">Integrated intake</p>
           <h3>Create a new AI work item from GitHub repo context, issue-tracker issues, and repo markdown knowledge.</h3>
-          <p className="muted-copy">This view uses the hybrid integration layer and falls back safely when provider credentials are missing.</p>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
