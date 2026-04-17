@@ -1,5 +1,5 @@
-import type { FormEvent, ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useApiQuery } from './hooks/useApiQuery';
 import {
@@ -389,7 +389,44 @@ function App() {
 function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promise<void> }) {
   const location = useLocation();
   const [isSigningOut, setIsSigningOut] = useState<boolean>(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const canReview = canAccessRole(props.currentUser.role, reviewerRoles);
+
+  useEffect(() => {
+    /**
+     * Closes the mobile navigation drawer when the Escape key is pressed.
+     */
+    function handleEscapeKey(event: globalThis.KeyboardEvent): void {
+      // Ignore non-Escape keys so other shortcuts keep working normally.
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      // Close the drawer only when it is currently open.
+      setIsSidebarOpen(false);
+    }
+
+    // Register the global Escape handler for mobile navigation ergonomics.
+    window.addEventListener('keydown', handleEscapeKey);
+
+    return () => {
+      // Remove the Escape handler when the shell unmounts to avoid leaks.
+      window.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Close the mobile drawer on route changes so the next page starts unobstructed.
+    setIsSidebarOpen(false);
+  }, [location.pathname]);
+
+  /**
+   * Closes the mobile sidebar after a navigation action for a cleaner handoff.
+   */
+  function handlePrimaryNavClick(): void {
+    // Always reset the drawer state so mobile users return to full-width content.
+    setIsSidebarOpen(false);
+  }
 
   /**
    * Signs the user out from the shell header action.
@@ -409,7 +446,15 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
   // Keep the shell visible so the app feels like a real control center.
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
+
+      <aside
+        aria-label="Workspace navigation"
+        className={`sidebar${isSidebarOpen ? ' sidebar-open' : ''}`}
+        id="app-sidebar"
+      >
         <div className="brand-card">
           <p className="eyebrow">AI Control Pane</p>
           <h1>Mission Control</h1>
@@ -419,19 +464,31 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
         </div>
 
         <nav aria-label="Primary" className="nav-list">
-          <Link className={getNavLinkClassName(location.pathname, '/dashboard')} to="/dashboard">
+          <Link
+            className={getNavLinkClassName(location.pathname, '/dashboard')}
+            onClick={handlePrimaryNavClick}
+            to="/dashboard"
+          >
             Dashboard
           </Link>
-          <Link className={getNavLinkClassName(location.pathname, '/intake')} to="/intake">
+          <Link
+            className={getNavLinkClassName(location.pathname, '/intake')}
+            onClick={handlePrimaryNavClick}
+            to="/intake"
+          >
             Work Intake
           </Link>
           {canReview ? (
-            <Link className={getNavLinkClassName(location.pathname, '/settings')} to="/settings">
+            <Link
+              className={getNavLinkClassName(location.pathname, '/settings')}
+              onClick={handlePrimaryNavClick}
+              to="/settings"
+            >
               Settings
             </Link>
           ) : null}
           {location.pathname.startsWith('/tasks/') ? (
-            <Link className="nav-link active" to={location.pathname}>
+            <Link className="nav-link active" onClick={handlePrimaryNavClick} to={location.pathname}>
               Task Detail
             </Link>
           ) : null}
@@ -444,30 +501,52 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
         </div>
       </aside>
 
-      <main className="page-shell">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Product Eng</p>
-            <h2>Team operations view</h2>
-          </div>
-          <div className="topbar-actions">
-            <span className="pill">{buildRoleLabel(props.currentUser.role)}</span>
-            {canReview ? (
-              <Link className="ghost-button link-button" to="/settings">
-                Open settings
-              </Link>
-            ) : null}
-            <Link className="primary-button link-button" to="/intake">
-              New task
-            </Link>
-            <button className="ghost-button" disabled={isSigningOut} onClick={() => { void handleSignOutClick(); }} type="button">
-              {isSigningOut ? 'Signing out...' : 'Sign out'}
-            </button>
-          </div>
-        </header>
+      {isSidebarOpen ? (
+        <button
+          aria-label="Close navigation menu"
+          className="sidebar-overlay"
+          onClick={() => { setIsSidebarOpen(false); }}
+          type="button"
+        />
+      ) : null}
 
-        <Outlet />
-      </main>
+      <div className="app-main">
+        <main className="page-shell" id="main-content" tabIndex={-1}>
+          <header className="topbar">
+            <div className="topbar-leading">
+              <button
+                aria-controls="app-sidebar"
+                aria-expanded={isSidebarOpen}
+                className="ghost-button sidebar-toggle"
+                onClick={() => { setIsSidebarOpen((current) => !current); }}
+                type="button"
+              >
+                Menu
+              </button>
+              <div>
+                <p className="eyebrow">Product Eng</p>
+                <h2>Team operations view</h2>
+              </div>
+            </div>
+            <div className="topbar-actions">
+              <span className="pill">{buildRoleLabel(props.currentUser.role)}</span>
+              {canReview ? (
+                <Link className="ghost-button link-button" onClick={handlePrimaryNavClick} to="/settings">
+                  Open settings
+                </Link>
+              ) : null}
+              <Link className="primary-button link-button" onClick={handlePrimaryNavClick} to="/intake">
+                New task
+              </Link>
+              <button className="ghost-button" disabled={isSigningOut} onClick={() => { void handleSignOutClick(); }} type="button">
+                {isSigningOut ? 'Signing out...' : 'Sign out'}
+              </button>
+            </div>
+          </header>
+
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
@@ -1926,6 +2005,9 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
               <p>When GitHub plus Cursor are connected, the task detail Start run action launches a real Cursor Cloud Agent instead of the local simulator.</p>
               <p>Sessions are stored in memory for this demo, so reconnect after a backend restart.</p>
               <p>UX and design reference: NNG usability heuristics and WCAG 2.2 focus visibility / labeling guidance inform this settings update.</p>
+              <p>
+                SIG-7 frontend revamp: responsive shell navigation, clearer content max-width, and tablist semantics on evidence panels align with common AI product console patterns and WCAG 2.1 guidance.
+              </p>
               <p>Audit trail expectation: keep ticket IDs and provider metadata visible in task, run, and pull-request records for review-ready evidence.</p>
               <div aria-live="polite" className="status-message-region" role="status">
                 {mutationSuccess ? <p className="success-copy">{mutationSuccess}</p> : null}
@@ -2122,7 +2204,7 @@ function IntegrationStatusCard(props: { status: IntegrationStatus }) {
 function LoadingState(props: { message: string }) {
   // Keep loading feedback consistent across screens that fetch backend data.
   return (
-    <section className="panel state-panel">
+    <section aria-busy="true" aria-live="polite" className="panel state-panel" role="status">
       <p className="eyebrow">Loading</p>
       <h3>{props.message}</h3>
       <p className="muted-copy">The UI is waiting for the FastAPI integration layer to respond.</p>
@@ -2136,7 +2218,7 @@ function LoadingState(props: { message: string }) {
 function ErrorState(props: { message: string }) {
   // Keep failed requests visible without breaking the surrounding shell.
   return (
-    <section className="panel state-panel">
+    <section className="panel state-panel" role="alert">
       <p className="eyebrow">Request failed</p>
       <h3>Unable to load this control-pane view.</h3>
       <p className="muted-copy">{props.message}</p>
@@ -2415,18 +2497,87 @@ function LogStream(props: { entries: RunLogEntry[] }) {
  * Renders the tabbed evidence view grouped by diff, tests, and rationale.
  */
 function EvidenceTabPanel(props: { liveView: RunLiveView; activeTab: EvidenceTabId; onTabChange: (tab: EvidenceTabId) => void }) {
+  const evidencePanelId = useId();
   const availableTabs: EvidenceTabId[] = ['diff', 'tests', 'rationale'];
   const activeEntries = props.liveView.evidenceTabs[props.activeTab];
   const tabButtons: ReactNode[] = [];
   const evidenceRows: ReactNode[] = [];
 
+  /**
+   * Builds a stable DOM id for each evidence tab control.
+   */
+  function buildEvidenceTabId(tab: EvidenceTabId): string {
+    // Join the React id prefix with the tab key so each control stays unique in the DOM.
+    return `${evidencePanelId}-${tab}-tab`;
+  }
+
+  /**
+   * Builds a stable DOM id for each evidence tab panel region.
+   */
+  function buildEvidencePanelId(tab: EvidenceTabId): string {
+    // Join the React id prefix with the tab key so each panel stays unique in the DOM.
+    return `${evidencePanelId}-${tab}-panel`;
+  }
+
+  /**
+   * Moves focus across evidence tabs using arrow keys for keyboard parity with mouse users.
+   */
+  function handleEvidenceTabKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    // Ignore keys that are not part of the roving tablist interaction model.
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft' && event.key !== 'Home' && event.key !== 'End') {
+      return;
+    }
+
+    // Prevent the browser from scrolling the page horizontally while changing tabs.
+    event.preventDefault();
+
+    const activeIndex = availableTabs.indexOf(props.activeTab);
+
+    if (activeIndex < 0) {
+      // Bail out when the active tab is not part of the supported tab list.
+      return;
+    }
+
+    let nextIndex = activeIndex;
+
+    if (event.key === 'ArrowRight') {
+      // Advance to the next tab and wrap from the end back to the start.
+      nextIndex = (activeIndex + 1) % availableTabs.length;
+    } else if (event.key === 'ArrowLeft') {
+      // Move to the previous tab and wrap from the start back to the end.
+      nextIndex = (activeIndex - 1 + availableTabs.length) % availableTabs.length;
+    } else if (event.key === 'Home') {
+      // Jump directly to the first tab for faster scanning from the keyboard.
+      nextIndex = 0;
+    } else {
+      // Jump directly to the last tab when End is pressed.
+      nextIndex = availableTabs.length - 1;
+    }
+
+    const nextTab = availableTabs[nextIndex];
+
+    // Update the selected tab so the panel content stays synchronized with focus intent.
+    props.onTabChange(nextTab);
+
+    // Move keyboard focus to the newly selected tab button after React re-renders.
+    window.requestAnimationFrame(() => {
+      document.getElementById(buildEvidenceTabId(nextTab))?.focus();
+    });
+  }
+
   // Render the evidence tab buttons with counts from the current live-view snapshot.
   for (const tab of availableTabs) {
+    const isSelected = tab === props.activeTab;
+
     tabButtons.push(
       <button
-        className={tab === props.activeTab ? 'evidence-tab evidence-tab-active' : 'evidence-tab'}
+        aria-controls={buildEvidencePanelId(tab)}
+        aria-selected={isSelected}
+        className={isSelected ? 'evidence-tab evidence-tab-active' : 'evidence-tab'}
+        id={buildEvidenceTabId(tab)}
         key={tab}
         onClick={() => { props.onTabChange(tab); }}
+        role="tab"
         type="button"
       >
         {buildEvidenceTabLabel(tab)} ({props.liveView.evidenceTabs[tab].length})
@@ -2451,8 +2602,18 @@ function EvidenceTabPanel(props: { liveView: RunLiveView; activeTab: EvidenceTab
   // Return the grouped tab controls and the currently selected evidence list.
   return (
     <div className="evidence-shell">
-      <div className="evidence-tab-list">{tabButtons}</div>
-      {evidenceRows.length > 0 ? <div className="evidence-row-list">{evidenceRows}</div> : <p className="muted-copy">No evidence has streamed into this tab yet.</p>}
+      <div aria-label="Evidence categories" className="evidence-tab-list" onKeyDown={handleEvidenceTabKeyDown} role="tablist">
+        {tabButtons}
+      </div>
+      <div
+        aria-labelledby={buildEvidenceTabId(props.activeTab)}
+        className="evidence-tab-panel"
+        id={buildEvidencePanelId(props.activeTab)}
+        role="tabpanel"
+        tabIndex={0}
+      >
+        {evidenceRows.length > 0 ? <div className="evidence-row-list">{evidenceRows}</div> : <p className="muted-copy">No evidence has streamed into this tab yet.</p>}
+      </div>
     </div>
   );
 }
