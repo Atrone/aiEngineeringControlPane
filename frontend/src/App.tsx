@@ -1766,7 +1766,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
           <p className="eyebrow">Settings</p>
           <h3>Manage integrations with a guided, accessible setup flow for GitHub, Linear, and Cursor Cloud Agents.</h3>
           <p className="muted-copy">
-            SIG-5 traceability: this settings update improves navigation clarity, setup guidance, and review context for better operator usability.
+            Linear traceability: this settings update improves navigation clarity, setup guidance, and review context so operators can tie Git branches, pull requests, and agent runs back to the originating ticket.
           </p>
         </div>
         <div className="hero-pills">
