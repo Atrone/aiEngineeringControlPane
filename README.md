@@ -55,6 +55,7 @@ The integration layer runs in `hybrid` mode:
 - `CONTROL_PANE_DEFAULT_USER_EMAIL`
 - `CONTROL_PANE_DEFAULT_USER_ROLE`
 - `CONTROL_PANE_FRONTEND_URL`
+- `CONTROL_PANE_SESSION_SECRET`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
@@ -73,7 +74,7 @@ When `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` are c
 - Google redirects back to `GET /api/auth/google/callback`
 - the frontend exchanges the short-lived callback code at `POST /api/auth/google/exchange`
 
-Role access is assigned on the backend from the configured email and domain rules with precedence `admin` > `tech_lead` > `engineer`. When Google SSO is not configured, the original guided local sign-in remains available as a fallback.
+Role access is assigned on the backend from the configured email and domain rules with precedence `admin` > `tech_lead` > `engineer`. App sessions now use a signed bearer token so identity survives across backend invocations; set `CONTROL_PANE_SESSION_SECRET` in deployed environments if you do not want to fall back to `GOOGLE_CLIENT_SECRET`. When Google SSO is not configured, the original guided local sign-in remains available as a fallback.
 
 ## Integration API Surface
 The backend now exposes the integration-oriented endpoints from the product spec:
