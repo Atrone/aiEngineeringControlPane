@@ -389,44 +389,7 @@ function App() {
 function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promise<void> }) {
   const location = useLocation();
   const [isSigningOut, setIsSigningOut] = useState<boolean>(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const canReview = canAccessRole(props.currentUser.role, reviewerRoles);
-
-  useEffect(() => {
-    /**
-     * Closes the mobile navigation drawer when the Escape key is pressed.
-     */
-    function handleEscapeKey(event: globalThis.KeyboardEvent): void {
-      // Ignore non-Escape keys so other shortcuts keep working normally.
-      if (event.key !== 'Escape') {
-        return;
-      }
-
-      // Close the drawer only when it is currently open.
-      setIsSidebarOpen(false);
-    }
-
-    // Register the global Escape handler for mobile navigation ergonomics.
-    window.addEventListener('keydown', handleEscapeKey);
-
-    return () => {
-      // Remove the Escape handler when the shell unmounts to avoid leaks.
-      window.removeEventListener('keydown', handleEscapeKey);
-    };
-  }, []);
-
-  useEffect(() => {
-    // Close the mobile drawer on route changes so the next page starts unobstructed.
-    setIsSidebarOpen(false);
-  }, [location.pathname]);
-
-  /**
-   * Closes the mobile sidebar after a navigation action for a cleaner handoff.
-   */
-  function handlePrimaryNavClick(): void {
-    // Always reset the drawer state so mobile users return to full-width content.
-    setIsSidebarOpen(false);
-  }
 
   /**
    * Signs the user out from the shell header action.
@@ -450,11 +413,7 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
         Skip to main content
       </a>
 
-      <aside
-        aria-label="Workspace navigation"
-        className={`sidebar${isSidebarOpen ? ' sidebar-open' : ''}`}
-        id="app-sidebar"
-      >
+      <aside aria-label="Workspace navigation" className="sidebar">
         <div className="brand-card">
           <p className="eyebrow">AI Control Pane</p>
           <h1>Mission Control</h1>
@@ -464,31 +423,19 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
         </div>
 
         <nav aria-label="Primary" className="nav-list">
-          <Link
-            className={getNavLinkClassName(location.pathname, '/dashboard')}
-            onClick={handlePrimaryNavClick}
-            to="/dashboard"
-          >
+          <Link className={getNavLinkClassName(location.pathname, '/dashboard')} to="/dashboard">
             Dashboard
           </Link>
-          <Link
-            className={getNavLinkClassName(location.pathname, '/intake')}
-            onClick={handlePrimaryNavClick}
-            to="/intake"
-          >
+          <Link className={getNavLinkClassName(location.pathname, '/intake')} to="/intake">
             Work Intake
           </Link>
           {canReview ? (
-            <Link
-              className={getNavLinkClassName(location.pathname, '/settings')}
-              onClick={handlePrimaryNavClick}
-              to="/settings"
-            >
+            <Link className={getNavLinkClassName(location.pathname, '/settings')} to="/settings">
               Settings
             </Link>
           ) : null}
           {location.pathname.startsWith('/tasks/') ? (
-            <Link className="nav-link active" onClick={handlePrimaryNavClick} to={location.pathname}>
+            <Link className="nav-link active" to={location.pathname}>
               Task Detail
             </Link>
           ) : null}
@@ -501,28 +448,10 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
         </div>
       </aside>
 
-      {isSidebarOpen ? (
-        <button
-          aria-label="Close navigation menu"
-          className="sidebar-overlay"
-          onClick={() => { setIsSidebarOpen(false); }}
-          type="button"
-        />
-      ) : null}
-
       <div className="app-main">
         <main className="page-shell" id="main-content" tabIndex={-1}>
           <header className="topbar">
             <div className="topbar-leading">
-              <button
-                aria-controls="app-sidebar"
-                aria-expanded={isSidebarOpen}
-                className="ghost-button sidebar-toggle"
-                onClick={() => { setIsSidebarOpen((current) => !current); }}
-                type="button"
-              >
-                Menu
-              </button>
               <div>
                 <p className="eyebrow">Product Eng</p>
                 <h2>Team operations view</h2>
@@ -531,11 +460,11 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
             <div className="topbar-actions">
               <span className="pill">{buildRoleLabel(props.currentUser.role)}</span>
               {canReview ? (
-                <Link className="ghost-button link-button" onClick={handlePrimaryNavClick} to="/settings">
+                <Link className="ghost-button link-button" to="/settings">
                   Open settings
                 </Link>
               ) : null}
-              <Link className="primary-button link-button" onClick={handlePrimaryNavClick} to="/intake">
+              <Link className="primary-button link-button" to="/intake">
                 New task
               </Link>
               <button className="ghost-button" disabled={isSigningOut} onClick={() => { void handleSignOutClick(); }} type="button">
