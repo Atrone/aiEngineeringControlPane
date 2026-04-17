@@ -11,6 +11,8 @@ import type {
   GitHubConnectRequest,
   IntakeEnrichRequest,
   IntakeEnrichResponse,
+  IntakeIdentifyRepositoryRequest,
+  IntakeIdentifyRepositoryResponse,
   IntegrationsPayload,
   IntakePayload,
   LinearConnectRequest,
@@ -243,6 +245,20 @@ export async function fetchIntakeOptions(): Promise<IntakePayload> {
 export async function enrichIntakeField(payload: IntakeEnrichRequest): Promise<IntakeEnrichResponse> {
   // Send the current intake state and target field to the backend enrichment route.
   return sendJson<IntakeEnrichResponse, IntakeEnrichRequest>('/api/intake/enrich', 'POST', payload);
+}
+
+/**
+ * Asks the backend OpenAI route to pick the repository that best fits a work issue.
+ */
+export async function identifyRepositoryForIssue(
+  payload: IntakeIdentifyRepositoryRequest,
+): Promise<IntakeIdentifyRepositoryResponse> {
+  // Send the selected issue ID to the backend so OpenAI can pick the best-fit repository.
+  return sendJson<IntakeIdentifyRepositoryResponse, IntakeIdentifyRepositoryRequest>(
+    '/api/intake/identify-repository',
+    'POST',
+    payload,
+  );
 }
 
 /**

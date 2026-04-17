@@ -13,6 +13,7 @@ import {
   createRun,
   createTask,
   enrichIntakeField,
+  identifyRepositoryForIssue,
   exchangeGoogleAuthCode,
   fetchAuthConfig,
   fetchApprovals,
@@ -772,6 +773,9 @@ function WorkIntakePage() {
   const [enrichingField, setEnrichingField] = useState<IntakeEnrichField | ''>('');
   const [enrichError, setEnrichError] = useState<string>('');
   const [enrichNotice, setEnrichNotice] = useState<string>('');
+  const [isIdentifyingRepo, setIsIdentifyingRepo] = useState<boolean>(false);
+  const [identifyError, setIdentifyError] = useState<string>('');
+  const [identifyNotice, setIdentifyNotice] = useState<string>('');
 
   useEffect(() => {
     if (!query.data) {
@@ -966,6 +970,54 @@ function WorkIntakePage() {
     }
   }
 
+  /**
+   * Calls the backend OpenAI route to pick the repo that best fits the selected issue
+   * and then updates the repository dropdown with the returned match.
+   */
+  async function handleIdentifyRepository(): Promise<void> {
+    // Reset the inline identification status before starting a new request.
+    setIdentifyError('');
+    setIdentifyNotice('');
+
+    if (!selectedIssueId) {
+      // Require a selected issue so OpenAI has something concrete to route against.
+      setIdentifyError('Select an issue before identifying the matching repository.');
+      return;
+    }
+
+    setIsIdentifyingRepo(true);
+
+    try {
+      // Ask the backend to select the repository that best fits the selected issue.
+      const identificationResult = await identifyRepositoryForIssue({ issueId: selectedIssueId });
+
+      // Update the repository dropdown to reflect the AI-suggested match.
+      setSelectedRepoName(identificationResult.repoName);
+
+      // Build a human-readable notice that summarizes the model decision for the UI.
+      const confidenceSuffix =
+        typeof identificationResult.confidence === 'number'
+          ? ` (confidence ${(identificationResult.confidence * 100).toFixed(0)}%)`
+          : '';
+      const reasoningSuffix = identificationResult.reasoning ? ` ${identificationResult.reasoning}` : '';
+      const docsSuffix = identificationResult.docsConsidered
+        ? ` Grounded in repo docs.`
+        : ` No repo docs were available for grounding.`;
+
+      setIdentifyNotice(
+        `Linked to ${identificationResult.repoFullName || identificationResult.repoName} via ${identificationResult.model}${confidenceSuffix}.${reasoningSuffix}${docsSuffix}`,
+      );
+    } catch (caughtError) {
+      // Surface identification failures so the user can retry or adjust configuration.
+      setIdentifyError(
+        caughtError instanceof Error ? caughtError.message : 'Unable to identify the matching repository.',
+      );
+    } finally {
+      // Mark the inline identification request as complete regardless of outcome.
+      setIsIdentifyingRepo(false);
+    }
+  }
+
   // Render the integrated task intake experience.
   return (
     <div className="page-grid">
@@ -995,12 +1047,26 @@ function WorkIntakePage() {
                 </select>
               </label>
 
-              <label className="field-group">
-                <span>Repository</span>
-                <select onChange={(event) => { setSelectedRepoName(event.target.value); }} value={selectedRepoName}>
-                  {repositoryOptions}
-                </select>
-              </label>
+              <div className="field-group field-group-wide">
+                <label className="field-group">
+                  <span>Repository</span>
+                  <select onChange={(event) => { setSelectedRepoName(event.target.value); }} value={selectedRepoName}>
+                    {repositoryOptions}
+                  </select>
+                </label>
+                <div className="enrich-row">
+                  <button
+                    className="ghost-button enrich-button"
+                    disabled={isIdentifyingRepo || enrichingField !== '' || isSubmitting || !selectedIssueId}
+                    onClick={() => { void handleIdentifyRepository(); }}
+                    type="button"
+                  >
+                    {isIdentifyingRepo ? 'Identifying repository...' : 'Identify'}
+                  </button>
+                </div>
+                {identifyError ? <p className="error-copy" role="alert">{identifyError}</p> : null}
+                {identifyNotice && !identifyError ? <p className="muted-copy enrich-notice">{identifyNotice}</p> : null}
+              </div>
 
               <label className="field-group">
                 <span>Execution mode</span>

@@ -1189,6 +1189,251 @@ def enrich_intake_field(
     }
 
 
+def _build_repo_identification_messages(
+    *,
+    issue: Dict[str, Any],
+    repositories: List[Dict[str, Any]],
+    docs_context: str,
+) -> List[Dict[str, str]]:
+    """Builds the OpenAI chat messages for identifying the repo that fits an issue.
+
+    The model is instructed to return a strict JSON object containing the chosen
+    repository name, a confidence score, and a short rationale so the backend
+    can parse it deterministically.
+    """
+
+    # Build a compact, LLM-friendly description of each candidate repository.
+    repo_lines: List[str] = []
+    for repository in repositories:
+        repo_name = str(repository.get("name") or "").strip()
+        full_name = str(repository.get("fullName") or repository.get("full_name") or "").strip()
+        default_branch = str(repository.get("defaultBranch") or repository.get("default_branch") or "").strip()
+        provider = str(repository.get("provider") or "").strip()
+        url = str(repository.get("url") or "").strip()
+
+        # Collapse each candidate into a single line the model can reason over.
+        repo_lines.append(
+            f"- name: {repo_name} | fullName: {full_name or '(n/a)'} | "
+            f"defaultBranch: {default_branch or '(n/a)'} | provider: {provider or '(n/a)'} | url: {url or '(n/a)'}"
+        )
+
+    # Gather the descriptive fields from the issue to ground the match.
+    issue_ticket = str(issue.get("ticket") or "").strip()
+    issue_title = str(issue.get("title") or "").strip()
+    issue_description = str(issue.get("description") or "").strip()
+    issue_status = str(issue.get("status") or "").strip()
+    issue_priority = str(issue.get("priority") or "").strip()
+
+    system_content = (
+        "You are the repository router for the AI Engineering Control Pane. "
+        "Given a work issue and the catalog of integrated repositories, pick the single "
+        "repository that best fits the work described in the issue. "
+        "Only choose from the provided repositories. Do not invent repositories. "
+        "Respond with a JSON object only, no prose, no markdown fences. "
+        "The JSON object must have exactly these keys: "
+        '"repoName" (string, must match one of the candidate names exactly), '
+        '"confidence" (number between 0 and 1), '
+        '"reasoning" (short string explaining the choice).'
+    )
+
+    docs_section = docs_context.strip() or "(no repo docs were available)"
+
+    user_content = (
+        "Issue to route:\n"
+        f"- Ticket: {issue_ticket or '(n/a)'}\n"
+        f"- Title: {issue_title or '(n/a)'}\n"
+        f"- Status: {issue_status or '(n/a)'}\n"
+        f"- Priority: {issue_priority or '(n/a)'}\n"
+        f"- Description: {issue_description or '(n/a)'}\n\n"
+        "Candidate repositories (choose exactly one 'name' value from this list):\n"
+        + ("\n".join(repo_lines) if repo_lines else "(no repositories available)")
+        + "\n\nRepo docs (use these to disambiguate which repo owns the work):\n"
+        f"{docs_section}\n\n"
+        "Return only a JSON object shaped like: "
+        '{"repoName": "<exact name from list>", "confidence": 0.0-1.0, "reasoning": "<short explanation>"}'
+    )
+
+    # Return the chat-completion message list used by the repo identification call.
+    return [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def _parse_repo_identification_response(
+    response_text: str,
+    repositories: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Parses the OpenAI response text into a validated repo identification result.
+
+    Rejects responses that cannot be parsed as JSON or that do not reference
+    a repository that exists in the provided catalog.
+    """
+
+    # Strip common markdown code fences the model sometimes adds despite instructions.
+    cleaned_text = response_text.strip()
+    if cleaned_text.startswith("```"):
+        # Drop the opening fence (optionally followed by a language tag).
+        cleaned_text = cleaned_text.split("\n", 1)[1] if "\n" in cleaned_text else cleaned_text[3:]
+    if cleaned_text.endswith("```"):
+        # Drop the closing fence so the remaining body is valid JSON.
+        cleaned_text = cleaned_text[: -3].rstrip()
+
+    try:
+        # Parse the cleaned response body as JSON so we can validate each field.
+        parsed_payload = json.loads(cleaned_text)
+    except json.JSONDecodeError as decode_error:
+        # Reject non-JSON responses with a readable error for the UI.
+        raise OpenAIEnrichmentError(
+            "OpenAI did not return a JSON repository identification payload."
+        ) from decode_error
+
+    if not isinstance(parsed_payload, dict):
+        # Reject JSON arrays or scalars so only well-formed objects proceed.
+        raise OpenAIEnrichmentError(
+            "OpenAI returned an unexpected shape for repository identification."
+        )
+
+    suggested_repo_name = str(parsed_payload.get("repoName") or "").strip()
+    if not suggested_repo_name:
+        # Reject responses missing the required repository name field.
+        raise OpenAIEnrichmentError(
+            "OpenAI response did not include a repoName value."
+        )
+
+    # Match the suggested name against the provided catalog (case-insensitive fallback).
+    matched_repository: Optional[Dict[str, Any]] = None
+    for repository in repositories:
+        candidate_name = str(repository.get("name") or "").strip()
+        if candidate_name == suggested_repo_name:
+            matched_repository = repository
+            break
+    if matched_repository is None:
+        # Retry with case-insensitive matching so capitalization quirks do not fail the match.
+        lowered_suggestion = suggested_repo_name.lower()
+        for repository in repositories:
+            candidate_name = str(repository.get("name") or "").strip().lower()
+            if candidate_name == lowered_suggestion:
+                matched_repository = repository
+                break
+
+    if matched_repository is None:
+        # Reject suggestions that do not correspond to a known repository.
+        raise OpenAIEnrichmentError(
+            f"OpenAI suggested '{suggested_repo_name}' which is not in the integrated repository catalog."
+        )
+
+    raw_confidence = parsed_payload.get("confidence")
+    confidence_value: Optional[float] = None
+    if isinstance(raw_confidence, (int, float)):
+        # Clamp the confidence value to the [0, 1] range expected by the UI.
+        confidence_value = max(0.0, min(1.0, float(raw_confidence)))
+
+    reasoning_text = str(parsed_payload.get("reasoning") or "").strip()
+
+    # Return the validated identification result for the route handler.
+    return {
+        "repoName": str(matched_repository.get("name") or "").strip(),
+        "repoFullName": str(matched_repository.get("fullName") or matched_repository.get("full_name") or "").strip(),
+        "confidence": confidence_value,
+        "reasoning": reasoning_text,
+    }
+
+
+def identify_repository_for_issue(
+    settings: Settings,
+    *,
+    issue: Dict[str, Any],
+    repositories: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Asks OpenAI to pick the repository that best fits a work intake issue.
+
+    Uses the integrated repository catalog and the repo docs context as grounding
+    so the model can only select from known repositories. Returns a structured
+    payload with the chosen repo name, confidence, reasoning, and model metadata.
+    """
+
+    if not repositories:
+        # Reject calls when no repositories exist to choose from.
+        raise OpenAIEnrichmentError(
+            "No integrated repositories are available to identify against."
+        )
+
+    if not issue:
+        # Reject calls made without an issue to match.
+        raise OpenAIEnrichmentError(
+            "An issue must be selected before identifying a repository."
+        )
+
+    if not settings.openai_api_key:
+        # Reject identification requests when the OpenAI key is not configured.
+        raise OpenAIEnrichmentError(
+            "OpenAI is not configured for this environment. Set OPENAI_API_KEY to enable repository identification."
+        )
+
+    docs_context = _collect_doc_context(settings)
+    messages = _build_repo_identification_messages(
+        issue=issue,
+        repositories=repositories,
+        docs_context=docs_context,
+    )
+
+    request_headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    request_payload: Dict[str, Any] = {
+        "model": settings.openai_model,
+        "messages": messages,
+        "temperature": 0.0,
+        "response_format": {"type": "json_object"},
+    }
+    url = f"{settings.openai_base_url}/chat/completions"
+
+    try:
+        # Call OpenAI so the assistant can pick the best-fit repository for the issue.
+        response_payload = _request_json(
+            url,
+            method="POST",
+            headers=request_headers,
+            payload=request_payload,
+        )
+    except HTTPError as http_error:
+        # Surface upstream rejections with the HTTP status so the UI can display them.
+        try:
+            error_body = http_error.read().decode("utf-8", errors="ignore")
+        except Exception:
+            error_body = ""
+
+        raise OpenAIEnrichmentError(
+            f"OpenAI rejected the repository identification request (status {http_error.code}): "
+            f"{error_body.strip() or http_error.reason}"
+        ) from http_error
+    except URLError as url_error:
+        # Translate transport-level failures into a readable identification error.
+        raise OpenAIEnrichmentError(
+            f"Could not reach OpenAI for repository identification: {url_error.reason}"
+        ) from url_error
+    except json.JSONDecodeError as decode_error:
+        # Reject malformed OpenAI responses with a clear error message.
+        raise OpenAIEnrichmentError(
+            "OpenAI returned a response that could not be parsed as JSON."
+        ) from decode_error
+
+    raw_response_text = _extract_openai_message(response_payload)
+    identification_result = _parse_repo_identification_response(raw_response_text, repositories)
+
+    # Return the chosen repository plus the model metadata the UI may surface.
+    return {
+        "repoName": identification_result["repoName"],
+        "repoFullName": identification_result["repoFullName"],
+        "confidence": identification_result["confidence"],
+        "reasoning": identification_result["reasoning"],
+        "model": settings.openai_model,
+        "docsConsidered": bool(docs_context),
+    }
+
+
 def parse_github_pull_request_url(pull_request_url: str) -> Optional[Dict[str, str]]:
     """Parses a GitHub pull-request URL into owner/repo/number fragments.
 
