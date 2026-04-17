@@ -19,6 +19,7 @@ import {
   fetchApprovals,
   fetchCurrentUser,
   fetchDashboard,
+  fetchDashboardSuggestedActions,
   fetchIntegrations,
   fetchIntakeOptions,
   fetchPolicies,
@@ -850,6 +851,75 @@ function RoleGate(props: { currentUser: CurrentUser; allowedRoles: UserRole[]; t
  */
 function DashboardPage() {
   const query = useApiQuery(fetchDashboard, []);
+  const [suggestedActions, setSuggestedActions] = useState<string[]>([]);
+  const [suggestionsError, setSuggestionsError] = useState<string>('');
+  const [isSuggestionsLoading, setIsSuggestionsLoading] = useState<boolean>(false);
+  const [suggestionsModel, setSuggestionsModel] = useState<string>('');
+
+  // Build a stable, comma-joined key so the effect reruns only when the visible run IDs change.
+  const visibleRunIdsKey = query.data
+    ? query.data.runs
+        .filter((run) => run.issue?.provider === 'linear')
+        .map((run) => run.id)
+        .join(',')
+    : '';
+
+  useEffect(() => {
+    if (!visibleRunIdsKey) {
+      // Skip the suggestions call when there are no visible Linear-linked runs.
+      setSuggestedActions([]);
+      setSuggestionsError('');
+      setSuggestionsModel('');
+      setIsSuggestionsLoading(false);
+      return;
+    }
+
+    let isActive = true;
+    const runIds = visibleRunIdsKey.split(',').filter((id) => id.length > 0);
+
+    setIsSuggestionsLoading(true);
+    setSuggestionsError('');
+
+    /**
+     * Requests OpenAI-generated suggestions for the currently visible runs.
+     */
+    async function loadSuggestions(): Promise<void> {
+      try {
+        // Send the visible run IDs so the backend can prompt OpenAI with matching context.
+        const response = await fetchDashboardSuggestedActions({ runIds });
+
+        if (!isActive) {
+          // Skip state updates when the effect has already been cleaned up.
+          return;
+        }
+
+        setSuggestedActions(response.suggestedActions);
+        setSuggestionsModel(response.model);
+      } catch (error) {
+        if (!isActive) {
+          // Skip state updates when the effect has already been cleaned up.
+          return;
+        }
+
+        const readableMessage = error instanceof Error ? error.message : 'Suggested actions were unavailable.';
+        setSuggestedActions([]);
+        setSuggestionsError(readableMessage);
+        setSuggestionsModel('');
+      } finally {
+        if (isActive) {
+          // Always clear the loading flag once the request settles.
+          setIsSuggestionsLoading(false);
+        }
+      }
+    }
+
+    void loadSuggestions();
+
+    return () => {
+      // Mark the effect as inactive so stale responses do not overwrite fresh state.
+      isActive = false;
+    };
+  }, [visibleRunIdsKey]);
 
   if (query.isLoading) {
     // Render a lightweight loading state while dashboard data is fetched.
@@ -866,7 +936,6 @@ function DashboardPage() {
   const derivedMetrics = deriveDashboardMetrics(linearLinkedRuns);
   const metricCards: ReactNode[] = [];
   const runCards: ReactNode[] = [];
-  const blockedItems: ReactNode[] = [];
   const suggestedItems: ReactNode[] = [];
   const integrationCards: ReactNode[] = [];
 
@@ -900,17 +969,8 @@ function DashboardPage() {
     );
   }
 
-  // Render the blocked reasons in the right rail from API data.
-  for (const reason of query.data.blockedReasons) {
-    blockedItems.push(
-      <p className="rail-item" key={reason}>
-        {reason}
-      </p>,
-    );
-  }
-
-  // Render the suggested next actions in the right rail from API data.
-  for (const action of query.data.suggestedActions) {
+  // Render the OpenAI-generated suggested next actions in the right rail.
+  for (const action of suggestedActions) {
     suggestedItems.push(
       <p className="rail-item" key={action}>
         {action}
@@ -921,6 +981,33 @@ function DashboardPage() {
   // Render provider integration cards so the operator can see live vs fallback modes.
   for (const status of query.data.integrationStatuses) {
     integrationCards.push(<IntegrationStatusCard key={status.id} status={status} />);
+  }
+
+  // Choose the suggestions rail body so loading, error, and empty states all read clearly.
+  let suggestionsBody: ReactNode;
+
+  if (linearLinkedRuns.length === 0) {
+    // Tell the operator that AI suggestions need visible runs first.
+    suggestionsBody = <p className="muted-copy">No live Linear-linked runs are available to generate suggestions from.</p>;
+  } else if (isSuggestionsLoading) {
+    // Surface the OpenAI call in flight so the panel does not look empty while we wait.
+    suggestionsBody = <p className="muted-copy">Generating suggestions from the runs above...</p>;
+  } else if (suggestionsError) {
+    // Surface a readable failure state without replacing the rest of the dashboard.
+    suggestionsBody = <p className="muted-copy">Suggestions were unavailable: {suggestionsError}</p>;
+  } else if (suggestedItems.length === 0) {
+    // Stay resilient to empty OpenAI responses so the panel still renders cleanly.
+    suggestionsBody = <p className="muted-copy">No suggested next actions are available right now.</p>;
+  } else {
+    // Render the list of OpenAI-generated suggestions when everything succeeded.
+    suggestionsBody = (
+      <div>
+        <div className="rail-list">{suggestedItems}</div>
+        {suggestionsModel ? (
+          <p className="subtle-copy">Generated by {suggestionsModel} from the runs above.</p>
+        ) : null}
+      </div>
+    );
   }
 
   // Surface the operational view, queue summary, and blocked context together.
@@ -954,8 +1041,7 @@ function DashboardPage() {
         />
 
         <div className="rail-stack">
-          <Panel body={<div className="rail-list">{blockedItems}</div>} title="Blocked reasons" />
-          <Panel body={<div className="rail-list">{suggestedItems}</div>} title="Suggested next actions" />
+          <Panel body={suggestionsBody} title="Suggested next actions" />
         </div>
       </section>
 

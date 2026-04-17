@@ -1434,6 +1434,210 @@ def identify_repository_for_issue(
     }
 
 
+def _summarize_run_for_suggestions(run: Dict[str, Any]) -> str:
+    """Builds a compact single-run summary line for the suggestions prompt."""
+
+    # Extract the descriptive fields the LLM needs to reason about the run.
+    ticket = str(run.get("ticket") or run.get("id") or "").strip()
+    title = str(run.get("title") or "").strip()
+    status = str(run.get("status") or "").strip()
+    risk = str(run.get("risk") or "").strip()
+    repo = str(run.get("repo") or "").strip()
+    owner = str(run.get("owner") or "").strip()
+    agent = str(run.get("agent") or "").strip()
+    runtime = str(run.get("runtime") or "").strip()
+    current_step = str(run.get("currentStep") or "").strip()
+
+    # Flatten the blocker list so the LLM sees each reason verbatim.
+    blockers_raw = run.get("blockers") or []
+    blocker_texts: List[str] = []
+    for blocker in blockers_raw:
+        blocker_text = str(blocker or "").strip()
+        if blocker_text:
+            blocker_texts.append(blocker_text)
+
+    blockers_text = "; ".join(blocker_texts) if blocker_texts else "none"
+
+    # Pull the PR status and approval context so suggestions can reference merge state.
+    pull_request = run.get("pullRequest") or {}
+    pr_state = str(pull_request.get("state") or pull_request.get("status") or "").strip()
+    pr_merged = bool(pull_request.get("merged", False))
+    pr_approved = bool(pull_request.get("approved", False))
+
+    # Compose a single line that keeps the prompt compact but informative.
+    return (
+        f"- {ticket or '(no ticket)'} | title: {title or '(untitled)'} | status: {status or '(unknown)'} | "
+        f"risk: {risk or '(unknown)'} | repo: {repo or '(unknown)'} | owner: {owner or '(unknown)'} | "
+        f"agent: {agent or '(unknown)'} | runtime: {runtime or '00:00'} | step: {current_step or '(none)'} | "
+        f"blockers: {blockers_text} | pr_state: {pr_state or '(none)'} | pr_approved: {pr_approved} | pr_merged: {pr_merged}"
+    )
+
+
+def _build_suggested_actions_messages(runs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Builds the OpenAI chat messages that request the suggested next actions list."""
+
+    # Convert each visible run into a compact line for the prompt.
+    run_lines: List[str] = []
+    for run in runs:
+        run_lines.append(_summarize_run_for_suggestions(run))
+
+    runs_section = "\n".join(run_lines) if run_lines else "(no runs are currently visible on the dashboard)"
+
+    system_content = (
+        "You are the operations copilot for the AI Engineering Control Pane dashboard. "
+        "Given a snapshot of the runs currently displayed in the 'Active and recent runs' panel, "
+        "produce a short, prioritized list of suggested next actions for the operator. "
+        "Only reason about the runs provided; do not invent integrations, repositories, or policies. "
+        "Prefer actions that unblock stalled runs, clear the review queue, or confirm merges. "
+        "Respond with a JSON object only, no prose, no markdown fences. "
+        "The JSON object must have exactly one key: \"suggestedActions\" whose value is a JSON array of "
+        "1 to 5 short sentences (each sentence ends with a period). "
+        "Each sentence must be actionable, under 140 characters, and clearly tied to the visible runs."
+    )
+
+    user_content = (
+        "Visible runs in the dashboard 'Active and recent runs' container:\n"
+        f"{runs_section}\n\n"
+        "Return JSON shaped like: {\"suggestedActions\": [\"Sentence 1.\", \"Sentence 2.\"]}."
+    )
+
+    # Return the chat-completion message list used by the suggestions call.
+    return [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def _parse_suggested_actions_response(response_text: str) -> List[str]:
+    """Parses the OpenAI response text into a validated suggestions list."""
+
+    # Strip common markdown code fences the model sometimes adds despite instructions.
+    cleaned_text = response_text.strip()
+    if cleaned_text.startswith("```"):
+        # Drop the opening fence (optionally followed by a language tag).
+        cleaned_text = cleaned_text.split("\n", 1)[1] if "\n" in cleaned_text else cleaned_text[3:]
+    if cleaned_text.endswith("```"):
+        # Drop the closing fence so the remaining body is valid JSON.
+        cleaned_text = cleaned_text[: -3].rstrip()
+
+    try:
+        # Parse the cleaned response body as JSON so we can validate each field.
+        parsed_payload = json.loads(cleaned_text)
+    except json.JSONDecodeError as decode_error:
+        # Reject non-JSON responses with a readable error for the UI.
+        raise OpenAIEnrichmentError(
+            "OpenAI did not return a JSON suggestions payload."
+        ) from decode_error
+
+    if not isinstance(parsed_payload, dict):
+        # Reject JSON arrays or scalars so only well-formed objects proceed.
+        raise OpenAIEnrichmentError(
+            "OpenAI returned an unexpected shape for suggested actions."
+        )
+
+    raw_actions = parsed_payload.get("suggestedActions")
+
+    if not isinstance(raw_actions, list):
+        # Reject responses that do not include the expected array field.
+        raise OpenAIEnrichmentError(
+            "OpenAI response did not include a suggestedActions array."
+        )
+
+    suggested_actions: List[str] = []
+
+    # Normalize each entry into a clean sentence, dropping empties and non-strings.
+    for raw_action in raw_actions:
+        if not isinstance(raw_action, str):
+            continue
+
+        action_text = raw_action.strip()
+
+        if not action_text:
+            continue
+
+        # Clamp each suggestion to a sensible length for the dashboard rail.
+        if len(action_text) > 240:
+            action_text = action_text[:237].rstrip() + "..."
+
+        suggested_actions.append(action_text)
+
+    # Clamp the overall list so the dashboard rail stays scannable.
+    return suggested_actions[:5]
+
+
+def suggest_next_actions_for_runs(
+    settings: Settings,
+    *,
+    runs: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Asks OpenAI to produce suggested next actions for the visible dashboard runs.
+
+    The caller should pass the runs currently shown in the dashboard's
+    'Active and recent runs' container so the suggestions stay consistent with
+    what the operator is looking at.
+    """
+
+    if not settings.openai_api_key:
+        # Reject suggestion requests when the OpenAI key is not configured.
+        raise OpenAIEnrichmentError(
+            "OpenAI is not configured for this environment. Set OPENAI_API_KEY to enable suggested actions."
+        )
+
+    messages = _build_suggested_actions_messages(runs)
+
+    request_headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    request_payload: Dict[str, Any] = {
+        "model": settings.openai_model,
+        "messages": messages,
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+    }
+    url = f"{settings.openai_base_url}/chat/completions"
+
+    try:
+        # Call OpenAI so the assistant can propose next actions for the visible runs.
+        response_payload = _request_json(
+            url,
+            method="POST",
+            headers=request_headers,
+            payload=request_payload,
+        )
+    except HTTPError as http_error:
+        # Surface upstream rejections with the HTTP status so the UI can display them.
+        try:
+            error_body = http_error.read().decode("utf-8", errors="ignore")
+        except Exception:
+            error_body = ""
+
+        raise OpenAIEnrichmentError(
+            f"OpenAI rejected the suggested actions request (status {http_error.code}): "
+            f"{error_body.strip() or http_error.reason}"
+        ) from http_error
+    except URLError as url_error:
+        # Translate transport-level failures into a readable suggestions error.
+        raise OpenAIEnrichmentError(
+            f"Could not reach OpenAI for suggested actions: {url_error.reason}"
+        ) from url_error
+    except json.JSONDecodeError as decode_error:
+        # Reject malformed OpenAI responses with a clear error message.
+        raise OpenAIEnrichmentError(
+            "OpenAI returned a response that could not be parsed as JSON."
+        ) from decode_error
+
+    raw_response_text = _extract_openai_message(response_payload)
+    suggested_actions = _parse_suggested_actions_response(raw_response_text)
+
+    # Return the suggestions plus the model metadata the UI may surface.
+    return {
+        "suggestedActions": suggested_actions,
+        "model": settings.openai_model,
+        "runCount": len(runs),
+    }
+
+
 def parse_github_pull_request_url(pull_request_url: str) -> Optional[Dict[str, str]]:
     """Parses a GitHub pull-request URL into owner/repo/number fragments.
 

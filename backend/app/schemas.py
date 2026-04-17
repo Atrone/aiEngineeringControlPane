@@ -96,3 +96,16 @@ class IntakeIdentifyRepositoryRequest(BaseModel):
     issue_id: str = Field(alias="issueId")
 
     model_config = {"populate_by_name": True}
+
+
+class DashboardSuggestedActionsRequest(BaseModel):
+    """Defines the payload used to ask OpenAI for dashboard suggested next actions.
+
+    The caller passes the run IDs currently shown in the dashboard's
+    'Active and recent runs' container so the suggestions stay consistent with
+    what the operator is looking at.
+    """
+
+    run_ids: List[str] = Field(default_factory=list, alias="runIds")
+
+    model_config = {"populate_by_name": True}

@@ -335,3 +335,13 @@ export type IntakeIdentifyRepositoryResponse = {
   model: string;
   docsConsidered: boolean;
 };
+
+export type DashboardSuggestedActionsRequest = {
+  runIds: string[];
+};
+
+export type DashboardSuggestedActionsResponse = {
+  suggestedActions: string[];
+  model: string;
+  runCount: number;
+};
