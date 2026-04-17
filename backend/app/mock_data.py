@@ -134,6 +134,79 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
         },
         "blockers": ["Flaky CI environment"],
     },
+    {
+        "id": "acp-138",
+        "ticket": "ACP-138",
+        "title": "Docs search improvements",
+        "repo": "web-app",
+        "branch": "ai/acp-138-docs-search",
+        "owner": "Lin",
+        "agent": "impl-agent",
+        "runtime": "11:04",
+        "cost": "$2.11",
+        "status": "Merged",
+        "risk": "Low",
+        "currentStep": "Pull request merged",
+        "summary": "Improve docs search ranking and highlight matched sections for faster scanning.",
+        "evidence": {
+            "diff": [
+                "Upgraded docs search ranker to prefer heading matches before body matches.",
+                "Added inline highlighting for matched query fragments in the docs viewer.",
+            ],
+            "tests": [
+                "12 unit tests passed",
+                "4 integration tests passed",
+                "Search benchmark improved by 18%",
+            ],
+            "commands": ["npm run build", "npm run test", "npm run bench:docs-search"],
+            "rationale": [
+                "Heading-weighted ranking aligns with how reviewers scan docs during approvals.",
+                "Inline highlighting keeps the reviewer focused without opening every doc in full.",
+            ],
+        },
+        "blockers": ["No active blockers"],
+        "approvalHistory": [
+            {
+                "decision": "approve",
+                "source": "reviewer",
+                "notes": "Evidence covered ranker and UI updates; merge when CI is green.",
+                "actor": {
+                    "name": "Priya Singh",
+                    "email": "priya@example.com",
+                    "role": "tech_lead",
+                    "provider": "configured_default",
+                },
+                "timestamp": "2026-04-17T09:31:00+00:00",
+            },
+            {
+                "decision": "pr_review_approved",
+                "source": "github",
+                "notes": "GitHub review approved by priya-reviewer",
+                "actor": {
+                    "name": "GitHub",
+                    "email": "noreply@github.com",
+                    "role": "tech_lead",
+                    "provider": "github",
+                },
+                "timestamp": "2026-04-17T09:32:12+00:00",
+            },
+            {
+                "decision": "pr_merged",
+                "source": "github",
+                "notes": "Pull request merged on GitHub",
+                "actor": {
+                    "name": "GitHub",
+                    "email": "noreply@github.com",
+                    "role": "tech_lead",
+                    "provider": "github",
+                },
+                "timestamp": "2026-04-17T09:34:48+00:00",
+            },
+        ],
+        "_approvedAt": "2026-04-17T09:31:00+00:00",
+        "_approvedBy": "Priya Singh",
+        "_mergedAt": "2026-04-17T09:34:48+00:00",
+    },
 ]
 
 APPROVAL_QUEUE: List[Dict[str, str]] = [

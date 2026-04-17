@@ -12,18 +12,29 @@ from app.config import Settings
 from app.mock_data import POLICY_RULES
 from app.mock_data import RUN_SUMMARIES
 from app.providers import CursorAgentError
+from app.providers import fetch_github_pull_request_status
 from app.providers import get_cursor_agent
 from app.providers import get_integration_statuses
 from app.providers import launch_cursor_agent
 from app.providers import list_github_repositories
 from app.providers import list_linear_issues
 from app.providers import list_repo_documents
+from app.providers import parse_github_pull_request_url
 from app.providers import resolve_current_user
 from app.providers import summarize_repository_names
 
 
 RUN_STORE: List[Dict[str, Any]] = deepcopy(RUN_SUMMARIES)
 STREAM_STEP_SECONDS = 4
+# Seconds between reviewer approval and the simulated GitHub PR merge event.
+SIMULATED_PR_MERGE_DELAY_SECONDS = 12
+# Actor payload used when a GitHub webhook-like event is synthesized in the approval history.
+GITHUB_APPROVAL_ACTOR: Dict[str, str] = {
+    "name": "GitHub",
+    "email": "noreply@github.com",
+    "role": "tech_lead",
+    "provider": "github",
+}
 
 
 def _utc_now() -> datetime:
@@ -287,8 +298,10 @@ def _build_static_timeline(run: Dict[str, Any]) -> List[Dict[str, str]]:
         },
         {
             "id": "final",
-            "title": "Approved and merged"
+            "title": "Merged"
             if run["status"] == "Merged"
+            else "Approved - awaiting merge"
+            if run["status"] == "Approved"
             else "Run blocked"
             if run["status"] == "Blocked"
             else "Retry prepared"
@@ -531,10 +544,19 @@ def _build_static_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
     evidence = run.get("evidence", {})
     test_status = "blocked" if run["status"] == "Blocked" else "captured"
 
+    if run["status"] == "Review":
+        static_status_label = "Awaiting decision"
+    elif run["status"] == "Approved":
+        static_status_label = "Approved - awaiting PR merge"
+    elif run["status"] == "Merged":
+        static_status_label = "Pull request merged"
+    else:
+        static_status_label = "Execution complete"
+
     # Return the completed execution view for runs that are no longer actively streaming.
     return {
         "isLive": False,
-        "statusLabel": "Awaiting decision" if run["status"] == "Review" else "Execution complete",
+        "statusLabel": static_status_label,
         "lastUpdatedAt": _utc_timestamp(),
         "timeline": _build_static_timeline(run),
         "logs": _build_static_logs(run),
@@ -845,12 +867,252 @@ def _map_cursor_agent_status(cursor_status: str) -> str:
     return "Running"
 
 
+def _resolve_pull_request_url(run: Dict[str, Any]) -> str:
+    """Resolves the pull-request URL recorded for the given run."""
+
+    cloud_agent = run.get("_cursorAgent") or {}
+    target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
+    pull_request_url = str(target_payload.get("prUrl", "") or "").strip()
+
+    if pull_request_url:
+        # Prefer the live Cursor-created PR URL when the run was launched against GitHub.
+        return pull_request_url
+
+    # Fall back to a deterministic example URL so the demo data still links somewhere.
+    return f"https://github.com/example/{run['repo']}/pull/{run['ticket'].lower()}"
+
+
+def _is_real_github_pull_request_url(pull_request_url: str) -> bool:
+    """Reports whether the run is pointing at a real GitHub PR URL."""
+
+    parsed_components = parse_github_pull_request_url(pull_request_url)
+
+    if not parsed_components:
+        # Return False when the URL does not resolve to a real GitHub PR link.
+        return False
+
+    # Treat the example.com / example placeholders as fake so simulation stays in charge.
+    return parsed_components.get("owner", "").lower() != "example"
+
+
+def _simulated_pull_request_state(run: Dict[str, Any]) -> Dict[str, Any]:
+    """Computes the simulated GitHub PR state payload for a run.
+
+    The simulation advances the PR through open -> approved -> merged based on
+    the timestamps we record on the run after reviewer decisions.
+    """
+
+    simulated_state: Dict[str, Any] = {
+        "source": "simulated",
+        "state": "open",
+        "merged": False,
+        "mergedAt": None,
+        "approved": False,
+        "approvedAt": None,
+        "approvedBy": None,
+    }
+
+    approved_at_value = str(run.get("_approvedAt", "") or "").strip()
+    merged_at_value = str(run.get("_mergedAt", "") or "").strip()
+
+    if approved_at_value:
+        # Surface the reviewer-driven approval as the baseline PR state.
+        simulated_state["approved"] = True
+        simulated_state["approvedAt"] = approved_at_value
+        simulated_state["state"] = "approved"
+        simulated_state["approvedBy"] = str(run.get("_approvedBy", "") or "") or None
+
+    if merged_at_value:
+        # Promote the PR into the merged state once a recorded merge timestamp exists.
+        simulated_state["merged"] = True
+        simulated_state["mergedAt"] = merged_at_value
+        simulated_state["state"] = "merged"
+
+        # Return early; merged is terminal so no additional auto-advance is needed.
+        return simulated_state
+
+    if approved_at_value:
+        approved_at_datetime = _parse_timestamp(approved_at_value)
+        elapsed_since_approval = (_utc_now() - approved_at_datetime).total_seconds()
+
+        if elapsed_since_approval >= SIMULATED_PR_MERGE_DELAY_SECONDS:
+            # Auto-advance the simulated PR into the merged state after the configured delay.
+            simulated_merge_timestamp = (
+                approved_at_datetime + timedelta(seconds=SIMULATED_PR_MERGE_DELAY_SECONDS)
+            ).isoformat()
+            simulated_state["merged"] = True
+            simulated_state["mergedAt"] = simulated_merge_timestamp
+            simulated_state["state"] = "merged"
+
+    # Return the simulated PR state payload for the state machine.
+    return simulated_state
+
+
+def _resolve_pull_request_state(run: Dict[str, Any], settings: Settings) -> Dict[str, Any]:
+    """Resolves the PR state for a run using live GitHub data or the simulation."""
+
+    pull_request_url = _resolve_pull_request_url(run)
+
+    if _is_real_github_pull_request_url(pull_request_url):
+        # Prefer real GitHub data when the run is linked to a real repository PR.
+        live_pull_request_state = fetch_github_pull_request_status(settings, pull_request_url)
+
+        if live_pull_request_state:
+            # Return the live GitHub PR state so the state machine uses real events.
+            return live_pull_request_state
+
+    # Fall back to the simulated PR state for demo and offline runs.
+    return _simulated_pull_request_state(run)
+
+
+def _approval_history_has_entry(history: List[Dict[str, Any]], decision: str, source: str) -> bool:
+    """Reports whether the approval history already contains a matching event."""
+
+    # Scan the history for an existing entry with the same decision and source tuple.
+    for entry in history:
+        if str(entry.get("decision", "")) == decision and str(entry.get("source", "")) == source:
+            # Return True so the caller knows the event was already recorded.
+            return True
+
+    # Return False when the event has not yet been recorded in the approval history.
+    return False
+
+
+def _append_pull_request_event(
+    run: Dict[str, Any],
+    *,
+    decision: str,
+    source: str,
+    notes: str,
+    timestamp: Optional[str],
+    actor: Optional[Dict[str, str]] = None,
+) -> None:
+    """Appends a pull-request-derived approval history entry if missing."""
+
+    history = list(run.get("approvalHistory", []))
+
+    if _approval_history_has_entry(history, decision, source):
+        # Skip duplicate entries so repeated polling does not re-record the same event.
+        return
+
+    history.append(
+        {
+            "decision": decision,
+            "source": source,
+            "notes": notes,
+            "actor": deepcopy(actor) if actor else deepcopy(GITHUB_APPROVAL_ACTOR),
+            "timestamp": timestamp or _utc_timestamp(),
+        }
+    )
+
+    run["approvalHistory"] = history
+
+
+def _sync_pull_request_status(run: Dict[str, Any], settings: Settings) -> Dict[str, Any]:
+    """Updates the run status and approval history based on the current PR state.
+
+    The state machine only advances runs that are in Review, Approved, or Merged.
+    Runs that are still running, blocked, or in retry are returned untouched so
+    the rest of the pipeline can continue to manage them.
+    """
+
+    run_status = str(run.get("status", ""))
+
+    if run_status not in {"Review", "Approved", "Merged"}:
+        # Return an empty PR state when the run is not a review-candidate yet.
+        return {"state": "open", "merged": False, "approved": False, "source": "skipped"}
+
+    pr_state = _resolve_pull_request_state(run, settings)
+
+    if run_status == "Merged":
+        # Skip further transitions for runs already in the terminal merged state.
+        run["_pullRequestState"] = pr_state
+        return pr_state
+
+    if pr_state.get("approved") and run_status == "Review":
+        approved_by_login = str(pr_state.get("approvedBy", "") or "").strip()
+        review_note = (
+            f"GitHub review approved by {approved_by_login}"
+            if approved_by_login
+            else "GitHub review approved the pull request"
+        )
+
+        _append_pull_request_event(
+            run,
+            decision="pr_review_approved",
+            source=pr_state.get("source", "github"),
+            notes=review_note,
+            timestamp=str(pr_state.get("approvedAt") or ""),
+        )
+
+        # Promote Review runs into Approved once the PR was approved upstream.
+        run["status"] = "Approved"
+        run["currentStep"] = "Pull request approved - awaiting merge"
+        run["blockers"] = ["Awaiting pull-request merge on GitHub"]
+        run_status = "Approved"
+
+    if pr_state.get("merged"):
+        _append_pull_request_event(
+            run,
+            decision="pr_merged",
+            source=pr_state.get("source", "github"),
+            notes="Pull request merged on GitHub",
+            timestamp=str(pr_state.get("mergedAt") or ""),
+        )
+
+        # Promote Approved runs into Merged once the PR has been merged upstream.
+        run["status"] = "Merged"
+        run["currentStep"] = "Pull request merged"
+        run["blockers"] = ["No active blockers"]
+        run["_mergedAt"] = str(pr_state.get("mergedAt") or _utc_timestamp())
+
+    run["_pullRequestState"] = pr_state
+
+    # Return the PR state used to advance the run so callers can reuse it.
+    return pr_state
+
+
+def _build_pull_request_view(run: Dict[str, Any], pr_state: Dict[str, Any]) -> Dict[str, Any]:
+    """Builds the public pull-request payload shown in the task detail UI."""
+
+    run_status = str(run.get("status", ""))
+    pull_request_url = _resolve_pull_request_url(run)
+    resolved_state = str(pr_state.get("state", "open"))
+
+    if pr_state.get("source") == "skipped":
+        # Keep pre-review runs in the original draft/ready-for-review states.
+        display_status = "draft" if run_status == "Running" else "ready_for_review"
+    elif resolved_state == "merged":
+        display_status = "merged"
+    elif resolved_state == "approved":
+        display_status = "approved"
+    elif resolved_state == "closed":
+        display_status = "closed"
+    else:
+        display_status = "draft" if run_status == "Running" else "open"
+
+    # Return the extended pull-request payload used by the frontend.
+    return {
+        "number": pr_state.get("number") or run["ticket"],
+        "status": display_status,
+        "state": resolved_state if pr_state.get("source") != "skipped" else display_status,
+        "url": pr_state.get("htmlUrl") or pull_request_url,
+        "merged": bool(pr_state.get("merged", False)),
+        "mergedAt": pr_state.get("mergedAt"),
+        "approved": bool(pr_state.get("approved", False)),
+        "approvedAt": pr_state.get("approvedAt"),
+        "approvedBy": pr_state.get("approvedBy"),
+        "source": pr_state.get("source", "simulated"),
+    }
+
+
 def _build_run_extensions(
     run: Dict[str, Any],
     *,
     issue: Optional[Dict[str, Any]] = None,
     documents: Optional[List[Dict[str, Any]]] = None,
     current_user: Optional[Dict[str, str]] = None,
+    settings: Optional[Settings] = None,
 ) -> Dict[str, Any]:
     """Adds integration context fields to a run record."""
 
@@ -870,13 +1132,20 @@ def _build_run_extensions(
         "provider": "fallback",
     }
     cloud_agent = deepcopy(run.get("_cursorAgent"))
-    target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
-    pull_request_url = str(target_payload.get("prUrl", "")).strip()
-    pull_request = {
-        "number": run["ticket"],
-        "status": "draft" if run["status"] == "Running" else "ready_for_review",
-        "url": pull_request_url or f"https://github.com/example/{run['repo']}/pull/{run['ticket'].lower()}",
-    }
+
+    if settings is not None:
+        # Advance the PR state machine before building the public run payload.
+        pr_state = _sync_pull_request_status(run, settings)
+    else:
+        # Fall back to a previously cached PR state when the caller did not pass settings.
+        pr_state = deepcopy(run.get("_pullRequestState")) or {
+            "state": "open",
+            "merged": False,
+            "approved": False,
+            "source": "skipped",
+        }
+
+    pull_request = _build_pull_request_view(run, pr_state)
     ci_status = {
         "workflow": "CI",
         "status": "blocked" if run["status"] == "Blocked" else "passed",
@@ -918,6 +1187,7 @@ def _is_actionable_blocker(blocker: str) -> bool:
         "waiting for reviewer decision",
         "cursor cloud agent is still running",
         "reviewer controls unlock after the live agent finishes",
+        "awaiting pull-request merge on github",
     }
 
     # Return true only when the blocker adds real operator context.
@@ -998,6 +1268,7 @@ def _compute_metrics() -> List[Dict[str, str]]:
     running_runs = 0
     blocked_runs = 0
     merged_runs = 0
+    approved_runs = 0
     review_ready = 0
     review_candidate_count = 0
     total_review_runtime_seconds = 0
@@ -1007,7 +1278,7 @@ def _compute_metrics() -> List[Dict[str, str]]:
     for run in RUN_STORE:
         status = str(run.get("status", ""))
 
-        if status in {"Running", "Review", "Blocked", "Retry"}:
+        if status in {"Running", "Review", "Approved", "Blocked", "Retry"}:
             # Count non-terminal runs as active.
             active_runs += 1
 
@@ -1023,19 +1294,37 @@ def _compute_metrics() -> List[Dict[str, str]]:
             # Count merged runs for the daily summary card.
             merged_runs += 1
 
+        if status == "Approved":
+            # Count runs that are approved but still waiting for the PR to merge.
+            approved_runs += 1
+
         if status == "Review":
             # Count review-ready runs for reviewer load visibility.
             review_ready += 1
 
-        if status in {"Review", "Merged"}:
-            # Include review-ready and merged runs in the review-effort estimate.
+        if status in {"Review", "Approved", "Merged"}:
+            # Include review-ready, approved, and merged runs in the review-effort estimate.
             review_candidate_count += 1
             total_review_runtime_seconds += _parse_runtime_seconds(str(run.get("runtime", "00:00")))
 
     review_effort_value = _build_review_effort_value(review_candidate_count, total_review_runtime_seconds)
+    active_runs_hint_parts: List[str] = []
+
+    if running_runs:
+        # Call out live runs first since they directly reflect current agent activity.
+        active_runs_hint_parts.append(f"{running_runs} running")
+
+    if review_ready:
+        # Highlight review-ready runs so reviewers know where their inbox stands.
+        active_runs_hint_parts.append(f"{review_ready} waiting for review")
+
+    if approved_runs:
+        # Surface approved-but-not-merged runs so operators can watch PR merge state.
+        active_runs_hint_parts.append(f"{approved_runs} approved awaiting merge")
+
     active_runs_hint = (
-        f"{running_runs} running, {review_ready} waiting for review"
-        if active_runs
+        ", ".join(active_runs_hint_parts)
+        if active_runs_hint_parts
         else "No active runs are currently in flight"
     )
     blocked_runs_hint = (
@@ -1181,6 +1470,7 @@ def get_dashboard_payload(settings: Settings, headers: Mapping[str, str]) -> Dic
                 run,
                 documents=documents,
                 current_user=integration_catalog["currentUser"],
+                settings=settings,
             )
         )
 
@@ -1217,6 +1507,7 @@ def get_run_detail(run_id: str, settings: Settings, headers: Mapping[str, str]) 
                 run,
                 documents=documents,
                 current_user=integration_catalog["currentUser"],
+                settings=settings,
             )
 
     # Raise a key error when the requested run does not exist.
@@ -1241,6 +1532,7 @@ def get_approval_payload(settings: Settings, headers: Mapping[str, str]) -> Dict
                 run,
                 documents=integration_catalog["documents"][:2],
                 current_user=integration_catalog["currentUser"],
+                settings=settings,
             )
         )
 
@@ -1378,6 +1670,7 @@ def create_task(
         issue=issue,
         documents=selected_documents,
         current_user=current_user,
+        settings=settings,
     )
 
 
@@ -1447,6 +1740,10 @@ def create_run(
                 run["_executionMode"] = str(payload.get("executionMode", "implement"))
                 run["_cursorAgent"] = launched_agent
                 run["_cursorPromptSummary"] = f"Launched Cursor Cloud Agent {launched_agent.get('id', 'unknown')} for {issue.get('ticket', run['ticket'])}."
+                run.pop("_approvedAt", None)
+                run.pop("_approvedBy", None)
+                run.pop("_mergedAt", None)
+                run.pop("_pullRequestState", None)
                 run["evidence"]["commands"] = [f"POST /v0/agents -> {launched_agent.get('id', 'unknown')}"]
                 run["evidence"]["diff"] = ["Waiting for the live Cursor Cloud Agent to produce changes."]
                 run["evidence"]["tests"] = ["Waiting for the live Cursor Cloud Agent to report validation results."]
@@ -1460,6 +1757,7 @@ def create_run(
                     issue=issue,
                     documents=documents,
                     current_user=current_user,
+                    settings=settings,
                 )
 
             run["status"] = "Running"
@@ -1472,6 +1770,10 @@ def create_run(
             run["_executionMode"] = str(payload.get("executionMode", "implement"))
             run.pop("_cursorAgent", None)
             run.pop("_cursorPromptSummary", None)
+            run.pop("_approvedAt", None)
+            run.pop("_approvedBy", None)
+            run.pop("_mergedAt", None)
+            run.pop("_pullRequestState", None)
 
             # Return the updated simulated run record.
             return _build_run_extensions(
@@ -1479,6 +1781,7 @@ def create_run(
                 issue=issue,
                 documents=documents,
                 current_user=current_user,
+                settings=settings,
             )
 
     # Raise a key error when the task ID cannot be found.
@@ -1499,35 +1802,54 @@ def record_approval(
     # Search the in-memory run store for the run being approved or redirected.
     for run in RUN_STORE:
         if run["id"] == payload["runId"]:
+            approval_timestamp = _utc_timestamp()
             approval_entry = {
                 "decision": decision,
+                "source": "reviewer",
                 "notes": notes,
                 "actor": current_user,
-                "timestamp": _utc_timestamp(),
+                "timestamp": approval_timestamp,
             }
             history = list(run.get("approvalHistory", []))
             history.append(approval_entry)
             run["approvalHistory"] = history
 
             if decision == "approve":
-                # Mark approved runs as merged in the simplified workflow.
-                run["status"] = "Merged"
-                run["currentStep"] = "Approved and promoted into merge flow"
+                # Mark the run as reviewer-approved and hand control to the PR merge watcher.
+                run["status"] = "Approved"
+                run["currentStep"] = "Approved by reviewer - awaiting pull request merge"
+                run["blockers"] = ["Awaiting pull-request merge on GitHub"]
+                run["_approvedAt"] = approval_timestamp
+                run["_approvedBy"] = current_user.get("name", "")
+                run.pop("_mergedAt", None)
+                run.pop("_pullRequestState", None)
             elif decision == "retry":
                 # Mark retry decisions so the queue can keep tracking the task.
                 run["status"] = "Retry"
                 run["currentStep"] = "Awaiting another agent attempt"
+                run.pop("_approvedAt", None)
+                run.pop("_approvedBy", None)
+                run.pop("_mergedAt", None)
+                run.pop("_pullRequestState", None)
             elif decision == "re-scope":
                 # Mark re-scoped runs as blocked until the task definition changes.
                 run["status"] = "Blocked"
                 run["currentStep"] = "Waiting on updated scope"
+                run.pop("_approvedAt", None)
+                run.pop("_approvedBy", None)
+                run.pop("_mergedAt", None)
+                run.pop("_pullRequestState", None)
             else:
                 # Treat all other decisions as escalation to a human engineer.
                 run["status"] = "Blocked"
                 run["currentStep"] = "Escalated to a human engineer"
+                run.pop("_approvedAt", None)
+                run.pop("_approvedBy", None)
+                run.pop("_mergedAt", None)
+                run.pop("_pullRequestState", None)
 
             # Return the updated run with the new approval history.
-            return _build_run_extensions(run, current_user=current_user)
+            return _build_run_extensions(run, current_user=current_user, settings=settings)
 
     # Raise a key error when the run ID cannot be found.
     raise KeyError(payload["runId"])
