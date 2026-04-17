@@ -14,6 +14,8 @@ import type {
   IntakeEnrichResponse,
   IntakeIdentifyRepositoryRequest,
   IntakeIdentifyRepositoryResponse,
+  IntakeIssueScopingRequest,
+  IntakeIssueScopingResponse,
   IntegrationsPayload,
   IntakePayload,
   JiraConnectRequest,
@@ -263,6 +265,20 @@ export async function identifyRepositoryForIssue(
   // Send the selected issue ID to the backend so OpenAI can pick the best-fit repository.
   return sendJson<IntakeIdentifyRepositoryResponse, IntakeIdentifyRepositoryRequest>(
     '/api/intake/identify-repository',
+    'POST',
+    payload,
+  );
+}
+
+/**
+ * Asks the backend OpenAI route to separate intake issues by scope quality.
+ */
+export async function classifyIntakeIssuesByScope(
+  payload: IntakeIssueScopingRequest,
+): Promise<IntakeIssueScopingResponse> {
+  // Send the visible issue IDs so the backend can classify the current intake list.
+  return sendJson<IntakeIssueScopingResponse, IntakeIssueScopingRequest>(
+    '/api/intake/issue-scoping',
     'POST',
     payload,
   );

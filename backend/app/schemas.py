@@ -107,6 +107,14 @@ class IntakeIdentifyRepositoryRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class IntakeIssueScopingRequest(BaseModel):
+    """Defines the payload used to ask OpenAI which issues are well scoped."""
+
+    issue_ids: List[str] = Field(default_factory=list, alias="issueIds")
+
+    model_config = {"populate_by_name": True}
+
+
 class DashboardSuggestedActionsRequest(BaseModel):
     """Defines the payload used to ask OpenAI for dashboard suggested next actions.
 
