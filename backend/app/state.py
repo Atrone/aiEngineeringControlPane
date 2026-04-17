@@ -1524,6 +1524,57 @@ def get_run_detail(run_id: str, settings: Settings, headers: Mapping[str, str]) 
     raise KeyError(run_id)
 
 
+def get_runs_by_ids(
+    run_ids: List[str],
+    settings: Settings,
+    headers: Mapping[str, str],
+) -> List[Dict[str, Any]]:
+    """Returns enriched run payloads for a specific set of run IDs.
+
+    Preserves the order of the provided IDs and silently skips any IDs that do
+    not correspond to a record in the in-memory run store so the caller can
+    pass a snapshot of the dashboard's visible runs without worrying about
+    stale references.
+    """
+
+    if not run_ids:
+        # Return an empty list when the caller passed no IDs to look up.
+        return []
+
+    integration_catalog = get_integration_catalog(settings, headers)
+    runs_by_id: Dict[str, Dict[str, Any]] = {}
+
+    # Index the current run store by ID so lookups stay O(n) instead of O(n*m).
+    for run in RUN_STORE:
+        run_id_value = str(run.get("id") or "")
+        if run_id_value:
+            runs_by_id[run_id_value] = run
+
+    resolved_runs: List[Dict[str, Any]] = []
+
+    # Preserve the caller-provided ordering while skipping unknown IDs.
+    for requested_id in run_ids:
+        run = runs_by_id.get(str(requested_id))
+
+        if run is None:
+            # Skip IDs that no longer exist in the run store.
+            continue
+
+        _sync_run_progress(run, settings)
+        documents = integration_catalog["documents"][:2]
+        resolved_runs.append(
+            _build_run_extensions(
+                run,
+                documents=documents,
+                current_user=integration_catalog["currentUser"],
+                settings=settings,
+            )
+        )
+
+    # Return the resolved run payloads in the requested order.
+    return resolved_runs
+
+
 def get_approval_payload(settings: Settings, headers: Mapping[str, str]) -> Dict[str, Any]:
     """Builds the approval inbox payload from the current run state."""
 

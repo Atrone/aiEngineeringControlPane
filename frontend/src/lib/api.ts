@@ -6,6 +6,8 @@ import type {
   CurrentUser,
   CursorConnectRequest,
   DashboardPayload,
+  DashboardSuggestedActionsRequest,
+  DashboardSuggestedActionsResponse,
   DocsConnectRequest,
   GoogleAuthExchangeRequest,
   GitHubConnectRequest,
@@ -197,6 +199,20 @@ export async function signOut(): Promise<void> {
 export async function fetchDashboard(): Promise<DashboardPayload> {
   // Load the top-level mission control data from the backend.
   return getJson<DashboardPayload>('/api/dashboard');
+}
+
+/**
+ * Requests OpenAI-generated suggested next actions for the visible dashboard runs.
+ */
+export async function fetchDashboardSuggestedActions(
+  payload: DashboardSuggestedActionsRequest,
+): Promise<DashboardSuggestedActionsResponse> {
+  // Send the visible run IDs so the backend can prompt OpenAI with matching context.
+  return sendJson<DashboardSuggestedActionsResponse, DashboardSuggestedActionsRequest>(
+    '/api/dashboard/suggested-actions',
+    'POST',
+    payload,
+  );
 }
 
 /**

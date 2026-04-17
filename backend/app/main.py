@@ -35,6 +35,7 @@ from app.auth import sign_out_session
 from app.config import get_settings
 from app.schemas import ApprovalDecisionRequest
 from app.schemas import CursorConnectRequest
+from app.schemas import DashboardSuggestedActionsRequest
 from app.schemas import DocsConnectRequest
 from app.schemas import GitHubConnectRequest
 from app.schemas import GoogleAuthExchangeRequest
@@ -47,6 +48,7 @@ from app.schemas import TaskCreateRequest
 from app.providers import OpenAIEnrichmentError
 from app.providers import enrich_intake_field
 from app.providers import identify_repository_for_issue
+from app.providers import suggest_next_actions_for_runs
 from app.state import create_run
 from app.state import create_task
 from app.state import get_approval_payload
@@ -55,6 +57,7 @@ from app.state import get_integrations_payload
 from app.state import get_intake_payload
 from app.state import get_policy_payload
 from app.state import get_run_detail
+from app.state import get_runs_by_ids
 from app.state import record_approval
 
 
@@ -337,6 +340,32 @@ def get_dashboard(request: Request) -> Dict[str, Any]:
 
     # Return the high-level metrics and active run feed for the dashboard.
     return get_dashboard_payload(effective_settings, request_headers)
+
+
+@app.post("/dashboard/suggested-actions")
+@app.post("/api/dashboard/suggested-actions")
+def post_dashboard_suggested_actions(
+    payload: DashboardSuggestedActionsRequest,
+    request: Request,
+) -> Dict[str, Any]:
+    """Returns OpenAI-generated suggested next actions for the visible dashboard runs.
+
+    The caller passes the run IDs currently shown in the dashboard's
+    'Active and recent runs' container so the suggestions stay consistent with
+    what the operator is looking at.
+    """
+
+    effective_settings, request_headers, _ = _authorized_request(request)
+
+    # Resolve the requested run IDs into enriched run payloads before prompting.
+    visible_runs = get_runs_by_ids(payload.run_ids, effective_settings, request_headers)
+
+    try:
+        # Call OpenAI to produce suggested next actions grounded in the visible runs.
+        return suggest_next_actions_for_runs(effective_settings, runs=visible_runs)
+    except OpenAIEnrichmentError as suggestion_error:
+        # Translate OpenAI-side rejections into a readable upstream error response.
+        raise HTTPException(status_code=502, detail=str(suggestion_error)) from suggestion_error
 
 
 @app.get("/runs/{run_id}")
