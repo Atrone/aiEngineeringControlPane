@@ -57,6 +57,214 @@ import type {
 
 const reviewerRoles: UserRole[] = ['admin', 'tech_lead'];
 type EvidenceTabId = keyof RunEvidenceTabs;
+const ignoredBlockerReasons: Set<string> = new Set([
+  'none',
+  'no active blockers',
+  'awaiting run start',
+  'streaming execution in progress',
+  'reviewer controls will unlock after the run completes',
+  'waiting for reviewer decision',
+  'cursor cloud agent is still running',
+  'reviewer controls unlock after the live agent finishes',
+  'awaiting pull-request merge on github',
+]);
+
+/**
+ * Reports whether a blocker string should contribute to the dashboard summaries.
+ */
+function isActionableBlocker(blocker: string): boolean {
+  // Normalize the blocker text so the ignore list can use lower-case keys.
+  const normalized = blocker.trim().toLowerCase();
+
+  if (!normalized) {
+    // Ignore empty blocker text so summary counts stay meaningful.
+    return false;
+  }
+
+  // Return true only when the blocker adds real operator context.
+  return !ignoredBlockerReasons.has(normalized);
+}
+
+/**
+ * Converts an mm:ss runtime string into total seconds for metric math.
+ */
+function parseRuntimeSeconds(runtime: string): number {
+  // Split on the first colon to extract minute and second fragments.
+  const [minuteText, secondText] = runtime.split(':');
+
+  if (secondText === undefined) {
+    // Fall back to zero seconds when the runtime does not follow the expected format.
+    return 0;
+  }
+
+  const minutes = Number.parseInt(minuteText, 10);
+  const seconds = Number.parseInt(secondText, 10);
+
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+    // Fall back to zero seconds when the runtime fragments are not numeric.
+    return 0;
+  }
+
+  // Clamp to a non-negative total so metric math stays sane.
+  return Math.max(0, minutes * 60 + seconds);
+}
+
+/**
+ * Collects unique actionable blocker reasons across Blocked and Retry runs.
+ */
+function collectBlockerReasons(runs: RunSummary[]): Set<string> {
+  const reasons = new Set<string>();
+
+  // Scan the visible runs for blocker reasons that deserve dashboard visibility.
+  for (const run of runs) {
+    if (run.status !== 'Blocked' && run.status !== 'Retry') {
+      // Skip runs that are not currently stalled.
+      continue;
+    }
+
+    let hasExplicitBlocker = false;
+
+    // Record each actionable blocker captured on the run record.
+    for (const blocker of run.blockers) {
+      const text = String(blocker);
+
+      if (isActionableBlocker(text)) {
+        reasons.add(text.trim());
+        hasExplicitBlocker = true;
+      }
+    }
+
+    if (hasExplicitBlocker) {
+      // Skip the current-step fallback when explicit blockers already exist.
+      continue;
+    }
+
+    const currentStep = run.currentStep.trim();
+
+    if (isActionableBlocker(currentStep)) {
+      // Record the current step when the run has no better blocker data.
+      reasons.add(currentStep);
+    }
+  }
+
+  // Return the distinct blocker reasons surfaced by the visible runs.
+  return reasons;
+}
+
+/**
+ * Formats the review-effort metric value from review candidate runtimes.
+ */
+function formatReviewEffortValue(candidateCount: number, totalRuntimeSeconds: number): string {
+  if (candidateCount === 0) {
+    // Return a stable zero state when no visible runs have reached review yet.
+    return '0 min';
+  }
+
+  const averageSeconds = Math.round(totalRuntimeSeconds / candidateCount);
+  const averageMinutes = Math.max(1, Math.round(averageSeconds / 60));
+
+  // Return the average runtime in minutes for the dashboard metric value.
+  return `${averageMinutes} min`;
+}
+
+/**
+ * Derives the four dashboard metric cards from the runs shown in the dashboard feed.
+ */
+function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
+  let activeRuns = 0;
+  let runningRuns = 0;
+  let reviewReadyRuns = 0;
+  let approvedRuns = 0;
+  let blockedRuns = 0;
+  let mergedRuns = 0;
+  let reviewCandidateCount = 0;
+  let totalReviewRuntimeSeconds = 0;
+
+  // Aggregate the run counts needed by the dashboard cards.
+  for (const run of runs) {
+    const { status } = run;
+
+    if (status === 'Running' || status === 'Review' || status === 'Approved' || status === 'Blocked' || status === 'Retry') {
+      // Count non-terminal runs as active.
+      activeRuns += 1;
+    }
+
+    if (status === 'Running') {
+      // Count live runs that are still actively executing.
+      runningRuns += 1;
+    }
+
+    if (status === 'Review') {
+      // Count review-ready runs for reviewer load visibility.
+      reviewReadyRuns += 1;
+    }
+
+    if (status === 'Approved') {
+      // Count runs that are approved but still waiting for the PR to merge.
+      approvedRuns += 1;
+    }
+
+    if (status === 'Blocked') {
+      // Count blocked runs for the operational dashboard.
+      blockedRuns += 1;
+    }
+
+    if (status === 'Merged') {
+      // Count merged runs for the daily summary card.
+      mergedRuns += 1;
+    }
+
+    if (status === 'Review' || status === 'Approved' || status === 'Merged') {
+      // Include review-ready, approved, and merged runs in the review-effort estimate.
+      reviewCandidateCount += 1;
+      totalReviewRuntimeSeconds += parseRuntimeSeconds(run.runtime);
+    }
+  }
+
+  const blockerReasons = collectBlockerReasons(runs);
+  const activeRunsHintParts: string[] = [];
+
+  if (runningRuns > 0) {
+    // Call out live runs first since they directly reflect current agent activity.
+    activeRunsHintParts.push(`${runningRuns} running`);
+  }
+
+  if (reviewReadyRuns > 0) {
+    // Highlight review-ready runs so reviewers know where their inbox stands.
+    activeRunsHintParts.push(`${reviewReadyRuns} waiting for review`);
+  }
+
+  if (approvedRuns > 0) {
+    // Surface approved-but-not-merged runs so operators can watch PR merge state.
+    activeRunsHintParts.push(`${approvedRuns} approved awaiting merge`);
+  }
+
+  const activeRunsHint = activeRunsHintParts.length > 0
+    ? activeRunsHintParts.join(', ')
+    : 'No active runs are currently in flight';
+
+  const blockedReasonCount = blockerReasons.size;
+  const blockedRunsHint = blockedRuns > 0 || blockedReasonCount > 0
+    ? `${blockedReasonCount} unique blocker reason${blockedReasonCount === 1 ? '' : 's'} need follow-up`
+    : 'No blocked runs currently need follow-up';
+
+  const mergedRunsHint = mergedRuns > 0
+    ? `${mergedRuns} run${mergedRuns === 1 ? '' : 's'} reached the merged state in the current session`
+    : 'No merged runs are recorded in the current session';
+
+  const reviewEffortHint = reviewCandidateCount > 0
+    ? `Average runtime across ${reviewCandidateCount} run${reviewCandidateCount === 1 ? '' : 's'} that reached review or merge`
+    : 'No review-ready or merged runs are available to estimate review effort';
+
+  // Return the derived dashboard metrics in the same order as the backend payload.
+  return [
+    { label: 'Active runs', value: String(activeRuns), hint: activeRunsHint },
+    { label: 'Blocked tasks', value: String(blockedRuns), hint: blockedRunsHint },
+    { label: 'Merged today', value: String(mergedRuns), hint: mergedRunsHint },
+    { label: 'Review effort', value: formatReviewEffortValue(reviewCandidateCount, totalReviewRuntimeSeconds), hint: reviewEffortHint },
+  ];
+}
+
 const roleOptions: Array<{ role: UserRole; title: string; description: string }> = [
   {
     role: 'admin',
@@ -655,6 +863,7 @@ function DashboardPage() {
 
   // Limit the dashboard run feed to runs backed by real Linear issues.
   const linearLinkedRuns = query.data.runs.filter((run) => run.issue?.provider === 'linear');
+  const derivedMetrics = deriveDashboardMetrics(linearLinkedRuns);
   const metricCards: ReactNode[] = [];
   const runCards: ReactNode[] = [];
   const blockedItems: ReactNode[] = [];
@@ -662,7 +871,7 @@ function DashboardPage() {
   const integrationCards: ReactNode[] = [];
 
   // Build cards explicitly so the UI stays easy to reshape later.
-  for (const metric of query.data.metrics) {
+  for (const metric of derivedMetrics) {
     metricCards.push(<MetricCard hint={metric.hint} key={metric.label} label={metric.label} value={metric.value} />);
   }
 
