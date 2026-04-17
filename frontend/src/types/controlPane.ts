@@ -14,10 +14,19 @@ export type AuthSession = {
   currentUser: CurrentUser;
 };
 
+export type AuthConfig = {
+  googleSsoEnabled: boolean;
+  guidedSignInEnabled: boolean;
+};
+
 export type SignInRequest = {
   name: string;
   email: string;
   role: UserRole;
+};
+
+export type GoogleAuthExchangeRequest = {
+  code: string;
 };
 
 export type RepositoryRecord = {

@@ -41,6 +41,12 @@ class SignInRequest(BaseModel):
     role: str
 
 
+class GoogleAuthExchangeRequest(BaseModel):
+    """Defines the payload used to exchange a Google callback code for a session."""
+
+    code: str
+
+
 class GitHubConnectRequest(BaseModel):
     """Defines the payload used to connect GitHub during guided setup."""
 

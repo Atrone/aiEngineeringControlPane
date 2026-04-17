@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import replace
+import time
 from secrets import token_urlsafe
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
@@ -16,6 +17,10 @@ from app.providers import normalize_linear_api_key
 
 ALLOWED_ROLES: Sequence[str] = ("admin", "tech_lead", "engineer")
 SESSION_STORE: Dict[str, "SessionRecord"] = {}
+GOOGLE_STATE_STORE: Dict[str, float] = {}
+GOOGLE_EXCHANGE_CODE_STORE: Dict[str, "GoogleExchangeRecord"] = {}
+GOOGLE_STATE_TTL_SECONDS = 600
+GOOGLE_EXCHANGE_CODE_TTL_SECONDS = 300
 
 
 @dataclass
@@ -35,6 +40,16 @@ class SessionRecord:
     cursor_api_key: str = ""
     cursor_model: str = "default"
     docs_directory: str = ""
+
+
+@dataclass
+class GoogleExchangeRecord:
+    """Stores a short-lived post-OAuth exchange code before a session is minted."""
+
+    name: str
+    email: str
+    role: str
+    expires_at: float
 
 
 def _normalize_role(role: str) -> str:
@@ -80,11 +95,218 @@ def _extract_bearer_token(headers: Mapping[str, str]) -> Optional[str]:
     return None
 
 
-def create_session(name: str, email: str, role: str) -> Dict[str, Any]:
-    """Creates a new in-memory session for the guided sign-in flow."""
+def _normalize_email(email: str) -> str:
+    """Normalizes an email address for auth checks and role resolution."""
+
+    # Return the lowercased email string so comparisons stay stable.
+    return email.strip().lower()
+
+
+def _extract_email_domain(email: str) -> str:
+    """Extracts the email domain used by Google access and role rules."""
+
+    normalized_email = _normalize_email(email)
+
+    if "@" not in normalized_email:
+        # Return an empty domain when the caller passed an invalid email.
+        return ""
+
+    # Return the domain portion after the at-sign for rule matching.
+    return normalized_email.split("@", 1)[1]
+
+
+def _normalize_rule_values(values: Sequence[str]) -> List[str]:
+    """Normalizes configured rule values into a case-insensitive list."""
+
+    normalized_values: List[str] = []
+
+    # Normalize every configured value so matching stays case-insensitive.
+    for value in values:
+        normalized_value = value.strip().lower()
+
+        if normalized_value:
+            # Keep only non-empty normalized rule values.
+            normalized_values.append(normalized_value)
+
+    # Return the filtered and normalized rule values.
+    return normalized_values
+
+
+def _prune_expired_google_records() -> None:
+    """Deletes expired Google OAuth state and exchange records from memory."""
+
+    current_time = time.time()
+
+    # Remove expired state tokens so replay windows stay short.
+    for state_token, expires_at in list(GOOGLE_STATE_STORE.items()):
+        if expires_at <= current_time:
+            # Drop the expired state token from the in-memory store.
+            GOOGLE_STATE_STORE.pop(state_token, None)
+
+    # Remove expired exchange codes before they can be reused.
+    for exchange_code, record in list(GOOGLE_EXCHANGE_CODE_STORE.items()):
+        if record.expires_at <= current_time:
+            # Drop the expired exchange code from the in-memory store.
+            GOOGLE_EXCHANGE_CODE_STORE.pop(exchange_code, None)
+
+
+def is_google_sso_enabled(settings: Settings) -> bool:
+    """Reports whether the backend has enough configuration to run Google SSO."""
+
+    # Return true only when the required Google OAuth settings are all present.
+    return bool(settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri)
+
+
+def create_google_oauth_state() -> str:
+    """Creates a short-lived OAuth state token for the Google redirect flow."""
+
+    _prune_expired_google_records()
+    state_token = token_urlsafe(24)
+
+    # Persist the state token with a short expiration to block CSRF replay.
+    GOOGLE_STATE_STORE[state_token] = time.time() + GOOGLE_STATE_TTL_SECONDS
+    return state_token
+
+
+def consume_google_oauth_state(state_token: str) -> None:
+    """Consumes a Google OAuth state token and rejects invalid or expired values."""
+
+    _prune_expired_google_records()
+    normalized_state_token = state_token.strip()
+    expires_at = GOOGLE_STATE_STORE.pop(normalized_state_token, None)
+
+    if expires_at and expires_at > time.time():
+        # Accept the state token once and only once when it is still valid.
+        return
+
+    # Reject missing, reused, or expired state tokens to protect the callback flow.
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The Google sign-in request is no longer valid.")
+
+
+def _email_matches_rule(email: str, emails: Sequence[str], domains: Sequence[str]) -> bool:
+    """Reports whether an email matches configured exact-email or domain rules."""
+
+    normalized_email = _normalize_email(email)
+    normalized_domain = _extract_email_domain(normalized_email)
+    allowed_emails = _normalize_rule_values(emails)
+    allowed_domains = _normalize_rule_values(domains)
+
+    if normalized_email in allowed_emails:
+        # Match exact email rules before considering broader domain rules.
+        return True
+
+    if normalized_domain in allowed_domains:
+        # Match a configured domain rule when the email domain is allowed.
+        return True
+
+    # Report no match when neither the email nor its domain are configured.
+    return False
+
+
+def resolve_google_role(settings: Settings, email: str) -> str:
+    """Maps a Google account to an application role using configured rules."""
+
+    normalized_email = _normalize_email(email)
+
+    if _email_matches_rule(normalized_email, settings.google_admin_emails, settings.google_admin_domains):
+        # Prefer the admin role when an account matches multiple configured rules.
+        return "admin"
+
+    if _email_matches_rule(normalized_email, settings.google_tech_lead_emails, settings.google_tech_lead_domains):
+        # Map the next-highest reviewer role when the account is a tech lead.
+        return "tech_lead"
+
+    if _email_matches_rule(normalized_email, settings.google_engineer_emails, settings.google_engineer_domains):
+        # Fall back to the engineer role when that is the first matching rule.
+        return "engineer"
+
+    # Reject accounts that are authenticated with Google but not authorized in the app.
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Your Google account is not authorized for this control pane.",
+    )
+
+
+def validate_google_identity(settings: Settings, identity_payload: Mapping[str, Any]) -> Dict[str, str]:
+    """Validates the Google identity payload and resolves the app-specific role."""
+
+    audience = str(identity_payload.get("aud", "")).strip()
+    verified_email = str(identity_payload.get("email_verified", "")).strip().lower()
+    email = _normalize_email(str(identity_payload.get("email", "")))
+    hosted_domain = str(identity_payload.get("hd", "")).strip().lower()
+    name = str(identity_payload.get("name", "")).strip()
+    email_domain = _extract_email_domain(email)
+
+    if audience != settings.google_client_id:
+        # Reject tokens minted for a different Google OAuth client.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="The Google identity token was not issued for this app.")
+
+    if verified_email not in {"true", "1"}:
+        # Reject identities whose Google email address has not been verified.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Your Google email address must be verified before signing in.")
+
+    if not email:
+        # Reject malformed Google identity payloads that omit the user's email.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google did not return a usable email address.")
+
+    if settings.google_hosted_domain and hosted_domain != settings.google_hosted_domain.strip().lower():
+        # Reject accounts outside the configured Google Workspace hosted domain.
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Sign-in is limited to the configured Google Workspace domain.")
+
+    if settings.google_allowed_domains:
+        allowed_domains = _normalize_rule_values(settings.google_allowed_domains)
+
+        if email_domain not in allowed_domains:
+            # Reject accounts whose email domain is not on the allowed-domain list.
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your Google account domain is not allowed for this control pane.")
+
+    resolved_role = resolve_google_role(settings, email)
+    resolved_name = name or email.split("@", 1)[0]
+
+    # Return the normalized Google identity the app uses to create a session.
+    return {
+        "name": resolved_name,
+        "email": email,
+        "role": resolved_role,
+    }
+
+
+def store_google_exchange_code(name: str, email: str, role: str) -> str:
+    """Stores a short-lived code that the frontend can exchange for an app session."""
+
+    _prune_expired_google_records()
+    exchange_code = token_urlsafe(24)
+
+    # Persist the resolved Google identity until the frontend completes the exchange step.
+    GOOGLE_EXCHANGE_CODE_STORE[exchange_code] = GoogleExchangeRecord(
+        name=name.strip(),
+        email=_normalize_email(email),
+        role=_normalize_role(role),
+        expires_at=time.time() + GOOGLE_EXCHANGE_CODE_TTL_SECONDS,
+    )
+    return exchange_code
+
+
+def consume_google_exchange_code(exchange_code: str) -> Dict[str, Any]:
+    """Consumes a short-lived Google exchange code and creates an app session."""
+
+    _prune_expired_google_records()
+    normalized_exchange_code = exchange_code.strip()
+    record = GOOGLE_EXCHANGE_CODE_STORE.pop(normalized_exchange_code, None)
+
+    if record and record.expires_at > time.time():
+        # Convert the one-time exchange code into the standard app session payload.
+        return create_session(record.name, record.email, record.role, provider="google_sso")
+
+    # Reject missing, reused, or expired exchange codes before creating a session.
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The Google sign-in response is no longer valid.")
+
+
+def create_session(name: str, email: str, role: str, provider: str = "guided_sign_in") -> Dict[str, Any]:
+    """Creates a new in-memory session for either guided sign-in or Google SSO."""
 
     normalized_name = name.strip()
-    normalized_email = email.strip().lower()
+    normalized_email = _normalize_email(email)
     normalized_role = _normalize_role(role)
 
     if not normalized_name or not normalized_email:
@@ -97,6 +319,7 @@ def create_session(name: str, email: str, role: str) -> Dict[str, Any]:
         name=normalized_name,
         email=normalized_email,
         role=normalized_role,
+        provider=provider.strip() or "guided_sign_in",
     )
 
     # Persist the newly created session in the in-memory store.

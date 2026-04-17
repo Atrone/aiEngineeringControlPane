@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useApiQuery } from './hooks/useApiQuery';
 import {
+  beginGoogleSignIn,
   connectCursor,
   clearSessionToken,
   connectDocs,
@@ -11,6 +12,8 @@ import {
   createApprovalDecision,
   createRun,
   createTask,
+  exchangeGoogleAuthCode,
+  fetchAuthConfig,
   fetchApprovals,
   fetchCurrentUser,
   fetchDashboard,
@@ -25,6 +28,7 @@ import {
 import type {
   ApprovalDecisionRequest,
   ApprovalItem,
+  AuthConfig,
   CurrentUser,
   CursorConnectRequest,
   DashboardMetric,
@@ -149,6 +153,10 @@ function App() {
       <Route
         element={currentUser ? <Navigate replace to="/dashboard" /> : <SignInPage onSignedIn={handleSignedIn} />}
         path="/sign-in"
+      />
+      <Route
+        element={currentUser ? <Navigate replace to="/dashboard" /> : <GoogleAuthCallbackPage onSignedIn={handleSignedIn} />}
+        path="/auth/callback"
       />
       {currentUser ? (
         <Route element={<RootLayout currentUser={currentUser} onSignedOut={handleSignedOut} />}>
@@ -293,12 +301,59 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
  */
 function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
   const navigate = useNavigate();
+  const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
+  const [isLoadingAuthConfig, setIsLoadingAuthConfig] = useState<boolean>(true);
+  const [authConfigError, setAuthConfigError] = useState<string>('');
   const [name, setName] = useState<string>('Maya Chen');
   const [email, setEmail] = useState<string>('maya.chen@example.com');
   const [role, setRole] = useState<UserRole>('tech_lead');
   const [submitError, setSubmitError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const roleCapabilityItems = buildRoleCapabilityItems(role);
+  const googleSsoEnabled = authConfig?.googleSsoEnabled ?? false;
+  const guidedSignInEnabled = authConfig?.guidedSignInEnabled ?? true;
+
+  useEffect(() => {
+    let isActive = true;
+
+    /**
+     * Loads the available sign-in methods for the current backend environment.
+     */
+    async function loadAuthConfig(): Promise<void> {
+      try {
+        // Read the public auth configuration so the sign-in screen can render the right flow.
+        const loadedAuthConfig = await fetchAuthConfig();
+
+        if (isActive) {
+          // Save the backend auth configuration once it has been loaded successfully.
+          setAuthConfig(loadedAuthConfig);
+          setAuthConfigError('');
+        }
+      } catch (caughtError) {
+        if (isActive) {
+          // Fall back to guided sign-in when the public auth config cannot be loaded.
+          setAuthConfig({
+            googleSsoEnabled: false,
+            guidedSignInEnabled: true,
+          });
+          setAuthConfigError(caughtError instanceof Error ? caughtError.message : 'Unable to load the available sign-in methods.');
+        }
+      } finally {
+        if (isActive) {
+          // Mark the auth-config lookup as complete after the request settles.
+          setIsLoadingAuthConfig(false);
+        }
+      }
+    }
+
+    // Load the available sign-in methods once when the sign-in screen mounts.
+    void loadAuthConfig();
+
+    return () => {
+      // Ignore late auth-config responses after the sign-in screen unmounts.
+      isActive = false;
+    };
+  }, []);
 
   /**
    * Creates the guided sign-in session from the submitted identity form.
@@ -333,66 +388,201 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
     }
   }
 
+  /**
+   * Starts the browser redirect flow for Google SSO.
+   */
+  function handleGoogleSignInClick(): void {
+    setSubmitError('');
+
+    // Redirect the browser to the backend route that begins Google OAuth.
+    beginGoogleSignIn();
+  }
+
   // Present the signed-out auth shell and role guidance together.
   return (
     <div className="auth-shell">
       <section className="auth-panel auth-panel-hero">
-        <p className="eyebrow">Guided sign-in</p>
-        <h1>Choose your role before you enter mission control.</h1>
+        <p className="eyebrow">{googleSsoEnabled ? 'Google SSO' : 'Guided sign-in'}</p>
+        <h1>{googleSsoEnabled ? 'Sign in with Google to enter mission control.' : 'Choose your role before you enter mission control.'}</h1>
         <p className="muted-copy">
-          This demo now signs users in, maps them to roles, and unlocks guided connection flows for GitHub, Linear, and docs.
+          {googleSsoEnabled
+            ? 'Your Google account will be mapped to an app role from the backend email and domain rules before the session is created.'
+            : 'This demo now signs users in, maps them to roles, and unlocks guided connection flows for GitHub, Linear, and docs.'}
         </p>
-        <div className="auth-role-grid">
-          {roleOptions.map((roleOption) => (
-            <button
-              className={roleOption.role === role ? 'role-card role-card-active' : 'role-card'}
-              key={roleOption.role}
-              onClick={() => { setRole(roleOption.role); }}
-              type="button"
-            >
-              <strong>{roleOption.title}</strong>
-              <span className="muted-copy">{roleOption.description}</span>
-            </button>
-          ))}
-        </div>
+
+        {googleSsoEnabled ? (
+          <div className="stacked-copy">
+            <p className="muted-copy">Reviewer and operator access now comes from configured Google role-mapping rules instead of a client-selected role.</p>
+            <p className="muted-copy">Use a Google account that has already been mapped to `admin`, `tech_lead`, or `engineer` on the backend.</p>
+          </div>
+        ) : (
+          <div className="auth-role-grid">
+            {roleOptions.map((roleOption) => (
+              <button
+                className={roleOption.role === role ? 'role-card role-card-active' : 'role-card'}
+                key={roleOption.role}
+                onClick={() => { setRole(roleOption.role); }}
+                type="button"
+              >
+                <strong>{roleOption.title}</strong>
+                <span className="muted-copy">{roleOption.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="auth-panel">
-        <form className="form-grid" onSubmit={(event) => { void handleSubmit(event); }}>
-          <label className="field-group">
-            <span>Name</span>
-            <input onChange={(event) => { setName(event.target.value); }} placeholder="Maya Chen" type="text" value={name} />
-          </label>
-
-          <label className="field-group">
-            <span>Email</span>
-            <input onChange={(event) => { setEmail(event.target.value); }} placeholder="maya.chen@example.com" type="email" value={email} />
-          </label>
-
-          <label className="field-group">
-            <span>Role</span>
-            <select onChange={(event) => { setRole(event.target.value as UserRole); }} value={role}>
-              {roleOptions.map((roleOption) => (
-                <option key={roleOption.role} value={roleOption.role}>
-                  {roleOption.title}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="field-group field-group-wide">
-            <span>What this role unlocks</span>
-            <ul className="detail-list compact-list">{roleCapabilityItems}</ul>
+        {isLoadingAuthConfig ? (
+          <div className="stacked-copy">
+            <p className="eyebrow">Checking auth</p>
+            <h2>Loading sign-in methods...</h2>
+            <p className="muted-copy">The app is checking whether Google SSO or the local fallback is available.</p>
           </div>
+        ) : googleSsoEnabled ? (
+          <div className="form-grid">
+            <div className="field-group field-group-wide">
+              <span>Google sign-in</span>
+              <p className="muted-copy">Continue with Google to create the same app session used by the rest of the control pane.</p>
+            </div>
 
-          {submitError ? <p className="error-copy">{submitError}</p> : null}
+            {authConfigError ? <p className="error-copy">{authConfigError}</p> : null}
+            {submitError ? <p className="error-copy">{submitError}</p> : null}
 
-          <div className="form-actions">
-            <button className="primary-button" disabled={isSubmitting || !name || !email} type="submit">
-              {isSubmitting ? 'Signing in...' : 'Enter mission control'}
-            </button>
+            <div className="form-actions">
+              <button className="primary-button" onClick={handleGoogleSignInClick} type="button">
+                Continue with Google
+              </button>
+            </div>
           </div>
-        </form>
+        ) : guidedSignInEnabled ? (
+          <form className="form-grid" onSubmit={(event) => { void handleSubmit(event); }}>
+            <label className="field-group">
+              <span>Name</span>
+              <input onChange={(event) => { setName(event.target.value); }} placeholder="Maya Chen" type="text" value={name} />
+            </label>
+
+            <label className="field-group">
+              <span>Email</span>
+              <input onChange={(event) => { setEmail(event.target.value); }} placeholder="maya.chen@example.com" type="email" value={email} />
+            </label>
+
+            <label className="field-group">
+              <span>Role</span>
+              <select onChange={(event) => { setRole(event.target.value as UserRole); }} value={role}>
+                {roleOptions.map((roleOption) => (
+                  <option key={roleOption.role} value={roleOption.role}>
+                    {roleOption.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="field-group field-group-wide">
+              <span>What this role unlocks</span>
+              <ul className="detail-list compact-list">{roleCapabilityItems}</ul>
+            </div>
+
+            {authConfigError ? <p className="error-copy">{authConfigError}</p> : null}
+            {submitError ? <p className="error-copy">{submitError}</p> : null}
+
+            <div className="form-actions">
+              <button className="primary-button" disabled={isSubmitting || !name || !email} type="submit">
+                {isSubmitting ? 'Signing in...' : 'Enter mission control'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="stacked-copy">
+            <p className="eyebrow">Auth unavailable</p>
+            <h2>No sign-in method is available.</h2>
+            <p className="muted-copy">Configure Google SSO or re-enable the local fallback before trying again.</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Handles the browser redirect back from Google OAuth and restores the app session.
+ */
+function GoogleAuthCallbackPage(props: { onSignedIn: (user: CurrentUser) => void }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { onSignedIn } = props;
+  const [error, setError] = useState<string>('');
+  const [isCompletingSignIn, setIsCompletingSignIn] = useState<boolean>(true);
+
+  useEffect(() => {
+    let isActive = true;
+
+    /**
+     * Finishes the frontend side of the Google sign-in callback flow.
+     */
+    async function completeGoogleSignIn(): Promise<void> {
+      const queryParams = new URLSearchParams(location.search);
+      const authError = queryParams.get('error') ?? '';
+      const exchangeCode = queryParams.get('code') ?? '';
+
+      if (authError) {
+        // Surface the backend or provider failure directly in the callback screen.
+        setError(authError);
+        setIsCompletingSignIn(false);
+        return;
+      }
+
+      if (!exchangeCode) {
+        // Reject callback URLs that do not include the one-time exchange code.
+        setError('Google sign-in did not return a usable exchange code.');
+        setIsCompletingSignIn(false);
+        return;
+      }
+
+      try {
+        // Exchange the callback code for the same app session used by guided sign-in.
+        const session = await exchangeGoogleAuthCode(exchangeCode);
+
+        if (isActive) {
+          // Save the signed-in user in the top-level app shell before navigating away.
+          onSignedIn(session.currentUser);
+          navigate('/dashboard', { replace: true });
+        }
+      } catch (caughtError) {
+        if (isActive) {
+          // Surface exchange failures directly in the callback screen for recovery.
+          setError(caughtError instanceof Error ? caughtError.message : 'Unable to complete Google sign-in.');
+          setIsCompletingSignIn(false);
+        }
+      }
+    }
+
+    // Complete the Google callback flow once after the route receives the redirect.
+    void completeGoogleSignIn();
+
+    return () => {
+      // Ignore late exchange responses after the callback screen unmounts.
+      isActive = false;
+    };
+  }, [location.search, navigate, onSignedIn]);
+
+  if (isCompletingSignIn) {
+    // Keep the user on a focused loading screen while the session exchange completes.
+    return <StandaloneStatePanel body="Finishing the redirect and restoring your access." eyebrow="Google sign-in" title="Completing your sign-in..." />;
+  }
+
+  // Surface callback failures in a readable standalone auth panel.
+  return (
+    <div className="auth-shell">
+      <section className="auth-panel auth-panel-centered">
+        <p className="eyebrow">Google sign-in failed</p>
+        <h1>Unable to complete sign-in.</h1>
+        <p className="muted-copy">{error}</p>
+        <div className="form-actions">
+          <Link className="ghost-button link-button" to="/sign-in">
+            Back to sign-in
+          </Link>
+        </div>
       </section>
     </div>
   );

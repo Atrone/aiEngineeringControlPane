@@ -1,29 +1,43 @@
 """FastAPI entrypoint for the AI Control Pane demo backend."""
 
+import json
 from typing import Any, Dict, Sequence, Tuple
+from urllib.error import HTTPError
+from urllib.error import URLError
+from urllib.parse import urlencode
+from urllib.request import Request as UrlRequest
+from urllib.request import urlopen
 
 from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from app.auth import SessionRecord
 from app.auth import build_current_user
 from app.auth import build_effective_settings
 from app.auth import build_request_headers
+from app.auth import consume_google_exchange_code
+from app.auth import consume_google_oauth_state
 from app.auth import connect_cursor
 from app.auth import connect_docs
 from app.auth import connect_github
 from app.auth import connect_linear
+from app.auth import create_google_oauth_state
 from app.auth import create_session
+from app.auth import is_google_sso_enabled
 from app.auth import require_role
 from app.auth import require_session
+from app.auth import store_google_exchange_code
+from app.auth import validate_google_identity
 from app.auth import sign_out_session
 from app.config import get_settings
 from app.schemas import ApprovalDecisionRequest
 from app.schemas import CursorConnectRequest
 from app.schemas import DocsConnectRequest
 from app.schemas import GitHubConnectRequest
+from app.schemas import GoogleAuthExchangeRequest
 from app.schemas import LinearConnectRequest
 from app.schemas import RunCreateRequest
 from app.schemas import SignInRequest
@@ -44,15 +58,29 @@ app = FastAPI(
     description="Backend foundation for the AI Control Pane demo application.",
     version="0.1.0",
 )
+settings = get_settings()
+
+
+def _build_allowed_origins() -> Sequence[str]:
+    """Builds the allowed browser origins for the frontend application."""
+
+    allowed_origins = ["http://localhost:5173"]
+    configured_origin = settings.frontend_base_url.rstrip("/")
+
+    if configured_origin and configured_origin not in allowed_origins:
+        # Add the configured frontend origin so production sign-in flows can complete.
+        allowed_origins.append(configured_origin)
+
+    # Return the normalized origin list for CORS middleware setup.
+    return allowed_origins
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=list(_build_allowed_origins()),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-settings = get_settings()
 
 
 def _authorized_request(request: Request) -> Tuple[Any, Dict[str, str], SessionRecord]:
@@ -79,6 +107,120 @@ def _authorized_request_with_roles(
     return effective_settings, request_headers, session
 
 
+def _ensure_google_sso_enabled() -> None:
+    """Requires the backend Google OAuth configuration before continuing."""
+
+    if is_google_sso_enabled(settings):
+        # Allow the request to continue when Google OAuth configuration is complete.
+        return
+
+    # Reject Google auth requests when the required environment variables are missing.
+    raise HTTPException(status_code=503, detail="Google SSO is not configured for this environment.")
+
+
+def _request_json(url: str, *, method: str = "GET", headers: Dict[str, str] | None = None, payload: bytes | None = None) -> Dict[str, Any]:
+    """Executes an HTTP request and parses the JSON response body."""
+
+    request_headers = headers or {}
+    request = UrlRequest(url, data=payload, headers=request_headers, method=method)
+
+    with urlopen(request, timeout=12) as response:
+        # Decode the remote JSON body into a Python dictionary.
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _exchange_google_authorization_code(authorization_code: str) -> Dict[str, Any]:
+    """Exchanges the Google authorization code for the upstream token payload."""
+
+    encoded_payload = urlencode(
+        {
+            "code": authorization_code,
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "redirect_uri": settings.google_redirect_uri,
+            "grant_type": "authorization_code",
+        }
+    ).encode("utf-8")
+
+    try:
+        # Exchange the one-time Google authorization code for the token response.
+        return _request_json(
+            "https://oauth2.googleapis.com/token",
+            method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
+            payload=encoded_payload,
+        )
+    except HTTPError as error:
+        # Reject the callback when Google refuses the code exchange request.
+        raise HTTPException(status_code=400, detail=f"Google sign-in failed during token exchange: {error.reason}") from error
+    except (URLError, json.JSONDecodeError) as error:
+        # Reject the callback when the Google token response cannot be read safely.
+        raise HTTPException(status_code=502, detail="Google sign-in could not be completed because the token response was unreadable.") from error
+
+
+def _read_google_identity(id_token: str) -> Dict[str, Any]:
+    """Reads the Google identity payload for the returned ID token."""
+
+    query_string = urlencode({"id_token": id_token})
+
+    try:
+        # Validate and read the Google ID token using Google's tokeninfo endpoint.
+        return _request_json(f"https://oauth2.googleapis.com/tokeninfo?{query_string}")
+    except HTTPError as error:
+        # Reject invalid or expired Google ID tokens before creating an app session.
+        raise HTTPException(status_code=401, detail=f"The Google identity token was rejected: {error.reason}") from error
+    except (URLError, json.JSONDecodeError) as error:
+        # Reject the login when the Google identity payload cannot be read safely.
+        raise HTTPException(status_code=502, detail="Google sign-in could not be completed because the identity response was unreadable.") from error
+
+
+def _build_frontend_url(path: str, query_params: Dict[str, str]) -> str:
+    """Builds a frontend redirect URL for the browser-based sign-in flow."""
+
+    normalized_base_url = settings.frontend_base_url.rstrip("/")
+    encoded_query = urlencode(query_params)
+
+    if encoded_query:
+        # Return the frontend URL together with the encoded query string.
+        return f"{normalized_base_url}{path}?{encoded_query}"
+
+    # Return the frontend URL without a query string when there are no parameters.
+    return f"{normalized_base_url}{path}"
+
+
+def _build_google_authorize_url() -> str:
+    """Builds the Google authorization URL used to start the redirect flow."""
+
+    state_token = create_google_oauth_state()
+    query_string = urlencode(
+        {
+            "client_id": settings.google_client_id,
+            "redirect_uri": settings.google_redirect_uri,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state_token,
+            "access_type": "offline",
+            "prompt": "select_account",
+            **({"hd": settings.google_hosted_domain} if settings.google_hosted_domain else {}),
+        }
+    )
+
+    # Return the completed Google authorization URL for the browser redirect.
+    return f"https://accounts.google.com/o/oauth2/v2/auth?{query_string}"
+
+
+def _build_auth_config_payload() -> Dict[str, bool]:
+    """Builds the public auth configuration payload used by the sign-in screen."""
+
+    google_sso_enabled = is_google_sso_enabled(settings)
+
+    # Return the available sign-in methods so the frontend can render the correct flow.
+    return {
+        "googleSsoEnabled": google_sso_enabled,
+        "guidedSignInEnabled": not google_sso_enabled,
+    }
+
+
 @app.get("/health")
 def health_check() -> Dict[str, str]:
     """Creates a lightweight health response for local development checks."""
@@ -94,6 +236,79 @@ def post_sign_in(payload: SignInRequest) -> Dict[str, Any]:
 
     # Create the in-memory session used by the frontend auth shell.
     return create_session(payload.name, payload.email, payload.role)
+
+
+@app.get("/auth/config")
+@app.get("/api/auth/config")
+def get_auth_config() -> Dict[str, bool]:
+    """Returns the public auth configuration used by the sign-in screen."""
+
+    # Return the available sign-in methods without exposing any secrets.
+    return _build_auth_config_payload()
+
+
+@app.get("/auth/google/start")
+@app.get("/api/auth/google/start")
+def start_google_sign_in() -> RedirectResponse:
+    """Redirects the browser to Google to begin the OAuth sign-in flow."""
+
+    _ensure_google_sso_enabled()
+
+    # Redirect the browser into the Google OAuth consent flow.
+    return RedirectResponse(url=_build_google_authorize_url(), status_code=302)
+
+
+@app.get("/auth/google/callback")
+@app.get("/api/auth/google/callback")
+def finish_google_sign_in(code: str = "", state: str = "", error: str = "") -> RedirectResponse:
+    """Handles the Google OAuth callback and redirects back to the frontend."""
+
+    if error:
+        # Return the browser to the frontend with the provider-supplied failure reason.
+        return RedirectResponse(url=_build_frontend_url("/auth/callback", {"error": error}), status_code=302)
+
+    try:
+        _ensure_google_sso_enabled()
+        consume_google_oauth_state(state)
+
+        if not code.strip():
+            # Reject callbacks that do not include a usable authorization code.
+            raise HTTPException(status_code=400, detail="Google did not return an authorization code.")
+
+        token_payload = _exchange_google_authorization_code(code.strip())
+        id_token = str(token_payload.get("id_token", "")).strip()
+
+        if not id_token:
+            # Reject token responses that omit the required Google ID token.
+            raise HTTPException(status_code=401, detail="Google did not return a usable identity token.")
+
+        identity_payload = _read_google_identity(id_token)
+        validated_identity = validate_google_identity(settings, identity_payload)
+        exchange_code = store_google_exchange_code(
+            validated_identity["name"],
+            validated_identity["email"],
+            validated_identity["role"],
+        )
+    except HTTPException as error_response:
+        # Return the browser to the frontend with a stable app-specific auth error.
+        return RedirectResponse(
+            url=_build_frontend_url("/auth/callback", {"error": error_response.detail}),
+            status_code=302,
+        )
+
+    # Return the browser to the frontend with the short-lived app exchange code.
+    return RedirectResponse(url=_build_frontend_url("/auth/callback", {"code": exchange_code}), status_code=302)
+
+
+@app.post("/auth/google/exchange")
+@app.post("/api/auth/google/exchange")
+def post_google_exchange(payload: GoogleAuthExchangeRequest) -> Dict[str, Any]:
+    """Exchanges the frontend callback code for the normal app session payload."""
+
+    _ensure_google_sso_enabled()
+
+    # Convert the short-lived Google exchange code into the shared auth session shape.
+    return consume_google_exchange_code(payload.code)
 
 
 @app.post("/auth/sign-out")
