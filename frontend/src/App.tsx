@@ -189,11 +189,19 @@ function App() {
           />
           <Route
             element={
-              <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Integrations">
+              <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Settings">
                 <IntegrationsPage currentUser={currentUser} />
               </RoleGate>
             }
             path="/integrations"
+          />
+          <Route
+            element={
+              <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Settings">
+                <IntegrationsPage currentUser={currentUser} />
+              </RoleGate>
+            }
+            path="/settings"
           />
           <Route element={<Navigate replace to="/dashboard" />} path="*" />
         </Route>
@@ -257,8 +265,8 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
             </Link>
           ) : null}
           {canReview ? (
-            <Link className={getNavLinkClassName(location.pathname, '/integrations')} to="/integrations">
-              Integrations
+            <Link className={getNavLinkClassName(location.pathname, '/settings')} to="/settings">
+              Settings
             </Link>
           ) : null}
           {location.pathname.startsWith('/tasks/') ? (
@@ -284,8 +292,8 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
           <div className="topbar-actions">
             <span className="pill">{buildRoleLabel(props.currentUser.role)}</span>
             {canReview ? (
-              <Link className="ghost-button link-button" to="/integrations">
-                View integrations
+              <Link className="ghost-button link-button" to="/settings">
+                Open settings
               </Link>
             ) : null}
             <Link className="primary-button link-button" to="/intake">
@@ -1660,8 +1668,8 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     <div className="page-grid">
       <section className="hero-panel compact-panel">
         <div>
-          <p className="eyebrow">Integrations</p>
-          <h3>See which providers are live, which are using fallbacks, and walk through guided setup for GitHub, Linear, and docs.</h3>
+          <p className="eyebrow">Settings</p>
+          <h3>Manage integrations with a guided, accessible setup flow for GitHub, Linear, Cursor Cloud Agents, and repository docs.</h3>
         </div>
         <div className="hero-pills">
           <span className="pill">{props.currentUser.name}</span>
@@ -1676,11 +1684,12 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         <Panel
           title="Connect GitHub"
           body={
-            <form className="form-grid" onSubmit={(event) => { void handleGitHubConnect(event); }}>
-              <p className="muted-copy">Step 1: choose an org or owner. Step 2: list the repos agents may target. Step 3: add an optional token for private repos and higher rate limits.</p>
+            <form aria-describedby="github-setup-help" className="form-grid" onSubmit={(event) => { void handleGitHubConnect(event); }}>
+              <p className="muted-copy" id="github-setup-help">Step 1: choose an org or owner. Step 2: list the repos agents may target. Step 3: add an optional token for private repos and higher rate limits.</p>
               <label className="field-group">
                 <span>Owner or org</span>
                 <input
+                  aria-label="GitHub owner or organization"
                   onChange={(event) => { setGithubForm({ ...githubForm, owner: event.target.value }); }}
                   placeholder="your-org"
                   type="text"
@@ -1690,6 +1699,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
               <label className="field-group">
                 <span>Repositories</span>
                 <input
+                  aria-label="GitHub repositories"
                   onChange={(event) => { setGithubForm({ ...githubForm, repositories: event.target.value }); }}
                   placeholder="web-app, api-service"
                   type="text"
@@ -1699,6 +1709,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
               <label className="field-group">
                 <span>Token</span>
                 <input
+                  aria-label="GitHub personal access token"
                   onChange={(event) => { setGithubForm({ ...githubForm, token: event.target.value }); }}
                   placeholder="Optional for public repos"
                   type="password"
@@ -1717,11 +1728,12 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         <Panel
           title="Connect Linear"
           body={
-            <form className="form-grid" onSubmit={(event) => { void handleLinearConnect(event); }}>
-              <p className="muted-copy">Step 1: create a Linear API key. Step 2: add an optional team ID, key, or exact name if you want intake scoped to one team.</p>
+            <form aria-describedby="linear-setup-help" className="form-grid" onSubmit={(event) => { void handleLinearConnect(event); }}>
+              <p className="muted-copy" id="linear-setup-help">Step 1: create a Linear API key. Step 2: add an optional team ID, key, or exact name if you want intake scoped to one team.</p>
               <label className="field-group">
                 <span>API key</span>
                 <input
+                  aria-label="Linear API key"
                   onChange={(event) => { setLinearForm({ ...linearForm, apiKey: event.target.value }); }}
                   placeholder="lin_api_..."
                   type="password"
@@ -1731,6 +1743,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
               <label className="field-group">
                 <span>Team ID or key</span>
                 <input
+                  aria-label="Linear team ID or team key"
                   onChange={(event) => { setLinearForm({ ...linearForm, teamId: event.target.value }); }}
                   placeholder="Optional team ID, key, or name"
                   type="text"
@@ -1751,11 +1764,12 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         <Panel
           title="Connect Cursor Cloud Agents"
           body={
-            <form className="form-grid" onSubmit={(event) => { void handleCursorConnect(event); }}>
-              <p className="muted-copy">Step 1: add a Cursor API key. Step 2: choose a model. Step 3: use Start run on a task to launch a real agent against the connected GitHub repository with the selected Linear issue context.</p>
+            <form aria-describedby="cursor-setup-help" className="form-grid" onSubmit={(event) => { void handleCursorConnect(event); }}>
+              <p className="muted-copy" id="cursor-setup-help">Step 1: add a Cursor API key. Step 2: choose a model. Step 3: use Start run on a task to launch a real agent against the connected GitHub repository with the selected Linear issue context.</p>
               <label className="field-group">
                 <span>API key</span>
                 <input
+                  aria-label="Cursor API key"
                   onChange={(event) => { setCursorForm({ ...cursorForm, apiKey: event.target.value }); }}
                   placeholder="cur_..."
                   type="password"
@@ -1765,6 +1779,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
               <label className="field-group">
                 <span>Model</span>
                 <input
+                  aria-label="Cursor model"
                   onChange={(event) => { setCursorForm({ ...cursorForm, model: event.target.value }); }}
                   placeholder="default"
                   type="text"
@@ -1783,13 +1798,14 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         <Panel
           title="Connect docs"
           body={
-            <form className="form-grid" onSubmit={(event) => { void handleDocsConnect(event); }}>
-              <p className="muted-copy">Step 1: point the control pane at the docs folder you want indexed. Step 2: save it so intake and review screens ground agent work in the right markdown sources.</p>
+            <form aria-describedby="docs-setup-help" className="form-grid" onSubmit={(event) => { void handleDocsConnect(event); }}>
+              <p className="muted-copy" id="docs-setup-help">Step 1: point the control pane at the docs folder you want indexed. Step 2: save it so intake and review screens ground agent work in the right markdown sources.</p>
               <label className="field-group">
                 <span>Docs directory</span>
                 <input
+                  aria-label="Docs directory path"
                   onChange={(event) => { setDocsForm({ docsDirectory: event.target.value }); }}
-                  placeholder="C:\repo\docs"
+                  placeholder="C:\\repo\\docs"
                   type="text"
                   value={docsForm.docsDirectory}
                 />
@@ -1811,8 +1827,10 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
               <p>GitHub Actions piggybacks on the GitHub repo connection so CI status activates automatically.</p>
               <p>When GitHub plus Cursor are connected, the task detail Start run action launches a real Cursor Cloud Agent instead of the local simulator.</p>
               <p>Sessions are stored in memory for this demo, so reconnect after a backend restart.</p>
-              {mutationSuccess ? <p className="success-copy">{mutationSuccess}</p> : null}
-              {mutationError ? <p className="error-copy">{mutationError}</p> : null}
+              <div aria-live="polite" className="status-message-region" role="status">
+                {mutationSuccess ? <p className="success-copy">{mutationSuccess}</p> : null}
+                {mutationError ? <p className="error-copy">{mutationError}</p> : null}
+              </div>
             </div>
           }
         />
@@ -1825,6 +1843,11 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
  * Builds the active nav class based on the current location.
  */
 function getNavLinkClassName(pathname: string, targetPath: string): string {
+  if (targetPath === '/settings' && pathname === '/integrations') {
+    // Keep the settings nav state active for the legacy integrations route alias.
+    return 'nav-link active';
+  }
+
   // Highlight the current section so navigation stays oriented.
   return pathname === targetPath ? 'nav-link active' : 'nav-link';
 }
