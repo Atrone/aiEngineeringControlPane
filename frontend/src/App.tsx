@@ -15,7 +15,6 @@ import {
   identifyRepositoryForIssue,
   exchangeGoogleAuthCode,
   fetchAuthConfig,
-  fetchApprovals,
   fetchCurrentUser,
   fetchDashboard,
   fetchDashboardSuggestedActions,
@@ -28,7 +27,6 @@ import {
 } from './lib/api';
 import type {
   ApprovalDecisionRequest,
-  ApprovalItem,
   AuthConfig,
   CurrentUser,
   CursorConnectRequest,
@@ -362,14 +360,6 @@ function App() {
           <Route element={<TaskDetailPage currentUser={currentUser} />} path="/tasks/:runId" />
           <Route
             element={
-              <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Approval inbox">
-                <ApprovalInboxPage />
-              </RoleGate>
-            }
-            path="/approvals"
-          />
-          <Route
-            element={
               <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Settings">
                 <IntegrationsPage currentUser={currentUser} />
               </RoleGate>
@@ -435,11 +425,6 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
           <Link className={getNavLinkClassName(location.pathname, '/intake')} to="/intake">
             Work Intake
           </Link>
-          {canReview ? (
-            <Link className={getNavLinkClassName(location.pathname, '/approvals')} to="/approvals">
-              Approval Inbox
-            </Link>
-          ) : null}
           {canReview ? (
             <Link className={getNavLinkClassName(location.pathname, '/settings')} to="/settings">
               Settings
@@ -1625,91 +1610,6 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
 }
 
 /**
- * Displays the queue of runs waiting for a human decision.
- */
-function ApprovalInboxPage() {
-  const query = useApiQuery(fetchApprovals, []);
-
-  if (query.isLoading) {
-    // Render an inbox loading state while the queue payload is being fetched.
-    return <LoadingState message="Loading approval inbox..." />;
-  }
-
-  if (query.error || !query.data) {
-    // Render a recoverable error panel if the inbox request fails.
-    return <ErrorState message={query.error ?? 'Approval queue was unavailable.'} />;
-  }
-
-  const queueCards: ReactNode[] = [];
-
-  // Join queue metadata with fetched run summaries for a reviewer-friendly inbox.
-  for (const item of query.data.queue) {
-    const matchedRun = findRunById(query.data.runs, item);
-
-    if (!matchedRun) {
-      // Skip queue records that do not have a matching run payload.
-      continue;
-    }
-
-    queueCards.push(
-      <div className="queue-row" key={item.runId}>
-        <div>
-          <p className="ticket-code">{matchedRun.ticket}</p>
-          <h3>{matchedRun.title}</h3>
-          <p className="muted-copy">
-            {matchedRun.repo} · Waiting {item.waitingTime} · {item.outcomeNeeded}
-          </p>
-          <p className="subtle-copy">
-            {matchedRun.issue?.provider ?? 'fallback'} issue · {matchedRun.ci?.status ?? 'unknown'} CI
-          </p>
-        </div>
-
-        <div className="queue-actions">
-          <StatusBadge risk={matchedRun.risk} status={matchedRun.status} />
-          <Link className="ghost-button link-button" to={`/tasks/${matchedRun.id}`}>
-            Open task
-          </Link>
-        </div>
-      </div>,
-    );
-  }
-
-  // Give reviewers both queue speed and evidence context.
-  return (
-    <div className="page-grid">
-      <section className="hero-panel compact-panel">
-        <div>
-          <p className="eyebrow">Approval center</p>
-          <h3>Review queued runs quickly without losing issue, repo, and CI context.</h3>
-        </div>
-        <div className="hero-pills">
-          <span className="pill">Queue: {query.data.summary.queueSize}</span>
-          <span className="pill">High risk: {query.data.summary.highRisk}</span>
-          <span className="pill">SLA risk: {query.data.summary.slaRisk}</span>
-          <span className="pill">Review ready: {query.data.summary.reviewReady}</span>
-        </div>
-      </section>
-
-      <section className="content-grid approvals-grid">
-        <Panel body={<div className="queue-list">{queueCards}</div>} title="Queue" />
-
-        <Panel
-          body={
-            <div className="stacked-copy">
-              <p>Reviewer identity: {query.data.currentUser.name}</p>
-              <p>Low-risk approvals can stay in the inbox for fast triage.</p>
-              <p>High-risk runs should push reviewers into the full task detail page before approval.</p>
-              <p>Rejected runs should capture notes that become future retry guidance.</p>
-            </div>
-          }
-          title="Reviewer guidance"
-        />
-      </section>
-    </div>
-  );
-}
-
-/**
  * Shows the integration management view.
  */
 function IntegrationsPage(props: { currentUser: CurrentUser }) {
@@ -2088,22 +1988,6 @@ function buildRoleCapabilityItems(): ReactNode[] {
 
   // Return the rendered role capability list for the auth screen.
   return capabilityItems;
-}
-
-/**
- * Finds the run associated with an approval queue record.
- */
-function findRunById(runs: RunSummary[], item: ApprovalItem): RunSummary | null {
-  // Search the fetched run list for the queue item's run ID.
-  for (const run of runs) {
-    if (run.id === item.runId) {
-      // Return the first matching run detail for the inbox card.
-      return run;
-    }
-  }
-
-  // Return null when the queue item does not resolve to a run.
-  return null;
 }
 
 /**
