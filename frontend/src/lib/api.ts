@@ -17,7 +17,6 @@ import type {
   IntegrationsPayload,
   IntakePayload,
   LinearConnectRequest,
-  PolicyPayload,
   RunCreateRequest,
   RunSummary,
   SignInRequest,
@@ -228,14 +227,6 @@ export async function fetchRunDetail(runId: string): Promise<RunSummary> {
 export async function fetchApprovals(): Promise<ApprovalPayload> {
   // Load the queue summary and review-ready approval items.
   return getJson<ApprovalPayload>('/api/approvals');
-}
-
-/**
- * Fetches the active policy payload.
- */
-export async function fetchPolicies(): Promise<PolicyPayload> {
-  // Load the currently active mock policy pack for the UI.
-  return getJson<PolicyPayload>('/api/policies/web-app');
 }
 
 /**
