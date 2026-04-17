@@ -641,6 +641,8 @@ function DashboardPage() {
     return <ErrorState message={query.error ?? 'Dashboard data was unavailable.'} />;
   }
 
+  // Limit the dashboard run feed to runs backed by real Linear issues.
+  const linearLinkedRuns = query.data.runs.filter((run) => run.issue?.provider === 'linear');
   const metricCards: ReactNode[] = [];
   const runCards: ReactNode[] = [];
   const blockedItems: ReactNode[] = [];
@@ -653,7 +655,7 @@ function DashboardPage() {
   }
 
   // Build the active run list from the fetched execution feed.
-  for (const run of query.data.runs) {
+  for (const run of linearLinkedRuns) {
     runCards.push(
       <Link className="run-row" key={run.id} to={`/tasks/${run.id}`}>
         <div className="run-row-main">
@@ -663,7 +665,7 @@ function DashboardPage() {
           </div>
           <p className="muted-copy">{run.summary}</p>
           <p className="subtle-copy">
-            {run.issue?.provider === 'linear' ? 'Linear-linked issue' : 'Fallback issue'} · {run.repo} · {run.agent}
+            Linear-linked issue · {run.repo} · {run.agent}
           </p>
         </div>
 
@@ -721,7 +723,14 @@ function DashboardPage() {
       <section className="metric-grid">{metricCards}</section>
 
       <section className="content-grid">
-        <Panel body={<div className="run-list">{runCards}</div>} title="Active and recent runs" />
+        <Panel
+          body={
+            runCards.length > 0
+              ? <div className="run-list">{runCards}</div>
+              : <p className="muted-copy">No live Linear-linked runs are available yet.</p>
+          }
+          title="Active and recent runs"
+        />
 
         <div className="rail-stack">
           <Panel body={<div className="rail-list">{blockedItems}</div>} title="Blocked reasons" />
