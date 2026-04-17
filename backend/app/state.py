@@ -22,6 +22,7 @@ from app.providers import list_repo_documents
 from app.providers import parse_github_pull_request_url
 from app.providers import resolve_current_user
 from app.providers import summarize_repository_names
+from app.providers import update_linear_issue_status
 
 
 RUN_STORE: List[Dict[str, Any]] = deepcopy(RUN_SUMMARIES)
@@ -35,6 +36,8 @@ GITHUB_APPROVAL_ACTOR: Dict[str, str] = {
     "role": "tech_lead",
     "provider": "github",
 }
+LINEAR_STATUS_IN_PROGRESS = "In Progress"
+LINEAR_STATUS_DONE = "Done"
 
 
 def _utc_now() -> datetime:
@@ -1018,6 +1021,58 @@ def _append_pull_request_event(
     run["approvalHistory"] = history
 
 
+def _sync_linear_issue_status_from_pr(
+    run: Dict[str, Any],
+    *,
+    settings: Settings,
+    pr_state: Dict[str, Any],
+) -> None:
+    """Pushes the mapped PR state into Linear for runs backed by a Linear issue."""
+
+    issue_snapshot = run.get("_issueSnapshot") or {}
+
+    if not isinstance(issue_snapshot, dict):
+        # Skip sync when the run has no structured issue snapshot to target.
+        return
+
+    if str(issue_snapshot.get("provider", "")).strip().lower() != "linear":
+        # Skip sync for fallback or non-Linear issues.
+        return
+
+    issue_id = str(issue_snapshot.get("id", "")).strip()
+
+    if not issue_id:
+        # Skip sync when the issue snapshot does not carry a concrete Linear issue ID.
+        return
+
+    pr_source = str(pr_state.get("source", "")).strip().lower()
+    pr_status_name = ""
+
+    if bool(pr_state.get("merged", False)):
+        # Promote merged PRs into the requested Linear "Done" state.
+        pr_status_name = LINEAR_STATUS_DONE
+    elif pr_source == "github":
+        resolved_pr_state = str(pr_state.get("state", "")).strip().lower()
+
+        if resolved_pr_state in {"open", "approved"}:
+            # Treat any open GitHub PR state as "In Progress" for the Linear issue.
+            pr_status_name = LINEAR_STATUS_IN_PROGRESS
+
+    if not pr_status_name:
+        # Skip sync when the current PR state does not map to a Linear workflow update.
+        return
+
+    last_synced_status_name = str(run.get("_linearSyncedStatusName", "")).strip()
+
+    if last_synced_status_name == pr_status_name:
+        # Skip duplicate sync attempts when the target Linear status is already recorded.
+        return
+
+    if update_linear_issue_status(settings, issue_id=issue_id, status_name=pr_status_name):
+        # Cache the applied Linear status so repeated dashboard polls stay idempotent.
+        run["_linearSyncedStatusName"] = pr_status_name
+
+
 def _sync_pull_request_status(run: Dict[str, Any], settings: Settings) -> Dict[str, Any]:
     """Updates the run status and approval history based on the current PR state.
 
@@ -1028,11 +1083,21 @@ def _sync_pull_request_status(run: Dict[str, Any], settings: Settings) -> Dict[s
 
     run_status = str(run.get("status", ""))
 
-    if run_status not in {"Review", "Approved", "Merged"}:
+    if run_status not in {"Running", "Review", "Approved", "Merged"}:
         # Return an empty PR state when the run is not a review-candidate yet.
         return {"state": "open", "merged": False, "approved": False, "source": "skipped"}
 
+    if run_status == "Running" and not _is_real_github_pull_request_url(_resolve_pull_request_url(run)):
+        # Keep simulated in-flight runs in the draft state until a real GitHub PR exists.
+        return {"state": "open", "merged": False, "approved": False, "source": "skipped"}
+
     pr_state = _resolve_pull_request_state(run, settings)
+    _sync_linear_issue_status_from_pr(run, settings=settings, pr_state=pr_state)
+
+    if run_status == "Running":
+        # Keep actively executing runs in the running state even if a PR already exists.
+        run["_pullRequestState"] = pr_state
+        return pr_state
 
     if run_status == "Merged":
         # Skip further transitions for runs already in the terminal merged state.
@@ -1805,6 +1870,7 @@ def create_run(
                 run.pop("_approvedBy", None)
                 run.pop("_mergedAt", None)
                 run.pop("_pullRequestState", None)
+                run.pop("_linearSyncedStatusName", None)
                 run["evidence"]["commands"] = [f"POST /v0/agents -> {launched_agent.get('id', 'unknown')}"]
                 run["evidence"]["diff"] = ["Waiting for the live Cursor Cloud Agent to produce changes."]
                 run["evidence"]["tests"] = ["Waiting for the live Cursor Cloud Agent to report validation results."]
@@ -1835,6 +1901,7 @@ def create_run(
             run.pop("_approvedBy", None)
             run.pop("_mergedAt", None)
             run.pop("_pullRequestState", None)
+            run.pop("_linearSyncedStatusName", None)
 
             # Return the updated simulated run record.
             return _build_run_extensions(
@@ -1892,6 +1959,7 @@ def record_approval(
                 run.pop("_approvedBy", None)
                 run.pop("_mergedAt", None)
                 run.pop("_pullRequestState", None)
+                run.pop("_linearSyncedStatusName", None)
             elif decision == "re-scope":
                 # Mark re-scoped runs as blocked until the task definition changes.
                 run["status"] = "Blocked"
@@ -1900,6 +1968,7 @@ def record_approval(
                 run.pop("_approvedBy", None)
                 run.pop("_mergedAt", None)
                 run.pop("_pullRequestState", None)
+                run.pop("_linearSyncedStatusName", None)
             else:
                 # Treat all other decisions as escalation to a human engineer.
                 run["status"] = "Blocked"
@@ -1908,6 +1977,7 @@ def record_approval(
                 run.pop("_approvedBy", None)
                 run.pop("_mergedAt", None)
                 run.pop("_pullRequestState", None)
+                run.pop("_linearSyncedStatusName", None)
 
             # Return the updated run with the new approval history.
             return _build_run_extensions(run, current_user=current_user, settings=settings)
