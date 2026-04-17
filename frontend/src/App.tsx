@@ -6,7 +6,6 @@ import {
   beginGoogleSignIn,
   connectCursor,
   clearSessionToken,
-  connectDocs,
   connectGitHub,
   connectLinear,
   createApprovalDecision,
@@ -35,7 +34,6 @@ import type {
   CurrentUser,
   CursorConnectRequest,
   DashboardMetric,
-  DocsConnectRequest,
   DocumentRecord,
   GitHubConnectRequest,
   IntakeEnrichField,
@@ -1062,7 +1060,6 @@ function WorkIntakePage() {
   const [prompt, setPrompt] = useState<string>('');
   const [acceptanceCriteria, setAcceptanceCriteria] = useState<string>('');
   const [executionMode, setExecutionMode] = useState<string>('implement');
-  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [enrichingField, setEnrichingField] = useState<IntakeEnrichField | ''>('');
@@ -1082,12 +1079,7 @@ function WorkIntakePage() {
       // Default the repo selection to the first available repository option.
       setSelectedRepoName(query.data.repositories[0].name);
     }
-
-    if (selectedDocumentIds.length === 0 && query.data.documents.length > 0) {
-      // Preselect the first two knowledge sources for a sensible intake default.
-      setSelectedDocumentIds(query.data.documents.slice(0, 2).map((document) => document.id));
-    }
-  }, [query.data, selectedDocumentIds.length, selectedRepoName]);
+  }, [query.data, selectedRepoName]);
 
   useEffect(() => {
     if (!query.data || !selectedIssueId) {
@@ -1130,7 +1122,6 @@ function WorkIntakePage() {
 
   const issueOptions: ReactNode[] = [];
   const repositoryOptions: ReactNode[] = [];
-  const documentRows: ReactNode[] = [];
   const integrationCards: ReactNode[] = [];
 
   // Build the issue selector options from the integrated issue catalog.
@@ -1148,25 +1139,6 @@ function WorkIntakePage() {
       <option key={repository.id} value={repository.name}>
         {repository.fullName || repository.name}
       </option>,
-    );
-  }
-
-  // Render the selected document checkboxes used for task grounding.
-  for (const document of query.data.documents) {
-    documentRows.push(
-      <label className="selection-row" key={document.id}>
-        <input
-          checked={selectedDocumentIds.includes(document.id)}
-          onChange={() => {
-            setSelectedDocumentIds(toggleSelection(selectedDocumentIds, document.id));
-          }}
-          type="checkbox"
-        />
-        <span>
-          <strong>{document.title}</strong>
-          <span className="selection-subtitle">{document.path}</span>
-        </span>
-      </label>,
     );
   }
 
@@ -1190,7 +1162,7 @@ function WorkIntakePage() {
       title,
       prompt,
       acceptanceCriteria,
-      documentIds: selectedDocumentIds,
+      documentIds: [],
       executionMode,
     };
 
@@ -1426,11 +1398,6 @@ function WorkIntakePage() {
 
               {enrichError ? <p className="error-copy">{enrichError}</p> : null}
               {enrichNotice ? <p className="muted-copy enrich-notice">{enrichNotice}</p> : null}
-
-              <div className="field-group field-group-wide">
-                <span>Knowledge sources</span>
-                <div className="selection-list">{documentRows}</div>
-              </div>
 
               {submitError ? <p className="error-copy">{submitError}</p> : null}
 
@@ -1880,9 +1847,6 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     apiKey: '',
     model: 'default',
   });
-  const [docsForm, setDocsForm] = useState<DocsConnectRequest>({
-    docsDirectory: '',
-  });
   const [mutationError, setMutationError] = useState<string>('');
   const [mutationSuccess, setMutationSuccess] = useState<string>('');
   const [activeSetupId, setActiveSetupId] = useState<string>('');
@@ -1893,7 +1857,6 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     { id: 'github-settings', label: 'GitHub setup' },
     { id: 'linear-settings', label: 'Linear setup' },
     { id: 'cursor-settings', label: 'Cursor setup' },
-    { id: 'docs-settings', label: 'Docs setup' },
     { id: 'settings-guidance', label: 'Traceability and UX guidance' },
   ];
 
@@ -1901,7 +1864,6 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     const githubStatus = findIntegrationStatus(query.data?.statuses ?? [], 'github');
     const linearStatus = findIntegrationStatus(query.data?.statuses ?? [], 'linear');
     const cursorStatus = findIntegrationStatus(query.data?.statuses ?? [], 'cursor_cloud_agents');
-    const docsStatus = findIntegrationStatus(query.data?.statuses ?? [], 'repo_docs');
 
     // Mirror the saved GitHub connection into the setup form defaults.
     setGithubForm({
@@ -1920,11 +1882,6 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     setCursorForm({
       apiKey: '',
       model: getConnectionValue(cursorStatus, 'model') || 'default',
-    });
-
-    // Mirror the saved docs path into the setup form defaults.
-    setDocsForm({
-      docsDirectory: getConnectionValue(docsStatus, 'docsDirectory'),
     });
   }, [query.data]);
 
@@ -2021,39 +1978,13 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     }
   }
 
-  /**
-   * Saves the docs path selected by the user.
-   */
-  async function handleDocsConnect(event: FormEvent<HTMLFormElement>): Promise<void> {
-    // Prevent the browser from performing a full page form submission.
-    event.preventDefault();
-    setActiveSetupId('repo_docs');
-    setMutationError('');
-    setMutationSuccess('');
-
-    try {
-      // Save the docs path for the current signed-in session.
-      await connectDocs(docsForm);
-
-      // Show a success message and refresh the status view.
-      setMutationSuccess('Docs connection saved for this session.');
-      setRefreshKey((currentValue) => currentValue + 1);
-    } catch (caughtError) {
-      // Surface docs setup failures directly inside the integrations view.
-      setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to connect docs.');
-    } finally {
-      // Clear the active submit state when the request settles.
-      setActiveSetupId('');
-    }
-  }
-
   // Render the integrations management view.
   return (
     <div className="page-grid">
       <section className="hero-panel compact-panel">
         <div>
           <p className="eyebrow">Settings</p>
-          <h3>Manage integrations with a guided, accessible setup flow for GitHub, Linear, Cursor Cloud Agents, and repository docs.</h3>
+          <h3>Manage integrations with a guided, accessible setup flow for GitHub, Linear, and Cursor Cloud Agents.</h3>
           <p className="muted-copy">
             SIG-5 traceability: this settings update improves navigation clarity, setup guidance, and review context for better operator usability.
           </p>
@@ -2200,32 +2131,6 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
               <div className="form-actions">
                 <button className="primary-button" disabled={activeSetupId === 'cursor_cloud_agents'} type="submit">
                   {activeSetupId === 'cursor_cloud_agents' ? 'Saving Cursor...' : 'Connect Cursor'}
-                </button>
-              </div>
-            </form>
-          }
-        />
-
-        <Panel
-          title="Connect docs"
-          body={
-            <form aria-describedby="docs-setup-help docs-settings-a11y docs-settings-traceability" className="form-grid" id="docs-settings" onSubmit={(event) => { void handleDocsConnect(event); }}>
-              <p className="muted-copy" id="docs-setup-help">Step 1: point the control pane at the docs folder you want indexed. Step 2: save it so intake and review screens ground agent work in the right markdown sources.</p>
-              <p className="subtle-copy" id="docs-settings-a11y">Accessibility note: documentation with clear headings and concise language improves review confidence and usability across teams.</p>
-              <p className="subtle-copy" id="docs-settings-traceability">Traceability note: grounded docs references preserve rationale from the original issue through final implementation.</p>
-              <label className="field-group">
-                <span>Docs directory</span>
-                <input
-                  aria-label="Docs directory path"
-                  onChange={(event) => { setDocsForm({ docsDirectory: event.target.value }); }}
-                  placeholder="C:\\repo\\docs"
-                  type="text"
-                  value={docsForm.docsDirectory}
-                />
-              </label>
-              <div className="form-actions">
-                <button className="primary-button" disabled={activeSetupId === 'repo_docs'} type="submit">
-                  {activeSetupId === 'repo_docs' ? 'Saving docs...' : 'Connect docs'}
                 </button>
               </div>
             </form>
@@ -2384,19 +2289,6 @@ function getConnectionValue(status: IntegrationStatus | null, key: string): stri
 
   // Return the saved connection value or an empty string when it is missing.
   return status.connection.values[key] ?? '';
-}
-
-/**
- * Toggles a selection value inside a string array.
- */
-function toggleSelection(currentValues: string[], value: string): string[] {
-  if (currentValues.includes(value)) {
-    // Remove the selected value when it is already present.
-    return currentValues.filter((currentValue) => currentValue !== value);
-  }
-
-  // Append the value when it is not already selected.
-  return [...currentValues, value];
 }
 
 /**

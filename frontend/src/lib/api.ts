@@ -8,7 +8,6 @@ import type {
   DashboardPayload,
   DashboardSuggestedActionsRequest,
   DashboardSuggestedActionsResponse,
-  DocsConnectRequest,
   GoogleAuthExchangeRequest,
   GitHubConnectRequest,
   IntakeEnrichRequest,
@@ -333,10 +332,3 @@ export async function connectCursor(payload: CursorConnectRequest): Promise<Inte
   return sendJson<IntegrationsPayload, CursorConnectRequest>('/api/integrations/cursor/connect', 'POST', payload);
 }
 
-/**
- * Stores the docs setup chosen in the guided integrations flow.
- */
-export async function connectDocs(payload: DocsConnectRequest): Promise<IntegrationsPayload> {
-  // Save the docs connection and fetch the refreshed integrations payload.
-  return sendJson<IntegrationsPayload, DocsConnectRequest>('/api/integrations/docs/connect', 'POST', payload);
-}

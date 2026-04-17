@@ -299,10 +299,6 @@ export type CursorConnectRequest = {
   model: string;
 };
 
-export type DocsConnectRequest = {
-  docsDirectory: string;
-};
-
 export type IntakeEnrichField = 'title' | 'prompt' | 'acceptanceCriteria';
 
 export type IntakeEnrichRequest = {
