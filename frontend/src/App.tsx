@@ -4,6 +4,7 @@ import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, usePar
 import { useApiQuery } from './hooks/useApiQuery';
 import {
   beginGoogleSignIn,
+  classifyIntakeIssuesByScope,
   connectCursor,
   clearSessionToken,
   connectGitHub,
@@ -36,6 +37,7 @@ import type {
   GitHubConnectRequest,
   IntakeEnrichField,
   IntakeEnrichRequest,
+  IntakeIssueScopingResponse,
   IntegrationStatus,
   IssueRecord,
   JiraConnectRequest,
@@ -1044,6 +1046,28 @@ function WorkIntakePage() {
   const [identifyError, setIdentifyError] = useState<string>('');
   const [identifyNotice, setIdentifyNotice] = useState<string>('');
 
+  /**
+   * Loads the OpenAI-scored issue scoping groups for the visible intake issues.
+   */
+  async function loadIssueScoping(): Promise<IntakeIssueScopingResponse | null> {
+    if (!query.data || query.data.issues.length === 0) {
+      // Skip scoping requests until the intake issue catalog has loaded.
+      return null;
+    }
+
+    const issueIds: string[] = [];
+
+    // Preserve the rendered issue order when asking the backend to classify the list.
+    for (const issue of query.data.issues) {
+      issueIds.push(issue.id);
+    }
+
+    // Ask the OpenAI-backed backend route to separate the issues into the two scope buckets.
+    return classifyIntakeIssuesByScope({ issueIds });
+  }
+
+  const issueScopingQuery = useApiQuery(loadIssueScoping, [query.data]);
+
   useEffect(() => {
     if (!query.data) {
       // Skip form bootstrapping until the intake payload is available.
@@ -1096,16 +1120,43 @@ function WorkIntakePage() {
   }
 
   const issueOptions: ReactNode[] = [];
+  const wellScopedIssueOptions: ReactNode[] = [];
+  const poorlyScopedIssueOptions: ReactNode[] = [];
   const repositoryOptions: ReactNode[] = [];
   const integrationCards: ReactNode[] = [];
+  const issueScopeById: Map<string, 'well_scoped' | 'poorly_scoped'> = new Map();
+
+  if (issueScopingQuery.data) {
+    // Index the OpenAI scoping result so each issue can be placed into the matching optgroup.
+    for (const issueId of issueScopingQuery.data.wellScopedIssueIds) {
+      issueScopeById.set(issueId, 'well_scoped');
+    }
+
+    // Fill in the poorly scoped group after the well-scoped assignments are applied.
+    for (const issueId of issueScopingQuery.data.poorlyScopedIssueIds) {
+      issueScopeById.set(issueId, 'poorly_scoped');
+    }
+  }
 
   // Build the issue selector options from the integrated issue catalog.
   for (const issue of query.data.issues) {
-    issueOptions.push(
+    const issueOption = (
       <option key={issue.id} value={issue.id}>
         {issue.ticket} - {issue.title}
-      </option>,
+      </option>
     );
+    const scopedGroup = issueScopeById.get(issue.id);
+
+    if (scopedGroup === 'well_scoped') {
+      // Place highly executable issues into the well-scoped optgroup.
+      wellScopedIssueOptions.push(issueOption);
+    } else if (scopedGroup === 'poorly_scoped') {
+      // Place ambiguous or discovery-heavy issues into the poorly-scoped optgroup.
+      poorlyScopedIssueOptions.push(issueOption);
+    } else {
+      // Fall back to the original flat list until OpenAI scoping data is available.
+      issueOptions.push(issueOption);
+    }
   }
 
   // Build the repository selector options from the integrated repo catalog.
@@ -1284,8 +1335,40 @@ function WorkIntakePage() {
                 <span>Issue</span>
                 <select onChange={(event) => { setSelectedIssueId(event.target.value); }} value={selectedIssueId}>
                   <option value="">No linked issue</option>
-                  {issueOptions}
+                  {issueScopingQuery.data
+                    ? [
+                        wellScopedIssueOptions.length > 0
+                          ? (
+                              <optgroup key="well-scoped-issues" label={`Well scoped (${wellScopedIssueOptions.length})`}>
+                                {wellScopedIssueOptions}
+                              </optgroup>
+                            )
+                          : null,
+                        poorlyScopedIssueOptions.length > 0
+                          ? (
+                              <optgroup key="poorly-scoped-issues" label={`Poorly scoped (${poorlyScopedIssueOptions.length})`}>
+                                {poorlyScopedIssueOptions}
+                              </optgroup>
+                            )
+                          : null,
+                      ]
+                    : issueOptions}
                 </select>
+                {query.data.issues.length > 0 && issueScopingQuery.isLoading && !issueScopingQuery.data && !issueScopingQuery.error ? (
+                  <p className="muted-copy">
+                    Separating issues with OpenAI...
+                  </p>
+                ) : null}
+                {issueScopingQuery.error ? (
+                  <p className="muted-copy">
+                    Issue scoping is unavailable right now, so the full list is shown without categories.
+                  </p>
+                ) : null}
+                {issueScopingQuery.data ? (
+                  <p className="muted-copy">
+                    Issue groups were separated with {issueScopingQuery.data.model}.
+                  </p>
+                ) : null}
               </label>
 
               <div className="field-group field-group-wide">

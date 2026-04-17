@@ -319,6 +319,17 @@ export type IntakeIdentifyRepositoryRequest = {
   issueId: string;
 };
 
+export type IntakeIssueScopingRequest = {
+  issueIds: string[];
+};
+
+export type IntakeIssueScopingResponse = {
+  wellScopedIssueIds: string[];
+  poorlyScopedIssueIds: string[];
+  model: string;
+  issueCount: number;
+};
+
 export type IntakeIdentifyRepositoryResponse = {
   repoName: string;
   repoFullName: string;

@@ -42,11 +42,13 @@ from app.schemas import GitHubConnectRequest
 from app.schemas import GoogleAuthExchangeRequest
 from app.schemas import IntakeEnrichRequest
 from app.schemas import IntakeIdentifyRepositoryRequest
+from app.schemas import IntakeIssueScopingRequest
 from app.schemas import JiraConnectRequest
 from app.schemas import LinearConnectRequest
 from app.schemas import RunCreateRequest
 from app.schemas import SignInRequest
 from app.schemas import TaskCreateRequest
+from app.providers import classify_intake_issues_by_scope
 from app.providers import OpenAIEnrichmentError
 from app.providers import enrich_intake_field
 from app.providers import identify_repository_for_issue
@@ -449,6 +451,52 @@ def get_intake(request: Request) -> Dict[str, Any]:
 
     # Return the repositories, issues, docs, and user context for task intake.
     return get_intake_payload(effective_settings, request_headers)
+
+
+@app.post("/intake/issue-scoping")
+@app.post("/api/intake/issue-scoping")
+def post_intake_issue_scoping(
+    payload: IntakeIssueScopingRequest,
+    request: Request,
+) -> Dict[str, Any]:
+    """Separates the intake issue list into well-scoped and poorly-scoped buckets."""
+
+    effective_settings, request_headers, _ = _authorized_request(request)
+    intake_catalog = get_intake_payload(effective_settings, request_headers)
+    issue_catalog = list(intake_catalog.get("issues", []))
+    requested_issue_ids = [issue_id for issue_id in payload.issue_ids if str(issue_id or "").strip()]
+
+    if requested_issue_ids:
+        available_issues_by_id = {
+            str(issue.get("id") or "").strip(): issue
+            for issue in issue_catalog
+            if str(issue.get("id") or "").strip()
+        }
+        issues_to_classify = []
+
+        # Preserve the frontend issue order while ensuring each requested id exists.
+        for requested_issue_id in requested_issue_ids:
+            normalized_issue_id = str(requested_issue_id).strip()
+            matched_issue = available_issues_by_id.get(normalized_issue_id)
+
+            if matched_issue is None:
+                # Reject scoping requests that reference an unknown intake issue.
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Issue '{normalized_issue_id}' was not found in the intake catalog.",
+                )
+
+            issues_to_classify.append(matched_issue)
+    else:
+        # Default to the entire intake issue catalog when no explicit subset is provided.
+        issues_to_classify = issue_catalog
+
+    try:
+        # Call OpenAI to separate the visible intake issues into the two scope groups.
+        return classify_intake_issues_by_scope(effective_settings, issues=issues_to_classify)
+    except OpenAIEnrichmentError as scoping_error:
+        # Translate OpenAI-side rejections into a readable upstream error response.
+        raise HTTPException(status_code=502, detail=str(scoping_error)) from scoping_error
 
 
 @app.post("/intake/enrich")

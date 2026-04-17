@@ -2065,6 +2065,213 @@ def enrich_intake_field(
     }
 
 
+def _build_issue_scope_classification_messages(
+    *,
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, str]]:
+    """Builds the OpenAI chat messages for classifying intake issues by scope."""
+
+    issue_lines: List[str] = []
+
+    # Flatten each issue into a compact line the model can classify consistently.
+    for issue in issues:
+        issue_id = str(issue.get("id") or "").strip()
+        issue_ticket = str(issue.get("ticket") or "").strip()
+        issue_title = str(issue.get("title") or "").strip()
+        issue_description = str(issue.get("description") or "").strip()
+        issue_status = str(issue.get("status") or "").strip()
+        issue_priority = str(issue.get("priority") or "").strip()
+        issue_provider = str(issue.get("provider") or "").strip()
+
+        issue_lines.append(
+            f"- id: {issue_id or '(n/a)'} | ticket: {issue_ticket or '(n/a)'} | "
+            f"title: {issue_title or '(n/a)'} | status: {issue_status or '(n/a)'} | "
+            f"priority: {issue_priority or '(n/a)'} | provider: {issue_provider or '(n/a)'} | "
+            f"description: {issue_description or '(n/a)'}"
+        )
+
+    system_content = (
+        "You are classifying work intake issues for whether an autonomous coding agent is "
+        "extremely likely to complete the task fully without needing major clarification. "
+        "Classify each issue into exactly one bucket. "
+        "Use 'well scoped' only when the task is concrete, implementation-ready, and likely "
+        "to be completed end-to-end by a coding agent. "
+        "Use 'poorly scoped' when the task is ambiguous, missing success criteria, likely to "
+        "require discovery, cross-team coordination, product decisions, or substantial human clarification. "
+        "When uncertain, classify the issue as poorly scoped. "
+        "Return a JSON object only, with exactly these keys: "
+        '"wellScopedIssueIds" (array of issue id strings) and "poorlyScopedIssueIds" '
+        "(array of issue id strings). "
+        "Every provided issue id must appear exactly once across the two arrays."
+    )
+
+    user_content = (
+        "Classify these intake issues using the definitions above:\n"
+        + ("\n".join(issue_lines) if issue_lines else "(no issues available)")
+        + "\n\nReturn only JSON shaped like: "
+        '{"wellScopedIssueIds": ["issue-1"], "poorlyScopedIssueIds": ["issue-2"]}'
+    )
+
+    # Return the chat-completion message list used by the issue scoping call.
+    return [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def _parse_issue_scope_classification_response(
+    response_text: str,
+    issues: List[Dict[str, Any]],
+) -> Dict[str, List[str]]:
+    """Parses and validates the OpenAI response used for intake issue scoping."""
+
+    # Strip markdown fences so JSON parsing survives minor formatting drift.
+    cleaned_text = response_text.strip()
+    if cleaned_text.startswith("```"):
+        # Drop the opening fence before parsing the remaining JSON body.
+        cleaned_text = cleaned_text.split("\n", 1)[1] if "\n" in cleaned_text else cleaned_text[3:]
+    if cleaned_text.endswith("```"):
+        # Drop the closing fence so the remaining body is valid JSON.
+        cleaned_text = cleaned_text[:-3].rstrip()
+
+    try:
+        # Parse the cleaned response body as JSON so we can validate each array.
+        parsed_payload = json.loads(cleaned_text)
+    except json.JSONDecodeError as decode_error:
+        # Reject non-JSON responses with a readable error for the UI.
+        raise OpenAIEnrichmentError(
+            "OpenAI did not return a JSON issue scoping payload."
+        ) from decode_error
+
+    if not isinstance(parsed_payload, dict):
+        # Reject JSON arrays or scalars so only well-formed objects proceed.
+        raise OpenAIEnrichmentError(
+            "OpenAI returned an unexpected shape for issue scoping."
+        )
+
+    raw_well_scoped_ids = parsed_payload.get("wellScopedIssueIds")
+    raw_poorly_scoped_ids = parsed_payload.get("poorlyScopedIssueIds")
+
+    if not isinstance(raw_well_scoped_ids, list) or not isinstance(raw_poorly_scoped_ids, list):
+        # Reject responses that do not include both required arrays.
+        raise OpenAIEnrichmentError(
+            "OpenAI response did not include both issue scoping arrays."
+        )
+
+    valid_issue_ids: List[str] = []
+
+    # Preserve the intake issue order so the dropdown stays stable after regrouping.
+    for issue in issues:
+        issue_id = str(issue.get("id") or "").strip()
+        if issue_id:
+            valid_issue_ids.append(issue_id)
+
+    valid_issue_id_set = set(valid_issue_ids)
+    assigned_issue_ids = set()
+    well_scoped_issue_ids: List[str] = []
+    poorly_scoped_issue_ids: List[str] = []
+
+    # Normalize the model's well-scoped list, ignoring duplicates and unknown ids.
+    for raw_issue_id in raw_well_scoped_ids:
+        normalized_issue_id = str(raw_issue_id or "").strip()
+        if normalized_issue_id in valid_issue_id_set and normalized_issue_id not in assigned_issue_ids:
+            well_scoped_issue_ids.append(normalized_issue_id)
+            assigned_issue_ids.add(normalized_issue_id)
+
+    # Normalize the model's poorly-scoped list after the well-scoped assignments.
+    for raw_issue_id in raw_poorly_scoped_ids:
+        normalized_issue_id = str(raw_issue_id or "").strip()
+        if normalized_issue_id in valid_issue_id_set and normalized_issue_id not in assigned_issue_ids:
+            poorly_scoped_issue_ids.append(normalized_issue_id)
+            assigned_issue_ids.add(normalized_issue_id)
+
+    # Conservatively place any unassigned issue into poorly scoped.
+    for issue_id in valid_issue_ids:
+        if issue_id not in assigned_issue_ids:
+            poorly_scoped_issue_ids.append(issue_id)
+            assigned_issue_ids.add(issue_id)
+
+    # Return the normalized scoping result for the intake route.
+    return {
+        "wellScopedIssueIds": well_scoped_issue_ids,
+        "poorlyScopedIssueIds": poorly_scoped_issue_ids,
+    }
+
+
+def classify_intake_issues_by_scope(
+    settings: Settings,
+    *,
+    issues: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Asks OpenAI to separate intake issues into well-scoped and poorly-scoped groups."""
+
+    if not issues:
+        # Reject calls when there are no issues available to classify.
+        raise OpenAIEnrichmentError(
+            "No integrated issues are available to classify."
+        )
+
+    if not settings.openai_api_key:
+        # Reject scoping requests when the OpenAI key is not configured.
+        raise OpenAIEnrichmentError(
+            "OpenAI is not configured for this environment. Set OPENAI_API_KEY to enable issue scoping."
+        )
+
+    messages = _build_issue_scope_classification_messages(issues=issues)
+    request_headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    request_payload: Dict[str, Any] = {
+        "model": settings.openai_model,
+        "messages": messages,
+        "temperature": 0.0,
+        "response_format": {"type": "json_object"},
+    }
+    url = f"{settings.openai_base_url}/chat/completions"
+
+    try:
+        # Call OpenAI so the assistant can separate the intake issues into the two scope buckets.
+        response_payload = _request_json(
+            url,
+            method="POST",
+            headers=request_headers,
+            payload=request_payload,
+        )
+    except HTTPError as http_error:
+        # Surface upstream rejections with the HTTP status so the UI can display them.
+        try:
+            error_body = http_error.read().decode("utf-8", errors="ignore")
+        except Exception:
+            error_body = ""
+
+        raise OpenAIEnrichmentError(
+            f"OpenAI rejected the issue scoping request (status {http_error.code}): "
+            f"{error_body.strip() or http_error.reason}"
+        ) from http_error
+    except URLError as url_error:
+        # Translate transport-level failures into a readable issue scoping error.
+        raise OpenAIEnrichmentError(
+            f"Could not reach OpenAI for issue scoping: {url_error.reason}"
+        ) from url_error
+    except json.JSONDecodeError as decode_error:
+        # Reject malformed OpenAI responses with a clear error message.
+        raise OpenAIEnrichmentError(
+            "OpenAI returned a response that could not be parsed as JSON."
+        ) from decode_error
+
+    raw_response_text = _extract_openai_message(response_payload)
+    scoping_result = _parse_issue_scope_classification_response(raw_response_text, issues)
+
+    # Return the normalized issue groups together with the model metadata.
+    return {
+        "wellScopedIssueIds": scoping_result["wellScopedIssueIds"],
+        "poorlyScopedIssueIds": scoping_result["poorlyScopedIssueIds"],
+        "model": settings.openai_model,
+        "issueCount": len(issues),
+    }
+
+
 def _build_repo_identification_messages(
     *,
     issue: Dict[str, Any],
