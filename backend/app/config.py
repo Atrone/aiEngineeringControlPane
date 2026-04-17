@@ -27,12 +27,8 @@ class Settings:
     google_redirect_uri: str
     google_hosted_domain: str
     google_allowed_domains: List[str]
-    google_admin_emails: List[str]
-    google_admin_domains: List[str]
-    google_tech_lead_emails: List[str]
-    google_tech_lead_domains: List[str]
-    google_engineer_emails: List[str]
-    google_engineer_domains: List[str]
+    google_authorized_emails: List[str]
+    google_authorized_domains: List[str]
     openai_api_key: str
     openai_model: str
     openai_base_url: str
@@ -76,12 +72,16 @@ def get_settings() -> Settings:
 
     github_repositories = _parse_csv(os.getenv("GITHUB_REPOSITORIES", ""))
     google_allowed_domains = _parse_csv(os.getenv("GOOGLE_ALLOWED_DOMAINS", ""))
-    google_admin_emails = _parse_csv(os.getenv("GOOGLE_ADMIN_EMAILS", ""))
-    google_admin_domains = _parse_csv(os.getenv("GOOGLE_ADMIN_DOMAINS", ""))
-    google_tech_lead_emails = _parse_csv(os.getenv("GOOGLE_TECH_LEAD_EMAILS", ""))
-    google_tech_lead_domains = _parse_csv(os.getenv("GOOGLE_TECH_LEAD_DOMAINS", ""))
-    google_engineer_emails = _parse_csv(os.getenv("GOOGLE_ENGINEER_EMAILS", ""))
-    google_engineer_domains = _parse_csv(os.getenv("GOOGLE_ENGINEER_DOMAINS", ""))
+    google_authorized_emails = [
+        *_parse_csv(os.getenv("GOOGLE_ADMIN_EMAILS", "")),
+        *_parse_csv(os.getenv("GOOGLE_TECH_LEAD_EMAILS", "")),
+        *_parse_csv(os.getenv("GOOGLE_ENGINEER_EMAILS", "")),
+    ]
+    google_authorized_domains = [
+        *_parse_csv(os.getenv("GOOGLE_ADMIN_DOMAINS", "")),
+        *_parse_csv(os.getenv("GOOGLE_TECH_LEAD_DOMAINS", "")),
+        *_parse_csv(os.getenv("GOOGLE_ENGINEER_DOMAINS", "")),
+    ]
 
     # Return the provider configuration used by the integration layer.
     return Settings(
@@ -95,19 +95,15 @@ def get_settings() -> Settings:
         docs_directory=_resolve_docs_directory(),
         default_user_name=os.getenv("CONTROL_PANE_DEFAULT_USER_NAME", "Maya Chen").strip(),
         default_user_email=os.getenv("CONTROL_PANE_DEFAULT_USER_EMAIL", "maya.chen@example.com").strip(),
-        default_user_role=os.getenv("CONTROL_PANE_DEFAULT_USER_ROLE", "tech_lead").strip(),
+        default_user_role=os.getenv("CONTROL_PANE_DEFAULT_USER_ROLE", "admin").strip(),
         frontend_base_url=os.getenv("CONTROL_PANE_FRONTEND_URL", "http://localhost:5173").strip(),
         google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
         google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
         google_redirect_uri=os.getenv("GOOGLE_REDIRECT_URI", "").strip(),
         google_hosted_domain=os.getenv("GOOGLE_HOSTED_DOMAIN", "").strip(),
         google_allowed_domains=google_allowed_domains,
-        google_admin_emails=google_admin_emails,
-        google_admin_domains=google_admin_domains,
-        google_tech_lead_emails=google_tech_lead_emails,
-        google_tech_lead_domains=google_tech_lead_domains,
-        google_engineer_emails=google_engineer_emails,
-        google_engineer_domains=google_engineer_domains,
+        google_authorized_emails=google_authorized_emails,
+        google_authorized_domains=google_authorized_domains,
         openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini",
         openai_base_url=(os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip() or "https://api.openai.com/v1").rstrip("/"),

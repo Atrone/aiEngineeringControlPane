@@ -22,12 +22,12 @@ class LinearConnectEndpointTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def _sign_in(self) -> str:
-        """Signs in a tech lead user and returns the bearer token for follow-up requests."""
+        """Signs in an admin user and returns the bearer token for follow-up requests."""
 
         # Create a session that is allowed to mutate integration settings.
         response = self.client.post(
             "/api/auth/sign-in",
-            json={"name": "Test User", "email": "test@example.com", "role": "tech_lead"},
+            json={"name": "Test User", "email": "test@example.com", "role": "admin"},
         )
 
         # Ensure the test only continues when sign-in succeeded.

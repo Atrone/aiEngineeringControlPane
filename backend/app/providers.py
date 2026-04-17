@@ -918,15 +918,13 @@ def resolve_current_user(settings: Settings, headers: Mapping[str, str]) -> Dict
         or settings.default_user_email
     )
     name_header = headers.get("x-demo-user-name") or settings.default_user_name
-    role_header = headers.get("x-demo-user-role") or settings.default_user_role
-
     normalized_email = email_header.split(":")[-1].strip()
 
     # Return the resolved user identity used for approvals and audit history.
     return {
         "name": name_header,
         "email": normalized_email,
-        "role": role_header,
+        "role": "admin",
         "provider": "google_sso" if settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri else "configured_default",
     }
 
@@ -1010,7 +1008,7 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
             ],
             "configured": bool(settings.github_owner and settings.github_repositories),
             "details": f"{len(repositories)} repositories available" if repositories else "Using fallback repository catalog",
-            "requiredRole": "tech_lead",
+            "requiredRole": "admin",
             "recommendedAction": "Connect an org and repository list to launch work against real repos.",
             "connection": _build_connection_payload(settings, "github"),
             "checkedAt": timestamp,
@@ -1027,7 +1025,7 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
             ],
             "configured": bool(settings.github_owner and settings.github_repositories),
             "details": "Readiness depends on GitHub repository access",
-            "requiredRole": "tech_lead",
+            "requiredRole": "admin",
             "recommendedAction": "GitHub Actions becomes active automatically after GitHub is connected.",
             "connection": _build_connection_payload(settings, "github"),
             "checkedAt": timestamp,
@@ -1050,7 +1048,7 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
                 if linear_connected
                 else "Using fallback issue catalog"
             ),
-            "requiredRole": "tech_lead",
+            "requiredRole": "admin",
             "recommendedAction": "Connect a Linear API key so intake can pull live issues and team ownership.",
             "connection": _build_connection_payload(settings, "linear"),
             "checkedAt": timestamp,
@@ -1071,7 +1069,7 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
                 if cursor_connected
                 else "Connect Cursor so Start run launches a real cloud agent instead of the simulator"
             ),
-            "requiredRole": "tech_lead",
+            "requiredRole": "admin",
             "recommendedAction": "Connect a Cursor API key so new runs launch real cloud agents against your GitHub repos.",
             "connection": _build_connection_payload(settings, "cursor_cloud_agents"),
             "checkedAt": timestamp,
@@ -1096,9 +1094,9 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
             ),
             "requiredRole": "admin",
             "recommendedAction": (
-                "Sign in with Google to receive a role from the configured email and domain rules."
+                "Sign in with Google to create an admin session after the configured access checks pass."
                 if google_sso_configured
-                else "Configure Google OAuth plus role-mapping rules to replace the local guided sign-in fallback."
+                else "Configure Google OAuth to replace the local guided sign-in fallback."
             ),
             "connection": _build_connection_payload(settings, "google_sso"),
             "checkedAt": timestamp,

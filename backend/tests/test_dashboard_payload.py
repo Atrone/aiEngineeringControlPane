@@ -52,7 +52,7 @@ class DashboardPayloadTests(unittest.TestCase):
             "currentUser": {
                 "name": "Test User",
                 "email": "test@example.com",
-                "role": "tech_lead",
+                "role": "admin",
                 "provider": "configured_default",
             },
             "statuses": [

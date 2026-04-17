@@ -4,7 +4,7 @@ export type PullRequestState = 'draft' | 'open' | 'approved' | 'merged' | 'close
 
 export type ApprovalHistorySource = 'reviewer' | 'github' | 'simulated';
 export type RiskLevel = 'Low' | 'Medium' | 'High';
-export type UserRole = 'admin' | 'tech_lead' | 'engineer';
+export type UserRole = 'admin';
 
 export type CurrentUser = {
   name: string;

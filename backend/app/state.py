@@ -33,7 +33,7 @@ SIMULATED_PR_MERGE_DELAY_SECONDS = 12
 GITHUB_APPROVAL_ACTOR: Dict[str, str] = {
     "name": "GitHub",
     "email": "noreply@github.com",
-    "role": "tech_lead",
+    "role": "admin",
     "provider": "github",
 }
 LINEAR_STATUS_IN_PROGRESS = "In Progress"
@@ -1203,7 +1203,7 @@ def _build_run_extensions(
     resolved_user = current_user or deepcopy(run.get("_requestedBySnapshot")) or {
         "name": run["owner"],
         "email": f"{run['owner'].lower()}@example.com",
-        "role": "tech_lead",
+        "role": "admin",
         "provider": "fallback",
     }
     cloud_agent = deepcopy(run.get("_cursorAgent"))
