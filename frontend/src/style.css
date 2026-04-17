@@ -314,6 +314,22 @@ ul {
   padding: 1.25rem;
 }
 
+.settings-nav-panel {
+  padding: 1.1rem 1.25rem;
+}
+
+.settings-anchor-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.settings-anchor-link {
+  min-height: 2.3rem;
+  padding: 0.5rem 0.8rem;
+  font-size: 0.86rem;
+}
+
 .state-panel {
   min-height: 240px;
   align-content: center;

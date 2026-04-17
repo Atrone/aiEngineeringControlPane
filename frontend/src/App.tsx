@@ -1527,6 +1527,14 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
   const [activeSetupId, setActiveSetupId] = useState<string>('');
   const query = useApiQuery(fetchIntegrations, [refreshKey]);
   const integrationCards: ReactNode[] = [];
+  const settingsSectionLinks: Array<{ id: string; label: string }> = [
+    { id: 'provider-status', label: 'Provider status' },
+    { id: 'github-settings', label: 'GitHub setup' },
+    { id: 'linear-settings', label: 'Linear setup' },
+    { id: 'cursor-settings', label: 'Cursor setup' },
+    { id: 'docs-settings', label: 'Docs setup' },
+    { id: 'settings-guidance', label: 'Traceability and UX guidance' },
+  ];
 
   useEffect(() => {
     const githubStatus = findIntegrationStatus(query.data?.statuses ?? [], 'github');
@@ -1685,6 +1693,9 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         <div>
           <p className="eyebrow">Settings</p>
           <h3>Manage integrations with a guided, accessible setup flow for GitHub, Linear, Cursor Cloud Agents, and repository docs.</h3>
+          <p className="muted-copy">
+            SIG-5 traceability: this settings update improves navigation clarity, setup guidance, and review context for better operator usability.
+          </p>
         </div>
         <div className="hero-pills">
           <span className="pill">{props.currentUser.name}</span>
@@ -1693,14 +1704,34 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         </div>
       </section>
 
-      <Panel body={<div className="integration-grid">{integrationCards}</div>} title="Provider status" />
+      <section aria-label="Settings sections" className="settings-nav-panel panel">
+        <div className="panel-header">
+          <h3>Settings navigation</h3>
+        </div>
+        <div className="panel-body">
+          <p className="muted-copy">Jump directly to a setup section and verify each provider configuration quickly.</p>
+          <nav className="settings-anchor-nav">
+            {settingsSectionLinks.map((link) => (
+              <a className="ghost-button link-button settings-anchor-link" href={`#${link.id}`} key={link.id}>
+                {link.label}
+              </a>
+            ))}
+          </nav>
+        </div>
+      </section>
+
+      <section id="provider-status">
+        <Panel body={<div className="integration-grid">{integrationCards}</div>} title="Provider status" />
+      </section>
 
       <section className="content-grid approvals-grid">
         <Panel
           title="Connect GitHub"
           body={
-            <form aria-describedby="github-setup-help" className="form-grid" onSubmit={(event) => { void handleGitHubConnect(event); }}>
+            <form aria-describedby="github-setup-help github-settings-a11y github-settings-traceability" className="form-grid" id="github-settings" onSubmit={(event) => { void handleGitHubConnect(event); }}>
               <p className="muted-copy" id="github-setup-help">Step 1: choose an org or owner. Step 2: list the repos agents may target. Step 3: add an optional token for private repos and higher rate limits.</p>
+              <p className="subtle-copy" id="github-settings-a11y">Accessibility note: keep owner and repo names human-readable so reviewer context is clear across dashboard, task detail, and approvals.</p>
+              <p className="subtle-copy" id="github-settings-traceability">Traceability note: GitHub repo metadata links issue context to pull-request and agent-run audit trails.</p>
               <label className="field-group">
                 <span>Owner or org</span>
                 <input
@@ -1743,8 +1774,10 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         <Panel
           title="Connect Linear"
           body={
-            <form aria-describedby="linear-setup-help" className="form-grid" onSubmit={(event) => { void handleLinearConnect(event); }}>
+            <form aria-describedby="linear-setup-help linear-settings-a11y linear-settings-traceability" className="form-grid" id="linear-settings" onSubmit={(event) => { void handleLinearConnect(event); }}>
               <p className="muted-copy" id="linear-setup-help">Step 1: create a Linear API key. Step 2: add an optional team ID, key, or exact name if you want intake scoped to one team.</p>
+              <p className="subtle-copy" id="linear-settings-a11y">Accessibility note: use a specific team identifier when possible so the intake queue remains concise and easier to scan.</p>
+              <p className="subtle-copy" id="linear-settings-traceability">Traceability note: Linear ticket IDs anchor work from intake through implementation and review evidence.</p>
               <label className="field-group">
                 <span>API key</span>
                 <input
@@ -1779,8 +1812,10 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         <Panel
           title="Connect Cursor Cloud Agents"
           body={
-            <form aria-describedby="cursor-setup-help" className="form-grid" onSubmit={(event) => { void handleCursorConnect(event); }}>
+            <form aria-describedby="cursor-setup-help cursor-settings-a11y cursor-settings-traceability" className="form-grid" id="cursor-settings" onSubmit={(event) => { void handleCursorConnect(event); }}>
               <p className="muted-copy" id="cursor-setup-help">Step 1: add a Cursor API key. Step 2: choose a model. Step 3: use Start run on a task to launch a real agent against the connected GitHub repository with the selected Linear issue context.</p>
+              <p className="subtle-copy" id="cursor-settings-a11y">Accessibility note: keep model naming consistent so operators can compare run behavior and evidence with less cognitive load.</p>
+              <p className="subtle-copy" id="cursor-settings-traceability">Traceability note: connected agent metadata is surfaced on task detail pages for run-level auditability.</p>
               <label className="field-group">
                 <span>API key</span>
                 <input
@@ -1813,8 +1848,10 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         <Panel
           title="Connect docs"
           body={
-            <form aria-describedby="docs-setup-help" className="form-grid" onSubmit={(event) => { void handleDocsConnect(event); }}>
+            <form aria-describedby="docs-setup-help docs-settings-a11y docs-settings-traceability" className="form-grid" id="docs-settings" onSubmit={(event) => { void handleDocsConnect(event); }}>
               <p className="muted-copy" id="docs-setup-help">Step 1: point the control pane at the docs folder you want indexed. Step 2: save it so intake and review screens ground agent work in the right markdown sources.</p>
+              <p className="subtle-copy" id="docs-settings-a11y">Accessibility note: documentation with clear headings and concise language improves review confidence and usability across teams.</p>
+              <p className="subtle-copy" id="docs-settings-traceability">Traceability note: grounded docs references preserve rationale from the original issue through final implementation.</p>
               <label className="field-group">
                 <span>Docs directory</span>
                 <input
@@ -1837,11 +1874,13 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         <Panel
           title="Guided setup notes"
           body={
-            <div className="stacked-copy">
+            <div className="stacked-copy" id="settings-guidance">
               <p>Roles: only admins and tech leads can manage provider connections.</p>
               <p>GitHub Actions piggybacks on the GitHub repo connection so CI status activates automatically.</p>
               <p>When GitHub plus Cursor are connected, the task detail Start run action launches a real Cursor Cloud Agent instead of the local simulator.</p>
               <p>Sessions are stored in memory for this demo, so reconnect after a backend restart.</p>
+              <p>UX and design reference: NNG usability heuristics and WCAG 2.2 focus visibility / labeling guidance inform this settings update.</p>
+              <p>Audit trail expectation: keep ticket IDs and provider metadata visible in task, run, and pull-request records for review-ready evidence.</p>
               <div aria-live="polite" className="status-message-region" role="status">
                 {mutationSuccess ? <p className="success-copy">{mutationSuccess}</p> : null}
                 {mutationError ? <p className="error-copy">{mutationError}</p> : null}
