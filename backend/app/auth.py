@@ -18,6 +18,7 @@ from fastapi import status
 
 from app.config import Settings
 from app.providers import normalize_cursor_api_key
+from app.providers import normalize_jira_site_url
 from app.providers import normalize_linear_api_key
 
 
@@ -44,6 +45,10 @@ class SessionRecord:
     github_token: str = ""
     linear_api_key: str = ""
     linear_team_id: str = ""
+    jira_site_url: str = ""
+    jira_email: str = ""
+    jira_api_token: str = ""
+    jira_project_key: str = ""
     cursor_api_key: str = ""
     cursor_model: str = "default"
     docs_directory: str = ""
@@ -538,6 +543,10 @@ def build_effective_settings(settings: Settings, session: SessionRecord) -> Sett
         github_repositories=session.github_repositories or settings.github_repositories,
         linear_api_key=session.linear_api_key or settings.linear_api_key,
         linear_team_id=session.linear_team_id or settings.linear_team_id,
+        jira_site_url=session.jira_site_url or settings.jira_site_url,
+        jira_email=session.jira_email or settings.jira_email,
+        jira_api_token=session.jira_api_token or settings.jira_api_token,
+        jira_project_key=session.jira_project_key or settings.jira_project_key,
         cursor_api_key=session.cursor_api_key or settings.cursor_api_key,
         cursor_model=session.cursor_model or settings.cursor_model,
         docs_directory=session.docs_directory or settings.docs_directory,
@@ -603,6 +612,27 @@ def connect_linear(session: SessionRecord, api_key: str, team_id: str) -> None:
     # Save the Linear inputs to the signed-in session.
     session.linear_api_key = normalized_api_key
     session.linear_team_id = team_id.strip()
+
+
+def connect_jira(session: SessionRecord, site_url: str, email: str, api_token: str, project_key: str) -> None:
+    """Stores the Jira connection details selected during guided setup."""
+
+    normalized_site_url = normalize_jira_site_url(site_url)
+    normalized_email = _normalize_email(email)
+    normalized_api_token = api_token.strip()
+
+    if not normalized_site_url or not normalized_email or not normalized_api_token:
+        # Reject incomplete Jira setup requests before mutating the session.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Jira site URL, email, and API token are required.",
+        )
+
+    # Save the Jira inputs to the signed-in session.
+    session.jira_site_url = normalized_site_url
+    session.jira_email = normalized_email
+    session.jira_api_token = normalized_api_token
+    session.jira_project_key = project_key.strip().upper()
 
 
 def connect_cursor(session: SessionRecord, api_key: str, model: str) -> None:

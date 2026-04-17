@@ -1,10 +1,12 @@
 """Regression coverage for the Cursor Cloud Agents integration and run launch flow."""
 
+from copy import deepcopy
 import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from app import state
 from app.auth import SESSION_STORE
 from app.main import app
 
@@ -18,8 +20,17 @@ class CursorAgentLaunchTests(unittest.TestCase):
         # Reset the in-memory session store so each test runs in isolation.
         SESSION_STORE.clear()
 
+        # Snapshot the shared run store so launched tasks cannot leak into later tests.
+        self.original_run_store = deepcopy(state.RUN_STORE)
+
         # Create a fresh FastAPI test client for the endpoint checks.
         self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        """Restores the shared run store after each Cursor launch test completes."""
+
+        # Restore the original in-memory run state so later tests see the seeded fixtures.
+        state.RUN_STORE = deepcopy(self.original_run_store)
 
     def _sign_in(self) -> str:
         """Signs in an admin user and returns the bearer token for follow-up requests."""

@@ -15,6 +15,10 @@ class Settings:
     github_repositories: List[str]
     linear_api_key: str
     linear_team_id: str
+    jira_site_url: str
+    jira_email: str
+    jira_api_token: str
+    jira_project_key: str
     cursor_api_key: str
     cursor_model: str
     docs_directory: str
@@ -90,6 +94,10 @@ def get_settings() -> Settings:
         github_repositories=github_repositories,
         linear_api_key=os.getenv("LINEAR_API_KEY", "").strip(),
         linear_team_id=os.getenv("LINEAR_TEAM_ID", "").strip(),
+        jira_site_url=os.getenv("JIRA_SITE_URL", "").strip().rstrip("/"),
+        jira_email=os.getenv("JIRA_EMAIL", "").strip(),
+        jira_api_token=os.getenv("JIRA_API_TOKEN", "").strip(),
+        jira_project_key=os.getenv("JIRA_PROJECT_KEY", "").strip(),
         cursor_api_key=os.getenv("CURSOR_API_KEY", "").strip(),
         cursor_model=os.getenv("CURSOR_MODEL", "default").strip() or "default",
         docs_directory=_resolve_docs_directory(),

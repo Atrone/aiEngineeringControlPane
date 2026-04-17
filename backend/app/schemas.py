@@ -62,6 +62,15 @@ class LinearConnectRequest(BaseModel):
     team_id: str = Field(default="", alias="teamId")
 
 
+class JiraConnectRequest(BaseModel):
+    """Defines the payload used to connect Jira Cloud during guided setup."""
+
+    site_url: str = Field(alias="siteUrl")
+    email: str
+    api_token: str = Field(alias="apiToken")
+    project_key: str = Field(default="", alias="projectKey")
+
+
 class CursorConnectRequest(BaseModel):
     """Defines the payload used to connect Cursor Cloud Agents during guided setup."""
 
