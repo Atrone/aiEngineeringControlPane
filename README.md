@@ -54,7 +54,26 @@ The integration layer runs in `hybrid` mode:
 - `CONTROL_PANE_DEFAULT_USER_NAME`
 - `CONTROL_PANE_DEFAULT_USER_EMAIL`
 - `CONTROL_PANE_DEFAULT_USER_ROLE`
+- `CONTROL_PANE_FRONTEND_URL`
 - `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+- `GOOGLE_HOSTED_DOMAIN`
+- `GOOGLE_ALLOWED_DOMAINS`
+- `GOOGLE_ADMIN_EMAILS`
+- `GOOGLE_ADMIN_DOMAINS`
+- `GOOGLE_TECH_LEAD_EMAILS`
+- `GOOGLE_TECH_LEAD_DOMAINS`
+- `GOOGLE_ENGINEER_EMAILS`
+- `GOOGLE_ENGINEER_DOMAINS`
+
+## Google SSO
+When `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` are configured, the sign-in screen switches to a Google OAuth flow:
+- the browser starts at `GET /api/auth/google/start`
+- Google redirects back to `GET /api/auth/google/callback`
+- the frontend exchanges the short-lived callback code at `POST /api/auth/google/exchange`
+
+Role access is assigned on the backend from the configured email and domain rules with precedence `admin` > `tech_lead` > `engineer`. When Google SSO is not configured, the original guided local sign-in remains available as a fallback.
 
 ## Integration API Surface
 The backend now exposes the integration-oriented endpoints from the product spec:

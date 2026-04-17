@@ -1,11 +1,13 @@
 import type {
   ApprovalDecisionRequest,
   ApprovalPayload,
+  AuthConfig,
   AuthSession,
   CurrentUser,
   CursorConnectRequest,
   DashboardPayload,
   DocsConnectRequest,
+  GoogleAuthExchangeRequest,
   GitHubConnectRequest,
   IntegrationsPayload,
   IntakePayload,
@@ -129,6 +131,14 @@ async function sendJson<TResponse, TRequest>(path: string, method: 'POST', paylo
 }
 
 /**
+ * Loads the public auth configuration for the sign-in screen.
+ */
+export async function fetchAuthConfig(): Promise<AuthConfig> {
+  // Read the available sign-in methods without requiring an existing session.
+  return getJson<AuthConfig>('/api/auth/config');
+}
+
+/**
  * Creates a guided sign-in session and persists the returned token.
  */
 export async function signIn(payload: SignInRequest): Promise<AuthSession> {
@@ -139,6 +149,28 @@ export async function signIn(payload: SignInRequest): Promise<AuthSession> {
   setSessionToken(session.sessionToken);
 
   // Return the full auth session payload to the caller.
+  return session;
+}
+
+/**
+ * Starts the browser-based Google sign-in redirect flow.
+ */
+export function beginGoogleSignIn(): void {
+  // Send the browser to the backend route that begins the Google OAuth flow.
+  window.location.assign(`${apiBaseUrl}/api/auth/google/start`);
+}
+
+/**
+ * Exchanges the Google callback code for the standard app session payload.
+ */
+export async function exchangeGoogleAuthCode(code: string): Promise<AuthSession> {
+  // Exchange the short-lived callback code for the app's normal signed-in session.
+  const session = await sendJson<AuthSession, GoogleAuthExchangeRequest>('/api/auth/google/exchange', 'POST', { code });
+
+  // Persist the returned session token so refreshes can restore the signed-in user.
+  setSessionToken(session.sessionToken);
+
+  // Return the standard auth session payload to the caller.
   return session;
 }
 

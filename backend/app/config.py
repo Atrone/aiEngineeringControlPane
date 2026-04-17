@@ -21,7 +21,18 @@ class Settings:
     default_user_name: str
     default_user_email: str
     default_user_role: str
+    frontend_base_url: str
     google_client_id: str
+    google_client_secret: str
+    google_redirect_uri: str
+    google_hosted_domain: str
+    google_allowed_domains: List[str]
+    google_admin_emails: List[str]
+    google_admin_domains: List[str]
+    google_tech_lead_emails: List[str]
+    google_tech_lead_domains: List[str]
+    google_engineer_emails: List[str]
+    google_engineer_domains: List[str]
 
 
 def _parse_csv(raw_value: str) -> List[str]:
@@ -61,6 +72,13 @@ def get_settings() -> Settings:
     """Builds the immutable settings object from environment variables."""
 
     github_repositories = _parse_csv(os.getenv("GITHUB_REPOSITORIES", ""))
+    google_allowed_domains = _parse_csv(os.getenv("GOOGLE_ALLOWED_DOMAINS", ""))
+    google_admin_emails = _parse_csv(os.getenv("GOOGLE_ADMIN_EMAILS", ""))
+    google_admin_domains = _parse_csv(os.getenv("GOOGLE_ADMIN_DOMAINS", ""))
+    google_tech_lead_emails = _parse_csv(os.getenv("GOOGLE_TECH_LEAD_EMAILS", ""))
+    google_tech_lead_domains = _parse_csv(os.getenv("GOOGLE_TECH_LEAD_DOMAINS", ""))
+    google_engineer_emails = _parse_csv(os.getenv("GOOGLE_ENGINEER_EMAILS", ""))
+    google_engineer_domains = _parse_csv(os.getenv("GOOGLE_ENGINEER_DOMAINS", ""))
 
     # Return the provider configuration used by the integration layer.
     return Settings(
@@ -75,5 +93,16 @@ def get_settings() -> Settings:
         default_user_name=os.getenv("CONTROL_PANE_DEFAULT_USER_NAME", "Maya Chen").strip(),
         default_user_email=os.getenv("CONTROL_PANE_DEFAULT_USER_EMAIL", "maya.chen@example.com").strip(),
         default_user_role=os.getenv("CONTROL_PANE_DEFAULT_USER_ROLE", "tech_lead").strip(),
+        frontend_base_url=os.getenv("CONTROL_PANE_FRONTEND_URL", "http://localhost:5173").strip(),
         google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+        google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
+        google_redirect_uri=os.getenv("GOOGLE_REDIRECT_URI", "").strip(),
+        google_hosted_domain=os.getenv("GOOGLE_HOSTED_DOMAIN", "").strip(),
+        google_allowed_domains=google_allowed_domains,
+        google_admin_emails=google_admin_emails,
+        google_admin_domains=google_admin_domains,
+        google_tech_lead_emails=google_tech_lead_emails,
+        google_tech_lead_domains=google_tech_lead_domains,
+        google_engineer_emails=google_engineer_emails,
+        google_engineer_domains=google_engineer_domains,
     )

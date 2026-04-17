@@ -695,7 +695,7 @@ def resolve_current_user(settings: Settings, headers: Mapping[str, str]) -> Dict
         "name": name_header,
         "email": normalized_email,
         "role": role_header,
-        "provider": "google_sso" if settings.google_client_id else "configured_default",
+        "provider": "google_sso" if settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri else "configured_default",
     }
 
 
@@ -740,10 +740,14 @@ def _build_connection_payload(settings: Settings, integration_id: str) -> Option
         }
 
     if integration_id == "google_sso":
-        # Return the guided sign-in label used by the session-backed auth flow.
+        google_domain_label = settings.google_hosted_domain or "Google OAuth configured"
+
+        # Return the configured Google SSO label without exposing any secrets.
         return {
-            "label": "Guided sign-in",
-            "values": {},
+            "label": google_domain_label,
+            "values": {
+                "hostedDomain": settings.google_hosted_domain,
+            },
         }
 
     # Return no connection payload when the integration has not been configured.
@@ -758,6 +762,7 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
     linear_connected = is_linear_connected(settings)
     cursor_connected = is_cursor_connected(settings)
     issues = list_linear_issues(settings)
+    google_sso_configured = bool(settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri)
     timestamp = _utc_timestamp()
 
     # Return the provider connectivity summary used by the integrations UI.
@@ -860,17 +865,27 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
         {
             "id": "google_sso",
             "name": "Google SSO",
-            "mode": "live" if settings.google_client_id else "mock",
-            "connected": bool(settings.google_client_id),
+            "mode": "live" if google_sso_configured else "mock",
+            "connected": google_sso_configured,
             "capabilities": [
                 "User identity",
                 "Role mapping",
                 "Approval audit attribution",
             ],
-            "configured": bool(settings.google_client_id),
-            "details": "Header-based identity fallback is active" if not settings.google_client_id else "OIDC client configured",
+            "configured": google_sso_configured,
+            "details": (
+                f"OAuth ready for {settings.google_hosted_domain}"
+                if google_sso_configured and settings.google_hosted_domain
+                else "Google OAuth is configured"
+                if google_sso_configured
+                else "Header-based identity fallback is active"
+            ),
             "requiredRole": "admin",
-            "recommendedAction": "Use the guided sign-in screen to choose a role for this demo session.",
+            "recommendedAction": (
+                "Sign in with Google to receive a role from the configured email and domain rules."
+                if google_sso_configured
+                else "Configure Google OAuth plus role-mapping rules to replace the local guided sign-in fallback."
+            ),
             "connection": _build_connection_payload(settings, "google_sso"),
             "checkedAt": timestamp,
         },
