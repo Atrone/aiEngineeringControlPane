@@ -391,7 +391,7 @@ def read_run_detail(
 def get_approvals(request: Request) -> Dict[str, Any]:
     """Returns the approval inbox payload for review-ready runs."""
 
-    effective_settings, request_headers, _ = _authorized_request_with_roles(request, ("admin", "tech_lead"))
+    effective_settings, request_headers, _ = _authorized_request_with_roles(request, ("admin",))
 
     # Return the queue summary and pending approval items for the inbox.
     return get_approval_payload(effective_settings, request_headers)
@@ -404,7 +404,7 @@ def get_approvals(request: Request) -> Dict[str, Any]:
 def get_policies(request: Request, scope: str = "web-app") -> Dict[str, Any]:
     """Returns the active policy pack for the UI demo."""
 
-    _authorized_request_with_roles(request, ("admin", "tech_lead"))
+    _authorized_request_with_roles(request, ("admin",))
 
     # Return the readable policy rules that drive the control pane UI.
     return get_policy_payload(scope)
@@ -426,7 +426,7 @@ def get_current_user(request: Request) -> Dict[str, Any]:
 def get_integrations(request: Request) -> Dict[str, Any]:
     """Returns the provider integration status payload."""
 
-    effective_settings, request_headers, _ = _authorized_request_with_roles(request, ("admin", "tech_lead"))
+    effective_settings, request_headers, _ = _authorized_request_with_roles(request, ("admin",))
 
     # Return the current integration status summary for the management view.
     return get_integrations_payload(effective_settings, request_headers)
@@ -550,7 +550,7 @@ def post_approval(
 ) -> Dict[str, Any]:
     """Records an approval decision and attributes it to the current user."""
 
-    effective_settings, request_headers, _ = _authorized_request_with_roles(request, ("admin", "tech_lead"))
+    effective_settings, request_headers, _ = _authorized_request_with_roles(request, ("admin",))
 
     try:
         # Record the approval decision and update the run state in the in-memory store.
@@ -565,7 +565,7 @@ def post_approval(
 def post_github_connect(payload: GitHubConnectRequest, request: Request) -> Dict[str, Any]:
     """Stores the GitHub connection selected in the guided integrations flow."""
 
-    _, _, session = _authorized_request_with_roles(request, ("admin", "tech_lead"))
+    _, _, session = _authorized_request_with_roles(request, ("admin",))
     connect_github(session, payload.owner, payload.repositories, payload.token)
     effective_settings = build_effective_settings(settings, session)
     request_headers = build_request_headers(request.headers, session)
@@ -579,7 +579,7 @@ def post_github_connect(payload: GitHubConnectRequest, request: Request) -> Dict
 def post_linear_connect(payload: LinearConnectRequest, request: Request) -> Dict[str, Any]:
     """Stores the Linear connection selected in the guided integrations flow."""
 
-    _, _, session = _authorized_request_with_roles(request, ("admin", "tech_lead"))
+    _, _, session = _authorized_request_with_roles(request, ("admin",))
     connect_linear(session, payload.api_key, payload.team_id)
     effective_settings = build_effective_settings(settings, session)
     request_headers = build_request_headers(request.headers, session)
@@ -593,7 +593,7 @@ def post_linear_connect(payload: LinearConnectRequest, request: Request) -> Dict
 def post_docs_connect(payload: DocsConnectRequest, request: Request) -> Dict[str, Any]:
     """Stores the docs directory selected in the guided integrations flow."""
 
-    _, _, session = _authorized_request_with_roles(request, ("admin", "tech_lead"))
+    _, _, session = _authorized_request_with_roles(request, ("admin",))
     connect_docs(session, payload.docs_directory)
     effective_settings = build_effective_settings(settings, session)
     request_headers = build_request_headers(request.headers, session)
@@ -607,7 +607,7 @@ def post_docs_connect(payload: DocsConnectRequest, request: Request) -> Dict[str
 def post_cursor_connect(payload: CursorConnectRequest, request: Request) -> Dict[str, Any]:
     """Stores the Cursor Cloud Agents setup selected in the guided integrations flow."""
 
-    _, _, session = _authorized_request_with_roles(request, ("admin", "tech_lead"))
+    _, _, session = _authorized_request_with_roles(request, ("admin",))
     connect_cursor(session, payload.api_key, payload.model)
     effective_settings = build_effective_settings(settings, session)
     request_headers = build_request_headers(request.headers, session)

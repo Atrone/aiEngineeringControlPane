@@ -21,7 +21,7 @@ from app.providers import normalize_cursor_api_key
 from app.providers import normalize_linear_api_key
 
 
-ALLOWED_ROLES: Sequence[str] = ("admin", "tech_lead", "engineer")
+ALLOWED_ROLES: Sequence[str] = ("admin",)
 SESSION_STORE: Dict[str, "SessionRecord"] = {}
 SESSION_EXPIRATION_SECONDS = 60 * 60 * 12
 GOOGLE_STATE_STORE: Dict[str, float] = {}
@@ -60,16 +60,16 @@ class GoogleExchangeRecord:
 
 
 def _normalize_role(role: str) -> str:
-    """Normalizes a requested role and rejects unsupported values."""
+    """Normalizes a requested role into the single supported admin role."""
 
     normalized_role = role.strip().lower()
 
-    if normalized_role in ALLOWED_ROLES:
-        # Return the allowed role once it has been normalized.
-        return normalized_role
+    if normalized_role and normalized_role not in ALLOWED_ROLES:
+        # Collapse any legacy or caller-provided role value into the supported admin role.
+        return "admin"
 
-    # Reject unsupported roles so permission checks stay predictable.
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Choose admin, tech_lead, or engineer.")
+    # Return the supported admin role for all new sessions.
+    return "admin"
 
 
 def _parse_repositories(raw_value: str) -> List[str]:
@@ -336,21 +336,17 @@ def _email_matches_rule(email: str, emails: Sequence[str], domains: Sequence[str
 
 
 def resolve_google_role(settings: Settings, email: str) -> str:
-    """Maps a Google account to an application role using configured rules."""
+    """Maps an authorized Google account into the single supported admin role."""
 
     normalized_email = _normalize_email(email)
 
-    if _email_matches_rule(normalized_email, settings.google_admin_emails, settings.google_admin_domains):
-        # Prefer the admin role when an account matches multiple configured rules.
+    if not settings.google_authorized_emails and not settings.google_authorized_domains:
+        # Treat any Google identity that passed the higher-level access checks as an admin session.
         return "admin"
 
-    if _email_matches_rule(normalized_email, settings.google_tech_lead_emails, settings.google_tech_lead_domains):
-        # Map the next-highest reviewer role when the account is a tech lead.
-        return "tech_lead"
-
-    if _email_matches_rule(normalized_email, settings.google_engineer_emails, settings.google_engineer_domains):
-        # Fall back to the engineer role when that is the first matching rule.
-        return "engineer"
+    if _email_matches_rule(normalized_email, settings.google_authorized_emails, settings.google_authorized_domains):
+        # Collapse every authorized Google identity into the single supported admin role.
+        return "admin"
 
     # Reject accounts that are authenticated with Google but not authorized in the app.
     raise HTTPException(

@@ -53,7 +53,7 @@ import type {
   UserRole,
 } from './types/controlPane';
 
-const reviewerRoles: UserRole[] = ['admin', 'tech_lead'];
+const reviewerRoles: UserRole[] = ['admin'];
 type EvidenceTabId = keyof RunEvidenceTabs;
 const ignoredBlockerReasons: Set<string> = new Set([
   'none',
@@ -262,24 +262,6 @@ function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
     { label: 'Review effort', value: formatReviewEffortValue(reviewCandidateCount, totalReviewRuntimeSeconds), hint: reviewEffortHint },
   ];
 }
-
-const roleOptions: Array<{ role: UserRole; title: string; description: string }> = [
-  {
-    role: 'admin',
-    title: 'Admin',
-    description: 'Manage sign-in, integrations, and reviewer workflows.',
-  },
-  {
-    role: 'tech_lead',
-    title: 'Tech Lead',
-    description: 'Launch work, review runs, and guide GitHub, Linear, and docs setup.',
-  },
-  {
-    role: 'engineer',
-    title: 'Engineer',
-    description: 'Launch and inspect work without reviewer or integration-admin access.',
-  },
-];
 
 /**
  * Renders the top-level routed application.
@@ -515,10 +497,9 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
   const [authConfigError, setAuthConfigError] = useState<string>('');
   const [name, setName] = useState<string>('Maya Chen');
   const [email, setEmail] = useState<string>('maya.chen@example.com');
-  const [role, setRole] = useState<UserRole>('tech_lead');
   const [submitError, setSubmitError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const roleCapabilityItems = buildRoleCapabilityItems(role);
+  const roleCapabilityItems = buildRoleCapabilityItems();
   const googleSsoEnabled = authConfig?.googleSsoEnabled ?? false;
   const guidedSignInEnabled = authConfig?.guidedSignInEnabled ?? true;
 
@@ -576,7 +557,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
     const payload: SignInRequest = {
       name,
       email,
-      role,
+      role: 'admin',
     };
 
     try {
@@ -612,31 +593,22 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
     <div className="auth-shell">
       <section className="auth-panel auth-panel-hero">
         <p className="eyebrow">{googleSsoEnabled ? 'Google SSO' : 'Guided sign-in'}</p>
-        <h1>{googleSsoEnabled ? 'Sign in with Google to enter mission control.' : 'Choose your role before you enter mission control.'}</h1>
+        <h1>{googleSsoEnabled ? 'Sign in with Google to enter mission control.' : 'Sign in to enter mission control.'}</h1>
         <p className="muted-copy">
           {googleSsoEnabled
-            ? 'Your Google account will be mapped to an app role from the backend email and domain rules before the session is created.'
-            : 'This demo now signs users in, maps them to roles, and unlocks guided connection flows for GitHub, Linear, and docs.'}
+            ? 'Your Google account will be validated by the backend before the session is created, and every successful sign-in is treated as an admin session.'
+            : 'This demo signs users in as admins and unlocks guided connection flows for GitHub, Linear, and docs.'}
         </p>
 
         {googleSsoEnabled ? (
           <div className="stacked-copy">
-            <p className="muted-copy">Reviewer and operator access now comes from configured Google role-mapping rules instead of a client-selected role.</p>
-            <p className="muted-copy">Use a Google account that has already been mapped to `admin`, `tech_lead`, or `engineer` on the backend.</p>
+            <p className="muted-copy">Google sign-in still enforces the configured backend domain and access checks.</p>
+            <p className="muted-copy">Every successful Google login is stored as an `admin` session.</p>
           </div>
         ) : (
-          <div className="auth-role-grid">
-            {roleOptions.map((roleOption) => (
-              <button
-                className={roleOption.role === role ? 'role-card role-card-active' : 'role-card'}
-                key={roleOption.role}
-                onClick={() => { setRole(roleOption.role); }}
-                type="button"
-              >
-                <strong>{roleOption.title}</strong>
-                <span className="muted-copy">{roleOption.description}</span>
-              </button>
-            ))}
+          <div className="stacked-copy">
+            <p className="muted-copy">Role selection has been removed from guided sign-in.</p>
+            <p className="muted-copy">Every successful guided login is stored as an `admin` session.</p>
           </div>
         )}
       </section>
@@ -676,19 +648,8 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
               <input onChange={(event) => { setEmail(event.target.value); }} placeholder="maya.chen@example.com" type="email" value={email} />
             </label>
 
-            <label className="field-group">
-              <span>Role</span>
-              <select onChange={(event) => { setRole(event.target.value as UserRole); }} value={role}>
-                {roleOptions.map((roleOption) => (
-                  <option key={roleOption.role} value={roleOption.role}>
-                    {roleOption.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-
             <div className="field-group field-group-wide">
-              <span>What this role unlocks</span>
+              <span>What admin access unlocks</span>
               <ul className="detail-list compact-list">{roleCapabilityItems}</ul>
             </div>
 
@@ -1613,7 +1574,7 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
                   value={decisionNotes}
                 />
               ) : null}
-              {!canReview ? <p className="muted-copy">Your role can inspect runs and start work, but reviewer decisions stay limited to tech leads and admins.</p> : null}
+              {!canReview ? <p className="muted-copy">Only admin sessions can approve, reject, and manage the review workflow.</p> : null}
               {mutationError ? <p className="error-copy">{mutationError}</p> : null}
             </div>
           }
@@ -2060,7 +2021,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
           title="Guided setup notes"
           body={
             <div className="stacked-copy" id="settings-guidance">
-              <p>Roles: only admins and tech leads can manage provider connections.</p>
+              <p>Roles: every signed-in session is treated as an admin and can manage provider connections.</p>
               <p>GitHub Actions piggybacks on the GitHub repo connection so CI status activates automatically.</p>
               <p>When GitHub plus Cursor are connected, the task detail Start run action launches a real Cursor Cloud Agent instead of the local simulator.</p>
               <p>Sessions are stored in memory for this demo, so reconnect after a backend restart.</p>
@@ -2103,41 +2064,21 @@ function canAccessRole(role: UserRole, allowedRoles: UserRole[]): boolean {
  * Builds a human-readable label for the current role badge.
  */
 function buildRoleLabel(role: UserRole): string {
-  if (role === 'tech_lead') {
-    // Expand the tech-lead role into a readable badge label.
-    return 'Tech Lead';
-  }
+  void role;
 
-  if (role === 'engineer') {
-    // Expand the engineer role into a readable badge label.
-    return 'Engineer';
-  }
-
-  // Fall back to the admin label for the remaining supported role.
+  // Return the only supported role label.
   return 'Admin';
 }
 
 /**
- * Builds the sign-in capability list for the selected role.
+ * Builds the sign-in capability list for the admin session.
  */
-function buildRoleCapabilityItems(role: UserRole): ReactNode[] {
-  const capabilities: string[] = role === 'engineer'
-    ? [
-        'Launch new work from the intake flow.',
-        'Inspect active tasks, evidence, and attached docs.',
-        'Start or restart runs without reviewer privileges.',
-      ]
-    : role === 'tech_lead'
-      ? [
-          'Launch work and review approval-ready runs.',
-          'Manage guided setup for GitHub, Linear, and docs.',
-          'Resolve reviewer decisions and escalation outcomes.',
-        ]
-      : [
-          'Access every route in the control pane.',
-          'Manage reviewer workflows and integrations.',
-          'Act as the top-level owner for sign-in and governance.',
-        ];
+function buildRoleCapabilityItems(): ReactNode[] {
+  const capabilities: string[] = [
+    'Access every route in the control pane.',
+    'Launch work, review approval-ready runs, and resolve decisions.',
+    'Manage integrations, sign-in flows, and control-pane governance.',
+  ];
   const capabilityItems: ReactNode[] = [];
 
   // Convert each capability string into a rendered list item.
@@ -2345,7 +2286,7 @@ function AccessDeniedState(props: { currentUser: CurrentUser; title: string }) {
       <p className="eyebrow">Access denied</p>
       <h3>{props.title} is limited to reviewers.</h3>
       <p className="muted-copy">
-        {buildRoleLabel(props.currentUser.role)} sessions can still inspect dashboards and task detail, but only admins and tech leads can manage approvals and integrations.
+        {buildRoleLabel(props.currentUser.role)} sessions can still inspect dashboards and task detail, but only admin sessions can manage approvals and integrations.
       </p>
     </section>
   );

@@ -173,7 +173,7 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
                 "actor": {
                     "name": "Priya Singh",
                     "email": "priya@example.com",
-                    "role": "tech_lead",
+                    "role": "admin",
                     "provider": "configured_default",
                 },
                 "timestamp": "2026-04-17T09:31:00+00:00",
@@ -185,7 +185,7 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
                 "actor": {
                     "name": "GitHub",
                     "email": "noreply@github.com",
-                    "role": "tech_lead",
+                    "role": "admin",
                     "provider": "github",
                 },
                 "timestamp": "2026-04-17T09:32:12+00:00",
@@ -197,7 +197,7 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
                 "actor": {
                     "name": "GitHub",
                     "email": "noreply@github.com",
-                    "role": "tech_lead",
+                    "role": "admin",
                     "provider": "github",
                 },
                 "timestamp": "2026-04-17T09:34:48+00:00",
