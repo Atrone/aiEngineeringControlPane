@@ -158,6 +158,10 @@ function App() {
         element={currentUser ? <Navigate replace to="/dashboard" /> : <GoogleAuthCallbackPage onSignedIn={handleSignedIn} />}
         path="/auth/callback"
       />
+      <Route
+        element={currentUser ? <Navigate replace to="/dashboard" /> : <GoogleOAuthReturnPage />}
+        path="/auth/google/callback"
+      />
       {currentUser ? (
         <Route element={<RootLayout currentUser={currentUser} onSignedOut={handleSignedOut} />}>
           <Route element={<Navigate replace to="/dashboard" />} index />
@@ -588,6 +592,24 @@ function GoogleAuthCallbackPage(props: { onSignedIn: (user: CurrentUser) => void
       </section>
     </div>
   );
+}
+
+/**
+ * Forwards a Google OAuth browser return on the frontend origin to the backend callback handler.
+ */
+function GoogleOAuthReturnPage() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const callbackBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
+    const callbackUrl = `${callbackBaseUrl}/api/auth/google/callback${location.search}`;
+
+    // Hand the raw Google callback parameters to the backend so it can validate state and exchange the code.
+    window.location.replace(callbackUrl);
+  }, [location.search]);
+
+  // Keep the user on a focused loading screen while the browser is forwarded to the backend callback route.
+  return <StandaloneStatePanel body="Handing the Google callback back to the backend sign-in handler." eyebrow="Google sign-in" title="Redirecting your callback..." />;
 }
 
 /**
