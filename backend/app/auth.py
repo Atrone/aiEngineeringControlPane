@@ -1,10 +1,16 @@
 """Session-backed sign-in, role checks, and guided integration setup state."""
 
+import base64
 from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import replace
+import hashlib
+import hmac
+import json
+import os
 import time
 from secrets import token_urlsafe
+from secrets import compare_digest
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from fastapi import HTTPException
@@ -17,6 +23,7 @@ from app.providers import normalize_linear_api_key
 
 ALLOWED_ROLES: Sequence[str] = ("admin", "tech_lead", "engineer")
 SESSION_STORE: Dict[str, "SessionRecord"] = {}
+SESSION_EXPIRATION_SECONDS = 60 * 60 * 12
 GOOGLE_STATE_STORE: Dict[str, float] = {}
 GOOGLE_EXCHANGE_CODE_STORE: Dict[str, "GoogleExchangeRecord"] = {}
 GOOGLE_STATE_TTL_SECONDS = 600
@@ -93,6 +100,131 @@ def _extract_bearer_token(headers: Mapping[str, str]) -> Optional[str]:
 
     # Return no token when the request is missing a bearer session.
     return None
+
+
+def _get_session_signing_secret() -> str:
+    """Resolves the secret used to sign stateless session tokens."""
+
+    configured_secret = os.getenv("CONTROL_PANE_SESSION_SECRET", "").strip()
+
+    if configured_secret:
+        # Prefer an explicit session secret when one has been configured.
+        return configured_secret
+
+    google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+
+    if google_client_secret:
+        # Fall back to the Google client secret so SSO sessions stay stable across requests.
+        return google_client_secret
+
+    # Use a development-only fallback when no secret has been configured yet.
+    return "ai-control-pane-development-session-secret"
+
+
+def _encode_token_segment(raw_value: bytes) -> str:
+    """Encodes a token segment using URL-safe base64 without padding."""
+
+    # Return the URL-safe base64 token segment without trailing padding.
+    return base64.urlsafe_b64encode(raw_value).decode("utf-8").rstrip("=")
+
+
+def _decode_token_segment(encoded_value: str) -> bytes:
+    """Decodes a URL-safe base64 token segment back into raw bytes."""
+
+    padding_length = (-len(encoded_value)) % 4
+    padded_value = encoded_value + ("=" * padding_length)
+
+    # Return the decoded raw token bytes using the restored base64 padding.
+    return base64.urlsafe_b64decode(padded_value.encode("utf-8"))
+
+
+def _build_signed_session_token(name: str, email: str, role: str, provider: str) -> str:
+    """Builds a signed stateless session token for cross-request auth restoration."""
+
+    issued_at = int(time.time())
+    payload = {
+        "version": 1,
+        "name": name,
+        "email": email,
+        "role": role,
+        "provider": provider,
+        "iat": issued_at,
+        "exp": issued_at + SESSION_EXPIRATION_SECONDS,
+    }
+    payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload_segment = _encode_token_segment(payload_json)
+    signature = hmac.new(
+        _get_session_signing_secret().encode("utf-8"),
+        payload_segment.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    signature_segment = _encode_token_segment(signature)
+
+    # Return the stateless token formed from the payload and its signature.
+    return f"{payload_segment}.{signature_segment}"
+
+
+def _read_signed_session_token(token: str) -> Optional[Dict[str, Any]]:
+    """Validates and parses a signed stateless session token."""
+
+    token_parts = token.split(".", 1)
+
+    if len(token_parts) != 2:
+        # Return no payload when the token does not have the expected two-part shape.
+        return None
+
+    payload_segment, signature_segment = token_parts
+    expected_signature = hmac.new(
+        _get_session_signing_secret().encode("utf-8"),
+        payload_segment.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    expected_signature_segment = _encode_token_segment(expected_signature)
+
+    if not compare_digest(signature_segment, expected_signature_segment):
+        # Return no payload when the token signature does not verify.
+        return None
+
+    try:
+        payload = json.loads(_decode_token_segment(payload_segment).decode("utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        # Return no payload when the signed token body cannot be decoded safely.
+        return None
+
+    if not isinstance(payload, dict):
+        # Return no payload when the token body is not a JSON object.
+        return None
+
+    expires_at = int(payload.get("exp", 0))
+
+    if expires_at <= int(time.time()):
+        # Return no payload when the signed session token has already expired.
+        return None
+
+    # Return the verified payload for session reconstruction.
+    return payload
+
+
+def _build_session_record_from_token(token: str, payload: Mapping[str, Any]) -> Optional["SessionRecord"]:
+    """Reconstructs a session record from a verified stateless token payload."""
+
+    name = str(payload.get("name", "")).strip()
+    email = _normalize_email(str(payload.get("email", "")))
+    role = str(payload.get("role", "")).strip()
+    provider = str(payload.get("provider", "guided_sign_in")).strip() or "guided_sign_in"
+
+    if not name or not email or role not in ALLOWED_ROLES:
+        # Return no session when the verified token payload is incomplete or invalid.
+        return None
+
+    # Return the minimal session reconstructed from the stateless signed token.
+    return SessionRecord(
+        token=token,
+        name=name,
+        email=email,
+        role=role,
+        provider=provider,
+    )
 
 
 def _normalize_email(email: str) -> str:
@@ -313,7 +445,7 @@ def create_session(name: str, email: str, role: str, provider: str = "guided_sig
         # Reject incomplete sign-in requests so audit identity remains usable.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name and email are required.")
 
-    token = token_urlsafe(24)
+    token = _build_signed_session_token(normalized_name, normalized_email, normalized_role, provider.strip() or "guided_sign_in")
     session = SessionRecord(
         token=token,
         name=normalized_name,
@@ -341,8 +473,26 @@ def get_session(headers: Mapping[str, str]) -> Optional[SessionRecord]:
         # Return no session when the request does not include a bearer token.
         return None
 
-    # Return the matching session when the token exists in memory.
-    return SESSION_STORE.get(token)
+    memory_session = SESSION_STORE.get(token)
+
+    if memory_session:
+        # Return the in-memory session when the token exists in the local process store.
+        return memory_session
+
+    signed_payload = _read_signed_session_token(token)
+
+    if not signed_payload:
+        # Return no session when the signed token is missing, invalid, or expired.
+        return None
+
+    reconstructed_session = _build_session_record_from_token(token, signed_payload)
+
+    if not reconstructed_session:
+        # Return no session when the signed payload cannot be converted into a session.
+        return None
+
+    # Return the reconstructed session so auth survives across backend invocations.
+    return reconstructed_session
 
 
 def require_session(headers: Mapping[str, str]) -> SessionRecord:
