@@ -2152,6 +2152,10 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
               <p>
                 SIG-7 frontend revamp: responsive shell navigation, clearer content max-width, and tablist semantics on evidence panels align with common AI product console patterns and WCAG 2.1 guidance.
               </p>
+              <p>
+                {/* SIG-5 traceability: link settings work to durable review evidence in repo docs. */}
+                SIG-5 settings: guided provider setup, anchor navigation, form descriptions, and live status messages are documented for reviewers under docs/ai-control-pane/SIG-5-design-decisions.md.
+              </p>
               <p>Audit trail expectation: keep ticket IDs and provider metadata visible in task, run, and pull-request records for review-ready evidence.</p>
               <div aria-live="polite" className="status-message-region" role="status">
                 {mutationSuccess ? <p className="success-copy">{mutationSuccess}</p> : null}
