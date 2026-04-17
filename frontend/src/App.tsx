@@ -546,7 +546,9 @@ function GoogleAuthCallbackPage(props: { onSignedIn: (user: CurrentUser) => void
         if (isActive) {
           // Save the signed-in user in the top-level app shell before navigating away.
           onSignedIn(session.currentUser);
-          navigate('/dashboard', { replace: true });
+
+          // Force a full app reload so the restored session drives the authenticated route tree.
+          window.location.replace('/dashboard');
         }
       } catch (caughtError) {
         if (isActive) {
