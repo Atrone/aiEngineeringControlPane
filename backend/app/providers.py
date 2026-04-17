@@ -1119,7 +1119,7 @@ def list_jira_issues(settings: Settings) -> List[Dict[str, Any]]:
 
     response = _request_jira_json(
         settings,
-        path="/search",
+        path="/search/jql",
         method="POST",
         payload={
             "jql": _build_jira_search_jql(settings.jira_project_key),
