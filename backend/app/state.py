@@ -766,12 +766,22 @@ def _build_cursor_issue_block(issue: Dict[str, Any]) -> str:
         f"Provider: {issue.get('provider', 'unknown')}",
     ]
     description = str(issue.get("description", "")).strip()
+    issue_url = str(issue.get("url", "")).strip()
     assignee = issue.get("assignee", {}) or {}
     assignee_name = str(assignee.get("name", "")).strip()
+    assignee_email = str(assignee.get("email", "")).strip()
 
     if assignee_name:
         # Add the assignee when the originating issue included one.
         issue_lines.append(f"Assignee: {assignee_name}")
+
+    if assignee_email:
+        # Add the assignee email so reviewers can trace issue ownership across systems.
+        issue_lines.append(f"Assignee Email: {assignee_email}")
+
+    if issue_url:
+        # Add the provider issue URL so the launched agent can reference the exact source ticket.
+        issue_lines.append(f"Issue URL: {issue_url}")
 
     if description:
         # Add the issue description when the originating issue included one.
