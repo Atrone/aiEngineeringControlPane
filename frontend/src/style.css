@@ -558,6 +558,50 @@ ul {
   color: #bfdbfe;
 }
 
+.status-approved {
+  background: rgba(125, 211, 252, 0.18);
+  color: #bae6fd;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+}
+
+.approval-history-row {
+  border: 1px solid rgba(155, 179, 209, 0.12);
+}
+
+.approval-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.approval-source-pill {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.55rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 999px;
+}
+
+.approval-source-reviewer {
+  background: rgba(125, 211, 252, 0.16);
+  color: #bae6fd;
+  border-color: rgba(56, 189, 248, 0.32);
+}
+
+.approval-source-github {
+  background: rgba(168, 85, 247, 0.18);
+  color: #e9d5ff;
+  border-color: rgba(168, 85, 247, 0.42);
+}
+
+.approval-source-simulated {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fde68a;
+  border-color: rgba(251, 191, 36, 0.32);
+}
+
 .task-grid,
 .evidence-grid {
   display: grid;

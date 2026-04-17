@@ -1,4 +1,8 @@
-export type RunStatus = 'Running' | 'Review' | 'Blocked' | 'Retry' | 'Merged';
+export type RunStatus = 'Running' | 'Review' | 'Approved' | 'Blocked' | 'Retry' | 'Merged';
+
+export type PullRequestState = 'draft' | 'open' | 'approved' | 'merged' | 'closed' | 'ready_for_review';
+
+export type ApprovalHistorySource = 'reviewer' | 'github' | 'simulated';
 export type RiskLevel = 'Low' | 'Medium' | 'High';
 export type UserRole = 'admin' | 'tech_lead' | 'engineer';
 
@@ -153,6 +157,7 @@ export type RunLiveView = {
 
 export type ApprovalHistoryEntry = {
   decision: string;
+  source?: ApprovalHistorySource;
   notes: string;
   actor: CurrentUser;
   timestamp: string;
@@ -178,7 +183,14 @@ export type RunSummary = {
   pullRequest?: {
     number: string;
     status: string;
+    state?: PullRequestState;
     url: string;
+    merged?: boolean;
+    mergedAt?: string | null;
+    approved?: boolean;
+    approvedAt?: string | null;
+    approvedBy?: string | null;
+    source?: 'github' | 'simulated' | 'skipped';
   };
   ci?: {
     workflow: string;

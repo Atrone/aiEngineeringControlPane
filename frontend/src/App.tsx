@@ -1236,22 +1236,46 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
           body={
             <div className="action-stack">
               {canReview ? (
-                <button className="primary-button" disabled={isMutating} onClick={() => { void handleDecision('approve'); }} type="button">
-                  Approve
+                <button
+                  className="primary-button"
+                  disabled={isMutating || activeRun.status === 'Approved' || activeRun.status === 'Merged'}
+                  onClick={() => { void handleDecision('approve'); }}
+                  type="button"
+                >
+                  {activeRun.status === 'Merged'
+                    ? 'Pull request merged'
+                    : activeRun.status === 'Approved'
+                      ? 'Awaiting PR merge'
+                      : 'Approve'}
                 </button>
               ) : null}
               {canReview ? (
-                <button className="ghost-button" disabled={isMutating} onClick={() => { void handleDecision('retry'); }} type="button">
+                <button
+                  className="ghost-button"
+                  disabled={isMutating || activeRun.status === 'Merged'}
+                  onClick={() => { void handleDecision('retry'); }}
+                  type="button"
+                >
                   Request retry
                 </button>
               ) : null}
               {canReview ? (
-                <button className="ghost-button" disabled={isMutating} onClick={() => { void handleDecision('re-scope'); }} type="button">
+                <button
+                  className="ghost-button"
+                  disabled={isMutating || activeRun.status === 'Merged'}
+                  onClick={() => { void handleDecision('re-scope'); }}
+                  type="button"
+                >
                   Re-scope task
                 </button>
               ) : null}
               {canReview ? (
-                <button className="ghost-button" disabled={isMutating} onClick={() => { void handleDecision('escalate'); }} type="button">
+                <button
+                  className="ghost-button"
+                  disabled={isMutating || activeRun.status === 'Merged'}
+                  onClick={() => { void handleDecision('escalate'); }}
+                  type="button"
+                >
                   Escalate to human
                 </button>
               ) : null}
@@ -1277,17 +1301,8 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
 
       <section className="content-grid task-detail-live-grid">
         <Panel
-          body={
-            <div className="stacked-copy">
-              <p>Pull request: {activeRun.pullRequest?.status ?? 'Not linked'}</p>
-              <p>Cursor status: {activeRun.cloudAgent?.status ?? 'Unavailable'}</p>
-              <p>CI workflow: {activeRun.ci?.workflow ?? 'Unavailable'}</p>
-              <p>CI status: {activeRun.ci?.status ?? 'Unavailable'}</p>
-              <p>Cloud agent URL: {activeRun.cloudAgent?.target?.url ?? 'Unavailable'}</p>
-              <p>{activeRun.ci?.summary ?? 'No CI summary available.'}</p>
-            </div>
-          }
-          title="Repository and CI"
+          body={<PullRequestPanelBody run={activeRun} />}
+          title="Pull request"
         />
 
         <Panel body={<LogStream entries={liveView.logs} />} title="Streamed logs" />
@@ -2424,7 +2439,65 @@ function DocumentList(props: { documents: DocumentRecord[] }) {
 }
 
 /**
- * Renders the approval history list for a task.
+ * Builds a readable label for a reviewer or GitHub-driven approval decision.
+ */
+function buildApprovalDecisionLabel(decision: string): string {
+  const normalizedDecision = (decision ?? '').toLowerCase();
+
+  if (normalizedDecision === 'approve') {
+    // Use an operator-friendly label for reviewer approvals recorded in the app.
+    return 'Reviewer approved';
+  }
+
+  if (normalizedDecision === 'retry') {
+    // Use the same friendly label scheme for reviewer retry decisions.
+    return 'Reviewer requested retry';
+  }
+
+  if (normalizedDecision === 're-scope') {
+    // Use the same friendly label scheme for reviewer re-scope decisions.
+    return 'Reviewer re-scoped';
+  }
+
+  if (normalizedDecision === 'escalate') {
+    // Use the same friendly label scheme for reviewer escalations.
+    return 'Reviewer escalated';
+  }
+
+  if (normalizedDecision === 'pr_review_approved') {
+    // Distinguish GitHub review approvals from reviewer-in-app approvals.
+    return 'PR review approved on GitHub';
+  }
+
+  if (normalizedDecision === 'pr_merged') {
+    // Capture GitHub merge events with a clear, scannable label.
+    return 'Pull request merged';
+  }
+
+  // Fall back to the raw decision string when we do not have a friendly label yet.
+  return decision || 'Decision recorded';
+}
+
+/**
+ * Maps an approval history source into a short display chip label.
+ */
+function buildApprovalSourceLabel(source: string | undefined): string {
+  if (source === 'github') {
+    // Tag events synced from GitHub with a clear upstream source.
+    return 'GitHub';
+  }
+
+  if (source === 'simulated') {
+    // Tag demo-time simulated events so operators know they are not live data.
+    return 'Simulated';
+  }
+
+  // Default every remaining event to the in-app reviewer source.
+  return 'Reviewer';
+}
+
+/**
+ * Renders the approval history list for a task including reviewer and GitHub events.
  */
 function ApprovalHistoryList(props: { entries: RunSummary['approvalHistory'] }) {
   if (!props.entries || props.entries.length === 0) {
@@ -2434,13 +2507,20 @@ function ApprovalHistoryList(props: { entries: RunSummary['approvalHistory'] }) 
 
   const historyItems: ReactNode[] = [];
 
-  // Render each approval record with its acting user and timestamp.
+  // Render each approval record with its acting user, source, and timestamp.
   for (const entry of props.entries) {
+    const sourceLabel = buildApprovalSourceLabel(entry.source);
+    const decisionLabel = buildApprovalDecisionLabel(entry.decision);
+    const sourceClassName = `pill approval-source-pill approval-source-${(entry.source ?? 'reviewer').toLowerCase()}`;
+
     historyItems.push(
-      <div className="mini-row" key={`${entry.timestamp}-${entry.decision}`}>
-        <strong>{entry.decision}</strong>
+      <div className="mini-row approval-history-row" key={`${entry.timestamp}-${entry.decision}-${entry.source ?? 'reviewer'}`}>
+        <div className="approval-history-header">
+          <strong>{decisionLabel}</strong>
+          <span className={sourceClassName}>{sourceLabel}</span>
+        </div>
         <span className="subtle-copy">
-          {entry.actor.name} · {entry.actor.role} · {entry.timestamp}
+          {entry.actor.name} · {entry.actor.role} · {formatEventTime(entry.timestamp)}
         </span>
         {entry.notes ? <span className="muted-copy">{entry.notes}</span> : null}
       </div>,
@@ -2449,6 +2529,88 @@ function ApprovalHistoryList(props: { entries: RunSummary['approvalHistory'] }) 
 
   // Return the rendered approval history list.
   return <div className="mini-list">{historyItems}</div>;
+}
+
+/**
+ * Builds a human-readable label for a pull-request state or status field.
+ */
+function buildPullRequestStateLabel(run: RunSummary): string {
+  const pullRequest = run.pullRequest;
+
+  if (!pullRequest) {
+    // Return a neutral placeholder when the run has no linked PR payload yet.
+    return 'Not linked';
+  }
+
+  const normalizedState = (pullRequest.state ?? pullRequest.status ?? '').toLowerCase();
+
+  if (normalizedState === 'merged') {
+    // Flag merged PRs explicitly so reviewers know the run is terminal.
+    return 'Merged';
+  }
+
+  if (normalizedState === 'approved') {
+    // Flag approved-but-open PRs so reviewers know the app is waiting on merge.
+    return 'Approved, awaiting merge';
+  }
+
+  if (normalizedState === 'closed') {
+    // Flag closed-without-merge PRs so reviewers can decide next steps.
+    return 'Closed without merge';
+  }
+
+  if (normalizedState === 'draft') {
+    // Flag draft PRs so reviewers know the run has not been handed off yet.
+    return 'Draft';
+  }
+
+  if (normalizedState === 'ready_for_review' || normalizedState === 'open') {
+    // Flag review-ready PRs with a clear, scannable label.
+    return 'Open - awaiting review';
+  }
+
+  // Default every remaining state to the raw display value.
+  return pullRequest.state ?? pullRequest.status ?? 'Unknown';
+}
+
+/**
+ * Renders the combined pull-request and CI summary panel body for a task.
+ */
+function PullRequestPanelBody(props: { run: RunSummary }) {
+  const prInfo = props.run.pullRequest;
+  const stateLabel = buildPullRequestStateLabel(props.run);
+  const approvedAt = prInfo?.approvedAt ? formatEventTime(prInfo.approvedAt) : null;
+  const mergedAt = prInfo?.mergedAt ? formatEventTime(prInfo.mergedAt) : null;
+  const sourceLabel = prInfo?.source === 'github'
+    ? 'GitHub (live)'
+    : prInfo?.source === 'simulated'
+      ? 'Simulated'
+      : 'Control pane';
+
+  // Return the combined PR + CI summary used on the task detail page.
+  return (
+    <div className="stacked-copy">
+      <p>
+        Pull request: <strong>{stateLabel}</strong>
+      </p>
+      <p className="subtle-copy">PR source: {sourceLabel}</p>
+      {prInfo?.number ? <p className="subtle-copy">PR number: #{prInfo.number}</p> : null}
+      {prInfo?.approved ? (
+        <p className="subtle-copy">
+          Approved{prInfo.approvedBy ? ` by ${prInfo.approvedBy}` : ''}
+          {approvedAt ? ` at ${approvedAt}` : ''}
+        </p>
+      ) : null}
+      {prInfo?.merged ? (
+        <p className="subtle-copy">Merged{mergedAt ? ` at ${mergedAt}` : ''}</p>
+      ) : null}
+      <p>Cursor status: {props.run.cloudAgent?.status ?? 'Unavailable'}</p>
+      <p>CI workflow: {props.run.ci?.workflow ?? 'Unavailable'}</p>
+      <p>CI status: {props.run.ci?.status ?? 'Unavailable'}</p>
+      <p>Cloud agent URL: {props.run.cloudAgent?.target?.url ?? 'Unavailable'}</p>
+      <p className="muted-copy">{props.run.ci?.summary ?? 'No CI summary available.'}</p>
+    </div>
+  );
 }
 
 /**

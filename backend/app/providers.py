@@ -3,12 +3,21 @@
 import base64
 from datetime import datetime, timezone
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from app.config import Settings
+
+
+# Pattern matching GitHub pull-request URLs so we can extract owner/repo/number.
+_GITHUB_PR_URL_PATTERN = re.compile(
+    r"^https?://(?:www\.)?github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)(?:[/?#].*)?$",
+    re.IGNORECASE,
+)
 
 
 class CursorAgentError(Exception):
@@ -1177,6 +1186,195 @@ def enrich_intake_field(
         "value": refined_text,
         "model": settings.openai_model,
         "docsConsidered": bool(docs_context),
+    }
+
+
+def parse_github_pull_request_url(pull_request_url: str) -> Optional[Dict[str, str]]:
+    """Parses a GitHub pull-request URL into owner/repo/number fragments.
+
+    Returns None when the URL does not match a real GitHub PR URL so callers can
+    safely fall back to the simulated detection path used in the demo app.
+    """
+
+    # Guard against empty or non-string inputs before running the regex.
+    if not pull_request_url or not isinstance(pull_request_url, str):
+        # Reject empty or invalid PR URLs before attempting to match the pattern.
+        return None
+
+    match_result = _GITHUB_PR_URL_PATTERN.match(pull_request_url.strip())
+
+    if not match_result:
+        # Return None when the URL is not a real github.com pull-request link.
+        return None
+
+    # Return the parsed components for a later GitHub REST API lookup.
+    return {
+        "owner": match_result.group("owner"),
+        "repo": match_result.group("repo"),
+        "number": match_result.group("number"),
+    }
+
+
+def _build_github_request_headers(settings: Settings) -> Dict[str, str]:
+    """Builds the shared headers used for GitHub REST API calls."""
+
+    request_headers: Dict[str, str] = {
+        "User-Agent": "ai-control-pane",
+        "Accept": "application/vnd.github+json",
+    }
+
+    if settings.github_token:
+        # Attach the GitHub token so private-repo and rate-limit-safe calls can succeed.
+        request_headers["Authorization"] = f"Bearer {settings.github_token}"
+
+    # Return the shared GitHub REST headers used across PR status lookups.
+    return request_headers
+
+
+def _fetch_github_pull_request_payload(
+    settings: Settings,
+    owner: str,
+    repo: str,
+    number: str,
+) -> Optional[Dict[str, Any]]:
+    """Fetches the raw GitHub pull-request payload for the requested PR."""
+
+    pull_request_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{number}"
+
+    try:
+        # Read the GitHub PR record so we can detect state, reviews, and merges.
+        return _request_json(pull_request_url, headers=_build_github_request_headers(settings))
+    except (HTTPError, URLError, json.JSONDecodeError):
+        # Return None when the PR metadata cannot be read from GitHub.
+        return None
+
+
+def _fetch_github_pull_request_reviews(
+    settings: Settings,
+    owner: str,
+    repo: str,
+    number: str,
+) -> List[Dict[str, Any]]:
+    """Fetches the GitHub review list for the requested PR."""
+
+    reviews_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{number}/reviews"
+
+    try:
+        response_payload = _request_json(reviews_url, headers=_build_github_request_headers(settings))
+    except (HTTPError, URLError, json.JSONDecodeError):
+        # Return no reviews when the GitHub review list cannot be fetched.
+        return []
+
+    if isinstance(response_payload, list):
+        # Return the review list directly when GitHub replied with a JSON array.
+        return [review for review in response_payload if isinstance(review, dict)]
+
+    # Return no reviews when the response shape is not the expected array.
+    return []
+
+
+def _extract_latest_approved_review(reviews: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Finds the most recent GitHub review that left an APPROVED decision."""
+
+    latest_approved_review: Optional[Dict[str, Any]] = None
+    latest_submitted_at: Optional[str] = None
+
+    # Scan the review list for the most recent "APPROVED" submission.
+    for review in reviews:
+        if str(review.get("state", "")).upper() != "APPROVED":
+            # Skip reviews that did not leave an approval decision.
+            continue
+
+        submitted_at = str(review.get("submitted_at", "")).strip()
+
+        if latest_submitted_at is None or submitted_at > latest_submitted_at:
+            # Keep the latest approved review based on submission timestamp.
+            latest_submitted_at = submitted_at
+            latest_approved_review = review
+
+    # Return the latest approved GitHub review if one was found.
+    return latest_approved_review
+
+
+def fetch_github_pull_request_status(
+    settings: Settings,
+    pull_request_url: str,
+) -> Optional[Dict[str, Any]]:
+    """Fetches the normalized PR state payload from GitHub for an existing PR URL.
+
+    Returns None when the caller should fall back to the simulated detection flow
+    (for example when the URL is not a real GitHub PR link or GitHub is offline).
+    """
+
+    pr_components = parse_github_pull_request_url(pull_request_url)
+
+    if not pr_components:
+        # Return None when the URL does not resolve to a real GitHub PR.
+        return None
+
+    if not settings.github_owner or not settings.github_repositories:
+        # Return None when GitHub is not configured so simulation can take over.
+        return None
+
+    pull_request_payload = _fetch_github_pull_request_payload(
+        settings,
+        pr_components["owner"],
+        pr_components["repo"],
+        pr_components["number"],
+    )
+
+    if not pull_request_payload:
+        # Return None so the simulated detection path can still drive the demo UI.
+        return None
+
+    state_value = str(pull_request_payload.get("state", "open")).lower()
+    merged_flag = bool(pull_request_payload.get("merged", False))
+    merged_at_value = str(pull_request_payload.get("merged_at", "") or "").strip() or None
+    reviews = _fetch_github_pull_request_reviews(
+        settings,
+        pr_components["owner"],
+        pr_components["repo"],
+        pr_components["number"],
+    )
+    latest_approved_review = _extract_latest_approved_review(reviews)
+    approved_flag = latest_approved_review is not None
+    approved_at_value = (
+        str(latest_approved_review.get("submitted_at", "") or "").strip() or None
+        if latest_approved_review
+        else None
+    )
+    approved_by_login = (
+        str(latest_approved_review.get("user", {}).get("login", "")).strip() or None
+        if latest_approved_review
+        else None
+    )
+
+    if merged_flag:
+        # Treat merged PRs as the terminal state for the downstream state machine.
+        resolved_state = "merged"
+    elif state_value == "closed":
+        # Treat closed-but-not-merged PRs as a terminal closed state.
+        resolved_state = "closed"
+    elif approved_flag:
+        # Treat at-least-one APPROVED review as the approved-but-open PR state.
+        resolved_state = "approved"
+    else:
+        # Treat every remaining case as the open-awaiting-review state.
+        resolved_state = "open"
+
+    # Return the normalized GitHub PR state payload for the state machine.
+    return {
+        "source": "github",
+        "state": resolved_state,
+        "merged": merged_flag,
+        "mergedAt": merged_at_value,
+        "approved": approved_flag,
+        "approvedAt": approved_at_value,
+        "approvedBy": approved_by_login,
+        "number": pr_components["number"],
+        "owner": pr_components["owner"],
+        "repo": pr_components["repo"],
+        "htmlUrl": pull_request_payload.get("html_url", pull_request_url),
     }
 
 
