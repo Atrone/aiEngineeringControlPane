@@ -949,6 +949,228 @@ def _read_doc_excerpt(path: Path, max_chars: int) -> str:
     return text[:max_chars].rstrip() + "\n...[truncated]..."
 
 
+def _fetch_github_json_body(url: str, headers: Mapping[str, str]) -> Any:
+    """Executes a GitHub REST GET and returns the raw JSON body (dict or list).
+
+    GitHub content listings return JSON arrays, so we cannot reuse the stricter
+    ``_request_json`` helper that narrows the return type to ``Dict``. This
+    wrapper keeps the low-level network behavior identical while permitting the
+    parsed JSON body to be either an object or an array.
+    """
+
+    # Copy the caller's headers so GitHub's accept header takes precedence over defaults.
+    request_headers = dict(headers)
+    request = Request(url, headers=request_headers, method="GET")
+
+    with urlopen(request, timeout=12) as response:
+        # Decode the GitHub response body into native Python data.
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _decode_github_contents_body(payload: Mapping[str, Any]) -> str:
+    """Decodes the base64-encoded body returned by the GitHub contents API.
+
+    The ``/contents`` endpoint returns each file as a JSON object with a base64
+    encoded ``content`` field. This helper reverses that encoding into UTF-8
+    text so callers can feed it directly into the OpenAI enrichment prompt.
+    """
+
+    # Read the raw base64 payload and encoding label GitHub advertises.
+    encoded_content = str(payload.get("content") or "")
+    encoding_label = str(payload.get("encoding") or "").lower()
+
+    if not encoded_content or encoding_label != "base64":
+        # Bail out when the response does not carry a base64 body we can decode.
+        return ""
+
+    try:
+        # Decode the base64 blob back into markdown/plaintext for the prompt.
+        return base64.b64decode(encoded_content).decode("utf-8", errors="ignore")
+    except (ValueError, TypeError):
+        # Swallow malformed content so callers can simply skip this document.
+        return ""
+
+
+def _list_github_markdown_paths(
+    base_api_url: str,
+    headers: Mapping[str, str],
+    *,
+    directory_path: str,
+    max_files: int,
+) -> List[str]:
+    """Returns markdown file paths under ``directory_path`` inside the repo.
+
+    The helper walks the GitHub contents listing recursively so docs nested in
+    subfolders are still discovered. The traversal stops once ``max_files``
+    markdown files have been collected to keep the OpenAI context bounded.
+    """
+
+    markdown_paths: List[str] = []
+
+    if max_files <= 0 or not directory_path:
+        # Short-circuit when the caller has no remaining budget or no directory.
+        return markdown_paths
+
+    try:
+        # Ask GitHub for the contents of the requested directory path.
+        listing_payload = _fetch_github_json_body(
+            f"{base_api_url}/contents/{directory_path}",
+            headers,
+        )
+    except (HTTPError, URLError, json.JSONDecodeError):
+        # Skip missing or unreachable directories so the enrichment can proceed.
+        return markdown_paths
+
+    if not isinstance(listing_payload, list):
+        # GitHub returns an object when the path points at a single file; treat
+        # that as a terminal case and evaluate it as a lone markdown candidate.
+        if isinstance(listing_payload, dict):
+            entry_path = str(listing_payload.get("path") or "").strip()
+            entry_type = str(listing_payload.get("type") or "")
+
+            if entry_type == "file" and entry_path.lower().endswith(".md"):
+                # Capture the single-file match inside the remaining budget.
+                markdown_paths.append(entry_path)
+
+        return markdown_paths[:max_files]
+
+    for entry in listing_payload:
+        if len(markdown_paths) >= max_files:
+            # Stop once we have enough markdown files to satisfy the budget.
+            break
+
+        if not isinstance(entry, dict):
+            # Skip malformed entries so a single bad row cannot poison the walk.
+            continue
+
+        entry_type = str(entry.get("type") or "")
+        entry_path = str(entry.get("path") or "").strip()
+
+        if not entry_path:
+            # Ignore entries lacking a usable path.
+            continue
+
+        if entry_type == "file" and entry_path.lower().endswith(".md"):
+            # Record the markdown file so its body can be fetched later.
+            markdown_paths.append(entry_path)
+        elif entry_type == "dir":
+            # Recurse into subdirectories using the remaining file budget.
+            nested_paths = _list_github_markdown_paths(
+                base_api_url,
+                headers,
+                directory_path=entry_path,
+                max_files=max_files - len(markdown_paths),
+            )
+            markdown_paths.extend(nested_paths)
+
+    # Clamp the aggregated list so nested recursion cannot exceed the budget.
+    return markdown_paths[:max_files]
+
+
+def _format_remote_doc_section(label: str, text: str, per_doc_chars: int) -> str:
+    """Formats a single remote doc body into a labeled, bounded prompt section."""
+
+    # Truncate long docs so the combined prompt stays within OpenAI context limits.
+    if len(text) > per_doc_chars:
+        excerpt_text = text[:per_doc_chars].rstrip() + "\n...[truncated]..."
+    else:
+        excerpt_text = text
+
+    # Return a markdown-header-labeled excerpt matching the local docs formatting.
+    return f"### {label}\n{excerpt_text}"
+
+
+def _fetch_remote_repo_doc_context(
+    settings: Settings,
+    *,
+    repo_name: str,
+    per_doc_chars: int = 4000,
+    max_docs: int = 8,
+) -> str:
+    """Builds an enrichment context blob from the selected remote GitHub repo.
+
+    The intake "Enrich" buttons ground their suggestions in the repo docs, so
+    this helper pulls the repository's README and any markdown files inside the
+    repo's ``docs`` directory via the GitHub contents API. Fetches are guarded
+    so transient GitHub errors simply yield an empty context instead of failing
+    the enrichment call outright.
+    """
+
+    repo_slug = (repo_name or "").strip()
+
+    if not repo_slug or not settings.github_owner:
+        # Skip remote lookups when the repo or owner are not configured yet.
+        return ""
+
+    # Reuse the shared GitHub headers so the token (when present) is attached.
+    headers = _build_github_request_headers(settings)
+    base_api_url = f"https://api.github.com/repos/{settings.github_owner}/{repo_slug}"
+
+    collected_sections: List[str] = []
+
+    try:
+        # Always include the repo README so the model anchors on the top-level pitch.
+        readme_payload = _fetch_github_json_body(f"{base_api_url}/readme", headers)
+    except (HTTPError, URLError, json.JSONDecodeError):
+        # Skip README when GitHub is unreachable or the repo has no README.
+        readme_payload = None
+
+    if isinstance(readme_payload, dict):
+        readme_body = _decode_github_contents_body(readme_payload)
+
+        if readme_body.strip():
+            # Label the README with its repo-scoped path for traceability.
+            readme_label = f"{repo_slug}/{str(readme_payload.get('path') or 'README.md')}"
+            collected_sections.append(
+                _format_remote_doc_section(readme_label, readme_body, per_doc_chars)
+            )
+
+    # Reserve the rest of the budget for files discovered under the repo docs folder.
+    remaining_budget = max(0, max_docs - len(collected_sections))
+
+    if remaining_budget > 0:
+        markdown_paths = _list_github_markdown_paths(
+            base_api_url,
+            headers,
+            directory_path="docs",
+            max_files=remaining_budget,
+        )
+
+        for markdown_path in markdown_paths:
+            if len(collected_sections) >= max_docs:
+                # Respect the hard cap even if the listing returned extra files.
+                break
+
+            try:
+                # Fetch the individual file so we get the base64 body GitHub returns.
+                file_payload = _fetch_github_json_body(
+                    f"{base_api_url}/contents/{markdown_path}",
+                    headers,
+                )
+            except (HTTPError, URLError, json.JSONDecodeError):
+                # Skip any file we cannot read so one failure cannot block the rest.
+                continue
+
+            if not isinstance(file_payload, dict):
+                # Guard against unexpected response shapes returned by GitHub.
+                continue
+
+            file_body = _decode_github_contents_body(file_payload)
+
+            if not file_body.strip():
+                # Drop empty documents so they do not bloat the enrichment prompt.
+                continue
+
+            collected_sections.append(
+                _format_remote_doc_section(
+                    f"{repo_slug}/{markdown_path}", file_body, per_doc_chars
+                )
+            )
+
+    # Return the combined context so the enrichment prompt can embed it directly.
+    return "\n\n".join(collected_sections)
+
+
 def _collect_doc_context(settings: Settings, *, per_doc_chars: int = 4000, max_docs: int = 8) -> str:
     """Builds a combined markdown context blob from repo docs."""
 
@@ -1126,7 +1348,10 @@ def enrich_intake_field(
             "OpenAI is not configured for this environment. Set OPENAI_API_KEY to enable enrichment."
         )
 
-    docs_context = _collect_doc_context(settings)
+    # Pull grounding docs from the selected remote repository so the Enrich
+    # buttons reflect the repo the user just picked in the work intake form
+    # instead of the application's local docs folder.
+    docs_context = _fetch_remote_repo_doc_context(settings, repo_name=repo_name)
     messages = _build_enrichment_messages(
         field=normalized_field,
         value=value,
