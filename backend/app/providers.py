@@ -19,6 +19,12 @@ _GITHUB_PR_URL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Fallback Linear workflow-state types used when team-specific names differ.
+_LINEAR_STATE_TYPE_BY_STATUS_NAME: Dict[str, str] = {
+    "in progress": "started",
+    "done": "completed",
+}
+
 
 class CursorAgentError(Exception):
     """Captures a readable Cursor Cloud Agents API failure."""
@@ -461,6 +467,223 @@ def _extract_linear_team_issue_nodes(response: Dict[str, Any]) -> Optional[List[
 
     # Return the parsed team issue node list when the response shape is valid.
     return nodes
+
+
+def _build_linear_headers(settings: Settings) -> Dict[str, str]:
+    """Builds the authenticated headers used for Linear GraphQL requests."""
+
+    normalized_api_key = normalize_linear_api_key(settings.linear_api_key)
+
+    # Return the shared Linear GraphQL headers with the normalized API key attached.
+    return {
+        "Authorization": normalized_api_key,
+        "Content-Type": "application/json",
+    }
+
+
+def _request_linear_graphql(
+    settings: Settings,
+    *,
+    query: str,
+    variables: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Executes a Linear GraphQL request and returns the parsed response payload."""
+
+    if not settings.linear_api_key:
+        # Skip the request entirely when Linear has not been configured.
+        return None
+
+    request_payload: Dict[str, Any] = {"query": query}
+
+    if variables:
+        # Attach GraphQL variables only when the caller supplied them.
+        request_payload["variables"] = variables
+
+    try:
+        # Submit the GraphQL request to Linear using the shared auth headers.
+        return _request_json(
+            "https://api.linear.app/graphql",
+            method="POST",
+            headers=_build_linear_headers(settings),
+            payload=request_payload,
+        )
+    except (HTTPError, URLError, json.JSONDecodeError):
+        # Return no payload when Linear rejects or fails the request.
+        return None
+
+
+def _extract_linear_issue_state_catalog(response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Extracts the current Linear issue state and the team's available states."""
+
+    data = response.get("data")
+
+    if not isinstance(data, dict):
+        # Return no catalog when Linear omits the GraphQL data envelope.
+        return None
+
+    issue_payload = data.get("issue")
+
+    if not isinstance(issue_payload, dict):
+        # Return no catalog when the issue payload is missing or malformed.
+        return None
+
+    team_payload = issue_payload.get("team")
+
+    if not isinstance(team_payload, dict):
+        # Return no catalog when the issue does not expose a usable team payload.
+        return None
+
+    states_payload = team_payload.get("states")
+
+    if not isinstance(states_payload, dict):
+        # Return no catalog when the team states envelope is missing or malformed.
+        return None
+
+    team_states = states_payload.get("nodes", [])
+
+    if not isinstance(team_states, list):
+        # Return no catalog when the team states payload is not a list.
+        return None
+
+    current_state = issue_payload.get("state")
+
+    if current_state is not None and not isinstance(current_state, dict):
+        # Return no catalog when the current state payload is malformed.
+        return None
+
+    # Return the normalized issue-state catalog for the caller's state matching logic.
+    return {
+        "currentState": current_state or {},
+        "teamStates": [state for state in team_states if isinstance(state, dict)],
+    }
+
+
+def _find_linear_state_node(team_states: List[Dict[str, Any]], status_name: str) -> Optional[Dict[str, Any]]:
+    """Finds the best Linear team state matching the requested public status name."""
+
+    normalized_status_name = status_name.strip().lower()
+    target_state_type = _LINEAR_STATE_TYPE_BY_STATUS_NAME.get(normalized_status_name, "")
+
+    # Prefer an exact case-insensitive state-name match so team-specific labels win.
+    for state in team_states:
+        if str(state.get("name", "")).strip().lower() == normalized_status_name:
+            # Return the exact state-name match immediately.
+            return state
+
+    if target_state_type:
+        # Fall back to the canonical Linear state type when names differ across teams.
+        for state in team_states:
+            if str(state.get("type", "")).strip().lower() == target_state_type:
+                # Return the first state whose workflow type matches the requested status.
+                return state
+
+    # Return no state when neither the name nor type lookup found a usable match.
+    return None
+
+
+def update_linear_issue_status(settings: Settings, *, issue_id: str, status_name: str) -> bool:
+    """Updates a Linear issue into the requested workflow state when possible."""
+
+    normalized_issue_id = issue_id.strip()
+    normalized_status_name = status_name.strip()
+
+    if not normalized_issue_id or not normalized_status_name:
+        # Skip updates that do not identify both an issue and a target state.
+        return False
+
+    issue_catalog_response = _request_linear_graphql(
+        settings,
+        query="""
+        query ControlPaneIssueStateCatalog($issueId: String!) {
+          issue(id: $issueId) {
+            id
+            state {
+              id
+              name
+              type
+            }
+            team {
+              id
+              states(first: 50) {
+                nodes {
+                  id
+                  name
+                  type
+                }
+              }
+            }
+          }
+        }
+        """,
+        variables={"issueId": normalized_issue_id},
+    )
+
+    if not issue_catalog_response:
+        # Stop when the issue catalog lookup could not be loaded from Linear.
+        return False
+
+    issue_state_catalog = _extract_linear_issue_state_catalog(issue_catalog_response)
+
+    if not issue_state_catalog:
+        # Stop when the response does not expose the issue's current/team states.
+        return False
+
+    current_state = issue_state_catalog["currentState"]
+    team_states = issue_state_catalog["teamStates"]
+    matched_state = _find_linear_state_node(team_states, normalized_status_name)
+
+    if not matched_state:
+        # Stop when the team does not have a state matching the requested status.
+        return False
+
+    current_state_id = str(current_state.get("id", "")).strip()
+    matched_state_id = str(matched_state.get("id", "")).strip()
+
+    if current_state_id and current_state_id == matched_state_id:
+        # Treat the update as successful when the issue is already in the target state.
+        return True
+
+    mutation_response = _request_linear_graphql(
+        settings,
+        query="""
+        mutation ControlPaneIssueStateUpdate($issueId: String!, $stateId: String!) {
+          issueUpdate(id: $issueId, input: { stateId: $stateId }) {
+            success
+            issue {
+              id
+              state {
+                id
+                name
+                type
+              }
+            }
+          }
+        }
+        """,
+        variables={
+            "issueId": normalized_issue_id,
+            "stateId": matched_state_id,
+        },
+    )
+
+    if not mutation_response:
+        # Report failure when the mutation response could not be read safely.
+        return False
+
+    mutation_data = mutation_response.get("data")
+
+    if not isinstance(mutation_data, dict):
+        # Report failure when Linear omits the GraphQL data envelope.
+        return False
+
+    update_payload = mutation_data.get("issueUpdate")
+
+    if not isinstance(update_payload, dict):
+        # Report failure when the issueUpdate payload is missing or malformed.
+        return False
+
+    # Return the Linear mutation success flag so callers can avoid duplicate retries.
+    return bool(update_payload.get("success"))
 
 
 def _read_markdown_title(path: Path) -> str:
