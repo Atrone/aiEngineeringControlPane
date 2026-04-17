@@ -900,13 +900,108 @@ def _build_run_extensions(
     }
 
 
+def _is_actionable_blocker(blocker: str) -> bool:
+    """Reports whether a blocker string should appear in dashboard summaries."""
+
+    normalized_blocker = blocker.strip().lower()
+
+    if not normalized_blocker:
+        # Ignore empty blocker text so dashboard summaries stay meaningful.
+        return False
+
+    ignored_blockers = {
+        "none",
+        "no active blockers",
+        "awaiting run start",
+        "streaming execution in progress",
+        "reviewer controls will unlock after the run completes",
+        "waiting for reviewer decision",
+        "cursor cloud agent is still running",
+        "reviewer controls unlock after the live agent finishes",
+    }
+
+    # Return true only when the blocker adds real operator context.
+    return normalized_blocker not in ignored_blockers
+
+
+def _collect_blocker_counts() -> Dict[str, int]:
+    """Counts actionable blocker reasons across blocked and retry runs."""
+
+    blocker_counts: Dict[str, int] = {}
+
+    # Scan the run store for the blocker reasons that need dashboard visibility.
+    for run in RUN_STORE:
+        if run.get("status") not in {"Blocked", "Retry"}:
+            # Skip runs that are not currently stalled.
+            continue
+
+        run_blockers = list(run.get("blockers", []))
+        run_has_explicit_blocker = False
+
+        # Count each actionable blocker while preserving first-seen order.
+        for blocker in run_blockers:
+            if _is_actionable_blocker(str(blocker)):
+                blocker_counts[str(blocker)] = blocker_counts.get(str(blocker), 0) + 1
+                run_has_explicit_blocker = True
+
+        if run_has_explicit_blocker:
+            # Skip the current-step fallback when explicit blockers were already captured.
+            continue
+
+        current_step = str(run.get("currentStep", "")).strip()
+
+        if _is_actionable_blocker(current_step):
+            # Count the current step when the run has no better blocker list.
+            blocker_counts[current_step] = blocker_counts.get(current_step, 0) + 1
+
+    # Return the collected blocker counts for dashboard metrics and side panels.
+    return blocker_counts
+
+
+def _build_dashboard_blocked_reasons() -> List[str]:
+    """Builds the blocked-reasons panel from the current run blocker state."""
+
+    blocker_counts = _collect_blocker_counts()
+
+    if not blocker_counts:
+        # Return a state-based empty result when no actionable blockers are present.
+        return ["No actionable blocker reasons are currently reported."]
+
+    ordered_blockers = sorted(blocker_counts.items(), key=lambda item: -item[1])
+    blocked_reasons: List[str] = []
+
+    # Surface the most common blocker reasons with their affected-run counts.
+    for blocker, count in ordered_blockers[:3]:
+        blocked_reasons.append(f"{blocker} ({count} run{'s' if count != 1 else ''})")
+
+    # Return the blocked-reason list shown in the dashboard side rail.
+    return blocked_reasons
+
+
+def _build_review_effort_value(review_candidate_count: int, total_review_runtime_seconds: int) -> str:
+    """Formats the review-effort metric from review-ready and merged run runtimes."""
+
+    if review_candidate_count == 0:
+        # Return a stable zero state when no runs have reached review yet.
+        return "0 min"
+
+    average_runtime_seconds = round(total_review_runtime_seconds / review_candidate_count)
+
+    # Return the average runtime in minutes for the dashboard metric value.
+    return f"{max(1, round(average_runtime_seconds / 60))} min"
+
+
 def _compute_metrics() -> List[Dict[str, str]]:
     """Computes dashboard metrics from the in-memory run state."""
 
     active_runs = 0
+    running_runs = 0
     blocked_runs = 0
     merged_runs = 0
     review_ready = 0
+    review_candidate_count = 0
+    total_review_runtime_seconds = 0
+    blocker_counts = _collect_blocker_counts()
 
     # Aggregate the run counts needed by the dashboard cards.
     for run in RUN_STORE:
@@ -915,6 +1010,10 @@ def _compute_metrics() -> List[Dict[str, str]]:
         if status in {"Running", "Review", "Blocked", "Retry"}:
             # Count non-terminal runs as active.
             active_runs += 1
+
+        if status == "Running":
+            # Count live runs that are still actively executing.
+            running_runs += 1
 
         if status == "Blocked":
             # Count blocked runs for the operational dashboard.
@@ -928,13 +1027,111 @@ def _compute_metrics() -> List[Dict[str, str]]:
             # Count review-ready runs for reviewer load visibility.
             review_ready += 1
 
+        if status in {"Review", "Merged"}:
+            # Include review-ready and merged runs in the review-effort estimate.
+            review_candidate_count += 1
+            total_review_runtime_seconds += _parse_runtime_seconds(str(run.get("runtime", "00:00")))
+
+    review_effort_value = _build_review_effort_value(review_candidate_count, total_review_runtime_seconds)
+    active_runs_hint = (
+        f"{running_runs} running, {review_ready} waiting for review"
+        if active_runs
+        else "No active runs are currently in flight"
+    )
+    blocked_runs_hint = (
+        f"{len(blocker_counts)} unique blocker reason{'s' if len(blocker_counts) != 1 else ''} need follow-up"
+        if blocked_runs or blocker_counts
+        else "No blocked runs currently need follow-up"
+    )
+    merged_runs_hint = (
+        f"{merged_runs} run{'s' if merged_runs != 1 else ''} reached the merged state in the current session"
+        if merged_runs
+        else "No merged runs are recorded in the current session"
+    )
+    review_effort_hint = (
+        f"Average runtime across {review_candidate_count} run{'s' if review_candidate_count != 1 else ''} that reached review or merge"
+        if review_candidate_count
+        else "No review-ready or merged runs are available to estimate review effort"
+    )
+
     # Return the derived dashboard metrics.
     return [
-        {"label": "Active runs", "value": str(active_runs), "hint": f"{review_ready} review-ready right now"},
-        {"label": "Blocked tasks", "value": str(blocked_runs), "hint": "Provider or policy issues may require attention"},
-        {"label": "Merged today", "value": str(merged_runs), "hint": "Includes approved AI-assisted runs"},
-        {"label": "Review effort", "value": "18 min", "hint": "Average review time per accepted run"},
+        {"label": "Active runs", "value": str(active_runs), "hint": active_runs_hint},
+        {"label": "Blocked tasks", "value": str(blocked_runs), "hint": blocked_runs_hint},
+        {"label": "Merged today", "value": str(merged_runs), "hint": merged_runs_hint},
+        {"label": "Review effort", "value": review_effort_value, "hint": review_effort_hint},
     ]
+
+
+def _find_integration_status(statuses: List[Dict[str, Any]], integration_id: str) -> Optional[Dict[str, Any]]:
+    """Finds a dashboard integration status by provider identifier."""
+
+    # Search the integration status list for the requested provider entry.
+    for status in statuses:
+        if status.get("id") == integration_id:
+            # Return the first matching provider status record.
+            return status
+
+    # Return no status when the provider is not present in the payload.
+    return None
+
+
+def _build_dashboard_suggested_actions(
+    *,
+    repository_names: List[str],
+    integration_statuses: List[Dict[str, Any]],
+) -> List[str]:
+    """Builds dashboard suggestions from current run and integration state."""
+
+    review_ready_count = len([run for run in RUN_STORE if run.get("status") == "Review"])
+    stalled_runs = len([run for run in RUN_STORE if run.get("status") in {"Blocked", "Retry"}])
+    blocker_counts = _collect_blocker_counts()
+    suggested_actions: List[str] = []
+    top_blocker = next(iter(blocker_counts), "")
+    linear_status = _find_integration_status(integration_statuses, "linear")
+    github_status = _find_integration_status(integration_statuses, "github")
+    cursor_status = _find_integration_status(integration_statuses, "cursor_cloud_agents")
+    docs_status = _find_integration_status(integration_statuses, "repo_docs")
+
+    if review_ready_count:
+        # Prompt reviewers to clear the runs already waiting in the approval inbox.
+        suggested_actions.append(
+            f"Review {review_ready_count} run{'s' if review_ready_count != 1 else ''} waiting in the approval inbox."
+        )
+
+    if stalled_runs:
+        blocker_suffix = f" Top blocker: {top_blocker}." if top_blocker else ""
+
+        # Surface the blocked-run follow-up work directly in the dashboard suggestions.
+        suggested_actions.append(
+            f"Unblock {stalled_runs} stalled run{'s' if stalled_runs != 1 else ''}.{blocker_suffix}"
+        )
+
+    if linear_status and not bool(linear_status.get("connected")):
+        # Recommend enabling live Linear tickets when the Linear provider is still disconnected.
+        suggested_actions.append("Connect Linear so dashboard and intake views use real tickets.")
+    elif github_status and not bool(github_status.get("connected")):
+        # Recommend connecting GitHub when real repository launches are still unavailable.
+        suggested_actions.append("Connect GitHub so new runs can target real repositories.")
+    elif cursor_status and not bool(cursor_status.get("connected")):
+        # Recommend connecting Cursor when runs cannot launch against the live cloud agent surface.
+        suggested_actions.append("Connect Cursor Cloud Agents so runs launch against the live agent service.")
+    elif docs_status and not bool(docs_status.get("connected")):
+        # Recommend connecting repo docs when runs are missing grounded markdown context.
+        suggested_actions.append("Connect repo docs so new tasks attach real markdown context.")
+
+    if repository_names and len(suggested_actions) < 3:
+        # Suggest launching new work when repositories are already available for intake.
+        suggested_actions.append(
+            f"Launch new work against {len(repository_names)} available repos in the intake flow."
+        )
+
+    if not suggested_actions:
+        # Return a stable empty state when the dashboard has no urgent follow-up.
+        return ["No immediate follow-up actions are suggested."]
+
+    # Return the highest-signal suggestions for the dashboard side rail.
+    return suggested_actions[:3]
 
 
 def get_integration_catalog(settings: Settings, headers: Mapping[str, str]) -> Dict[str, Any]:
@@ -987,16 +1184,11 @@ def get_dashboard_payload(settings: Settings, headers: Mapping[str, str]) -> Dic
             )
         )
 
-    blocked_reasons = [
-        "Missing test environment secret",
-        "Policy denied production-impacting command",
-        "Linear issue moved without reviewer action",
-    ]
-    suggested_actions = [
-        f"{len([run for run in RUN_STORE if run['status'] == 'Review'])} review-ready runs in the approval inbox",
-        f"{len(repository_names)} repositories available for new task intake",
-        "Knowledge sources are attached from repo markdown by default",
-    ]
+    blocked_reasons = _build_dashboard_blocked_reasons()
+    suggested_actions = _build_dashboard_suggested_actions(
+        repository_names=repository_names,
+        integration_statuses=integration_catalog["statuses"],
+    )
 
     # Return the derived dashboard payload plus integration status context.
     return {
