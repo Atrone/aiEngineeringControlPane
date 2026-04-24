@@ -1,26 +1,28 @@
 :root {
-  color: #e8f0fa;
-  background: #050c18;
+  color: #ecf4ff;
+  background: #040914;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --page-bg: radial-gradient(1200px 800px at 12% -10%, rgba(56, 189, 248, 0.12), transparent 55%),
-    radial-gradient(900px 600px at 88% 0%, rgba(99, 102, 241, 0.1), transparent 50%),
-    linear-gradient(180deg, #050c18 0%, #0a1426 55%, #050c18 100%);
-  --panel-bg: rgba(10, 18, 34, 0.82);
-  --panel-border: rgba(148, 163, 184, 0.2);
-  --panel-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
-  --accent: #7dd3fc;
+  --page-bg:
+    radial-gradient(1400px 900px at -10% -18%, rgba(14, 165, 233, 0.18), transparent 58%),
+    radial-gradient(1200px 800px at 110% -20%, rgba(99, 102, 241, 0.18), transparent 56%),
+    radial-gradient(900px 500px at 50% 120%, rgba(168, 85, 247, 0.08), transparent 68%),
+    linear-gradient(175deg, #040914 0%, #081327 44%, #050c19 100%);
+  --panel-bg: rgba(11, 19, 38, 0.76);
+  --panel-border: rgba(148, 163, 184, 0.22);
+  --panel-shadow: 0 28px 70px rgba(2, 8, 23, 0.52);
+  --accent: #8ae0ff;
   --accent-strong: #38bdf8;
-  --accent-glow: rgba(56, 189, 248, 0.35);
-  --text-muted: #9fb3c8;
+  --accent-glow: rgba(56, 189, 248, 0.45);
+  --text-muted: #adc2d8;
   --success: #34d399;
   --warning: #fbbf24;
   --danger: #fb7185;
   --sidebar-width: 340px;
-  --content-max: 1200px;
+  --content-max: 1240px;
 }
 
 * {
@@ -32,6 +34,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: var(--page-bg);
+  color: inherit;
 }
 
 button,
@@ -133,6 +136,7 @@ ul {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   min-height: 100vh;
   position: relative;
+  isolation: isolate;
 }
 
 .app-main {
@@ -147,8 +151,8 @@ ul {
   gap: 1.25rem;
   padding: 1.5rem;
   border-right: 1px solid var(--panel-border);
-  background: rgba(4, 10, 20, 0.78);
-  backdrop-filter: blur(14px);
+  background: linear-gradient(160deg, rgba(5, 11, 24, 0.9), rgba(8, 18, 34, 0.78));
+  backdrop-filter: blur(18px);
   z-index: 40;
 }
 
@@ -167,6 +171,13 @@ ul {
 .brand-card,
 .sidebar-card {
   padding: 1.25rem;
+}
+
+.brand-meta {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
 }
 
 .eyebrow,
@@ -212,12 +223,14 @@ ul {
   border-radius: 14px;
   color: #d7e4f2;
   text-decoration: none;
-  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+  border: 1px solid transparent;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease, border-color 160ms ease;
 }
 
 .nav-link:hover,
 .nav-link.active {
-  background: rgba(61, 127, 173, 0.2);
+  background: rgba(125, 211, 252, 0.12);
+  border-color: rgba(125, 211, 252, 0.24);
   color: #ffffff;
   transform: translateX(2px);
 }
@@ -235,7 +248,7 @@ ul {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.75rem;
 }
 
 .topbar-leading {
@@ -277,22 +290,22 @@ ul {
 }
 
 .primary-button {
-  background: linear-gradient(135deg, var(--accent-strong), #4f46e5);
+  background: linear-gradient(135deg, var(--accent-strong), #818cf8);
   color: #03111d;
   font-weight: 700;
-  box-shadow: 0 10px 30px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.32);
 }
 
 .ghost-button,
 .link-button {
-  background: rgba(148, 163, 184, 0.08);
-  border-color: rgba(148, 163, 184, 0.16);
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.24);
   color: #e5eef9;
 }
 
 .page-grid {
   display: grid;
-  gap: 1.25rem;
+  gap: 1.35rem;
 }
 
 .hero-panel,
@@ -300,7 +313,10 @@ ul {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.5rem;
+  padding: 1.65rem;
+  background:
+    linear-gradient(145deg, rgba(14, 165, 233, 0.09), rgba(99, 102, 241, 0.07)),
+    var(--panel-bg);
 }
 
 .hero-panel h3,
@@ -318,8 +334,9 @@ ul {
   padding: 0.5rem 0.85rem;
   border-radius: 999px;
   border: 1px solid rgba(125, 211, 252, 0.22);
-  background: rgba(56, 189, 248, 0.1);
-  color: #dff6ff;
+  background: rgba(56, 189, 248, 0.14);
+  color: #e0f4ff;
+  backdrop-filter: blur(8px);
 }
 
 .metric-grid {
@@ -330,6 +347,9 @@ ul {
 
 .metric-card {
   padding: 1.25rem;
+  background:
+    linear-gradient(170deg, rgba(56, 189, 248, 0.08), rgba(15, 23, 42, 0.04)),
+    var(--panel-bg);
 }
 
 .metric-value {
@@ -358,6 +378,9 @@ ul {
 
 .panel {
   padding: 1.25rem;
+  background:
+    linear-gradient(165deg, rgba(148, 163, 184, 0.02), rgba(56, 189, 248, 0.03)),
+    var(--panel-bg);
 }
 
 .settings-nav-panel {
@@ -554,7 +577,8 @@ ul {
   padding: 1rem;
   border-radius: 16px;
   border: 1px solid rgba(155, 179, 209, 0.12);
-  background: rgba(255, 255, 255, 0.03);
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.04), rgba(148, 163, 184, 0.02));
+  backdrop-filter: blur(4px);
 }
 
 .run-row {
@@ -567,7 +591,7 @@ ul {
 .queue-row:hover,
 .policy-row:hover {
   border-color: rgba(125, 211, 252, 0.28);
-  background: rgba(125, 211, 252, 0.07);
+  background: linear-gradient(150deg, rgba(125, 211, 252, 0.12), rgba(99, 102, 241, 0.09));
 }
 
 .run-row-main,
@@ -584,7 +608,8 @@ ul {
 .rail-item {
   padding: 0.9rem 1rem;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
+  background: linear-gradient(145deg, rgba(125, 211, 252, 0.1), rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(125, 211, 252, 0.16);
 }
 
 .status-badge {
@@ -781,14 +806,14 @@ ul {
   padding: 0.7rem 1rem;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(148, 163, 184, 0.08);
+  background: rgba(148, 163, 184, 0.1);
   color: #e5eef9;
   cursor: pointer;
 }
 
 .evidence-tab-active {
   border-color: rgba(125, 211, 252, 0.32);
-  background: rgba(125, 211, 252, 0.12);
+  background: linear-gradient(145deg, rgba(125, 211, 252, 0.16), rgba(99, 102, 241, 0.12));
   color: #ffffff;
 }
 
@@ -860,6 +885,10 @@ ul {
 .ghost-button:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.primary-button:hover {
+  transform: translateY(-1px);
 }
 
 .nav-link:focus-visible,

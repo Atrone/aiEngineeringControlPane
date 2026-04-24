@@ -457,6 +457,10 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
           <p className="muted-copy">
             Coordinate AI coding agents across issue intake, repo context, approval, and delivery workflows.
           </p>
+          <div className="brand-meta">
+            <span className="pill">Linear-ready</span>
+            <span className="pill">GitHub synced</span>
+          </div>
         </div>
 
         <nav aria-label="Primary" className="nav-list">
@@ -490,8 +494,8 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
           <header className="topbar">
             <div className="topbar-leading">
               <div>
-                <p className="eyebrow">Product Eng</p>
-                <h2>Team operations view</h2>
+                <p className="eyebrow">Product Eng Control Plane</p>
+                <h2>Ship AI changes with traceable delivery</h2>
               </div>
             </div>
             <div className="topbar-actions">
@@ -991,7 +995,11 @@ function DashboardPage() {
       <section className="hero-panel">
         <div>
           <p className="eyebrow">Live operations</p>
-          <h3>Track AI work across planning, implementation, testing, review, and integration status.</h3>
+          <h3>See every run, unblock high-risk work, and move issues from scope to shipped pull request.</h3>
+          <p className="subtle-copy">
+            SIG-7 frontend revamp aligns this workspace with modern AI startup product patterns: bold signal hierarchy,
+            compact KPI cards, and high-clarity workflow rails.
+          </p>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
@@ -1314,7 +1322,10 @@ function WorkIntakePage() {
       <section className="hero-panel">
         <div>
           <p className="eyebrow">Integrated intake</p>
-          <h3>Create a new AI work item from GitHub repo context, issue-tracker issues, and repo markdown knowledge.</h3>
+          <h3>Turn issue context into execution-ready tasks with clearer prompts, acceptance criteria, and repo routing.</h3>
+          <p className="subtle-copy">
+            Designed for startup-speed operations: fewer clicks, stronger defaults, and immediate visibility into provider health.
+          </p>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
