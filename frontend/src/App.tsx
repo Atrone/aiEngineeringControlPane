@@ -1706,6 +1706,11 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
         title="Evidence"
       />
 
+      <Panel
+        body={<TaskImplementationPackagePanelBody run={activeRun} />}
+        title="Implementation package"
+      />
+
       <section className="task-grid task-grid-wide">
         <Panel
           body={
@@ -2970,6 +2975,158 @@ function PullRequestPanelBody(props: { run: RunSummary }) {
       <p>CI status: {props.run.ci?.status ?? 'Unavailable'}</p>
       <p>Cloud agent URL: {props.run.cloudAgent?.target?.url ?? 'Unavailable'}</p>
       <p className="muted-copy">{props.run.ci?.summary ?? 'No CI summary available.'}</p>
+    </div>
+  );
+}
+
+/**
+ * Extracts distinct HTTP(S) URLs from a free-form text block.
+ */
+function extractUrlsFromText(text: string): string[] {
+  // Match URLs conservatively so CI and evidence links can be rendered as anchors.
+  const urlMatches = text.match(/https?:\/\/[^\s)]+/gi) ?? [];
+  const normalizedUrls: string[] = [];
+  const seenUrls = new Set<string>();
+
+  // Deduplicate while preserving order for predictable UI rendering.
+  for (const rawUrl of urlMatches) {
+    const sanitizedUrl = rawUrl.replace(/[.,;!?]+$/u, '');
+
+    if (!seenUrls.has(sanitizedUrl)) {
+      // Store each unique URL once so repeated references do not clutter the panel.
+      seenUrls.add(sanitizedUrl);
+      normalizedUrls.push(sanitizedUrl);
+    }
+  }
+
+  // Return the ordered list of unique URLs extracted from the input text.
+  return normalizedUrls;
+}
+
+/**
+ * Builds a grouped link package for task detail traceability and evidence review.
+ */
+function collectTaskDetailReferenceLinks(run: RunSummary): {
+  issueLinks: string[];
+  interfaceLinks: string[];
+  ciLinks: string[];
+  artifactLinks: string[];
+} {
+  const issueLinks: string[] = [];
+  const interfaceLinks: string[] = [];
+  const ciLinks: string[] = [];
+  const artifactLinks: string[] = [];
+
+  if (run.issue?.url) {
+    // Preserve issue-provider traceability by linking directly back to the originating ticket.
+    issueLinks.push(run.issue.url);
+  }
+
+  if (run.pullRequest?.url) {
+    // Include the PR URL because updated UI screenshots and previews are commonly attached there.
+    interfaceLinks.push(run.pullRequest.url);
+  }
+
+  if (run.cloudAgent?.target?.url) {
+    // Include the cloud-agent session URL so reviewers can inspect generated preview output.
+    interfaceLinks.push(run.cloudAgent.target.url);
+  }
+
+  if (run.cloudAgent?.target?.prUrl) {
+    // Include the cloud-agent PR URL when it differs from the canonical pull-request field.
+    interfaceLinks.push(run.cloudAgent.target.prUrl);
+  }
+
+  if (run.ci?.summary) {
+    // Extract CI URLs from the backend summary text so status checks are directly clickable.
+    ciLinks.push(...extractUrlsFromText(run.ci.summary));
+  }
+
+  const evidenceUrls = [
+    ...extractUrlsFromText(run.evidence.diff.join('\n')),
+    ...extractUrlsFromText(run.evidence.tests.join('\n')),
+    ...extractUrlsFromText(run.evidence.commands.join('\n')),
+    ...extractUrlsFromText(run.evidence.rationale.join('\n')),
+  ];
+
+  // Include proof links captured in run evidence (screenshots, recordings, logs, or docs).
+  artifactLinks.push(...evidenceUrls);
+
+  const dedupe = (items: string[]): string[] => Array.from(new Set(items));
+
+  // Return deduplicated grouped links for predictable task-detail rendering.
+  return {
+    issueLinks: dedupe(issueLinks),
+    interfaceLinks: dedupe(interfaceLinks),
+    ciLinks: dedupe(ciLinks),
+    artifactLinks: dedupe(artifactLinks),
+  };
+}
+
+/**
+ * Renders task-level implementation rationale and reviewer-ready traceability links.
+ */
+function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
+  const links = collectTaskDetailReferenceLinks(props.run);
+
+  /**
+   * Renders a titled list of external links used as review evidence.
+   */
+  function renderLinkGroup(title: string, urls: string[], emptyMessage: string): ReactNode {
+    if (urls.length === 0) {
+      // Return a neutral hint when the backend did not provide links for this section yet.
+      return (
+        <div className="stacked-copy">
+          <strong>{title}</strong>
+          <p className="muted-copy">{emptyMessage}</p>
+        </div>
+      );
+    }
+
+    const linkItems: ReactNode[] = [];
+
+    // Render each URL as an accessible external anchor for quick reviewer access.
+    for (const [index, url] of urls.entries()) {
+      linkItems.push(
+        <li key={`${title}-${url}`}>
+          <a className="external-link" href={url} rel="noreferrer" target="_blank">
+            {title} link {index + 1}
+          </a>
+        </li>,
+      );
+    }
+
+    // Return the titled list of links for this evidence section.
+    return (
+      <div className="stacked-copy">
+        <strong>{title}</strong>
+        <ul className="external-link-list">{linkItems}</ul>
+      </div>
+    );
+  }
+
+  // Keep SIG-7 rationale explicit on the task-detail page for reviewer context.
+  return (
+    <div className="stacked-copy">
+      <p>
+        Design rationale: follows SIG-7 wireframes and design decisions with AI-console patterns inspired by leading
+        products (persistent navigation chrome, focused content column, and evidence-first review surfaces).
+      </p>
+      <p className="subtle-copy">
+        Accessibility rationale: keyboard-navigable evidence tabs, visible focus states, async status/alert semantics,
+        and responsive behavior tuned for smaller viewports.
+      </p>
+      <p className="subtle-copy">
+        References: docs/ai-control-pane/wireframes.md and docs/ai-control-pane/SIG-7-design-decisions.md.
+      </p>
+      {renderLinkGroup('Issue traceability', links.issueLinks, 'No issue URL is currently available on this run.')}
+      {renderLinkGroup('Updated interface', links.interfaceLinks, 'No interface preview link is currently available.')}
+      {renderLinkGroup('CI results', links.ciLinks, 'No CI URL was found in the run summary yet.')}
+      {renderLinkGroup(
+        'Screenshots or artifacts',
+        links.artifactLinks,
+        'No screenshot or artifact links were detected in run evidence yet.',
+      )}
     </div>
   );
 }
