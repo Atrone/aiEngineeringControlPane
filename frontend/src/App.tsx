@@ -453,11 +453,15 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
 
       <aside aria-label="Workspace navigation" className="sidebar">
         <div className="brand-card">
-          <p className="eyebrow">AI Control Pane</p>
-          <h1>Mission Control</h1>
+          <p className="eyebrow">SIG-7 Frontend Revamp</p>
+          <h1>AI Engineering Control Pane</h1>
           <p className="muted-copy">
-            Coordinate AI coding agents across issue intake, repo context, approval, and delivery workflows.
+            Operate a production-style AI engineering workflow with polished UX patterns inspired by leading AI startups.
           </p>
+          <div className="brand-meta">
+            <span className="pill">Linear-ready</span>
+            <span className="pill">GitHub synced</span>
+          </div>
         </div>
 
         <nav aria-label="Primary" className="nav-list">
@@ -491,12 +495,13 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
           <header className="topbar">
             <div className="topbar-leading">
               <div>
-                <p className="eyebrow">Product Eng</p>
-                <h2>Team operations view</h2>
+                <p className="eyebrow">Provider: Linear · Ticket SIG-7</p>
+                <h2>Frontend revamp operations view</h2>
               </div>
             </div>
             <div className="topbar-actions">
               <span className="pill">{buildRoleLabel(props.currentUser.role)}</span>
+              <span className="pill">Design-forward UX</span>
               {canReview ? (
                 <Link className="ghost-button link-button" to="/settings">
                   Open settings
@@ -914,6 +919,8 @@ function DashboardPage() {
   const runCards: ReactNode[] = [];
   const suggestedItems: ReactNode[] = [];
   const integrationCards: ReactNode[] = [];
+  const trustSignals: ReactNode[] = [];
+  const workflowPatternCards: ReactNode[] = [];
 
   // Build cards explicitly so the UI stays easy to reshape later.
   for (const metric of derivedMetrics) {
@@ -959,6 +966,39 @@ function DashboardPage() {
     integrationCards.push(<IntegrationStatusCard key={status.id} status={status} />);
   }
 
+  // Build a lightweight credibility row inspired by startup trust sections.
+  for (const signal of ['Linear-backed scope', 'GitHub-linked delivery', 'OpenAI-assisted triage', 'Reviewer-first evidence']) {
+    trustSignals.push(
+      <li className="trust-signal-item" key={signal}>
+        {signal}
+      </li>,
+    );
+  }
+
+  // Build value-story cards that highlight the core operating loop.
+  for (const pattern of [
+    {
+      title: 'Prioritize with confidence',
+      description: 'Issue-linked runs and AI-suggested actions keep work focused on the highest leverage tickets first.',
+    },
+    {
+      title: 'Execute with full context',
+      description: 'Provider integrations and run summaries keep implementation, review, and merge context visible in one place.',
+    },
+    {
+      title: 'Ship with review evidence',
+      description: 'Structured status, blockers, and approvals streamline handoff quality and reduce reviewer back-and-forth.',
+    },
+  ]) {
+    workflowPatternCards.push(
+      <article className="story-card" key={pattern.title}>
+        <p className="eyebrow">Pattern</p>
+        <h3>{pattern.title}</h3>
+        <p className="muted-copy">{pattern.description}</p>
+      </article>,
+    );
+  }
+
   // Choose the suggestions rail body so loading, error, and empty states all read clearly.
   let suggestionsBody: ReactNode;
 
@@ -986,22 +1026,37 @@ function DashboardPage() {
     );
   }
 
-  // Surface the operational view, queue summary, and blocked context together.
+  // Surface the operational view with a product-led hero, social proof, and conversion-focused sections.
   return (
     <div className="page-grid">
-      <section className="hero-panel">
-        <div>
-          <p className="eyebrow">Live operations</p>
-          <h3>Track AI work across planning, implementation, testing, review, and integration status.</h3>
+      <section className="hero-panel hero-panel-revamp">
+        <div className="hero-panel-leading">
+          <p className="eyebrow">SIG-7 frontend revamp</p>
+          <h3>Launch AI delivery flows with a modern operator cockpit inspired by leading startup product patterns.</h3>
+          <p className="muted-copy">
+            Convert issue context into merged outcomes with clearer hierarchy, trust signals, and faster action paths for operators and reviewers.
+          </p>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
           <span className="pill">{query.data.currentUser.role}</span>
           <span className="pill">{query.data.integrationStatuses.length} provider categories</span>
+          <Link className="primary-button hero-cta-button" to="/intake">
+            Start a new intake
+          </Link>
         </div>
       </section>
 
+      <section className="trust-strip" aria-label="Product trust signals">
+        <p className="eyebrow">Trusted operating model</p>
+        <ul className="trust-signal-list">{trustSignals}</ul>
+      </section>
+
       <section className="metric-grid">{metricCards}</section>
+
+      <section className="story-grid" aria-label="Workflow value patterns">
+        {workflowPatternCards}
+      </section>
 
       <section className="content-grid">
         <Panel
@@ -1018,7 +1073,37 @@ function DashboardPage() {
         </div>
       </section>
 
+      <section className="workflow-grid">
+        <Panel
+          title="Execution workflow"
+          body={(
+            <ol className="detail-list compact-list">
+              <li>Capture scoped work from linked issue providers.</li>
+              <li>Launch coding agents with repository context.</li>
+              <li>Monitor live progress, blockers, and evidence.</li>
+              <li>Review approvals and move merged work to delivery.</li>
+            </ol>
+          )}
+        />
+        <Panel
+          title="Why this layout"
+          body={(
+            <div className="stacked-copy">
+              <p className="muted-copy">Product-led hero with actionable stats mirrors high-performing AI startup landing pages.</p>
+              <p className="muted-copy">Bento metrics and trust strip keep signal density high without cluttering operator workflows.</p>
+            </div>
+          )}
+        />
+      </section>
+
       <Panel body={<div className="integration-grid">{integrationCards}</div>} title="Integration status" />
+
+      <section className="panel revamp-footnote">
+        <p className="eyebrow">Traceability</p>
+        <p className="muted-copy">
+          Ticket SIG-7 remains in progress while this revamp strengthens discoverability, action clarity, and review readiness across the frontend experience.
+        </p>
+      </section>
     </div>
   );
 }
@@ -1315,7 +1400,10 @@ function WorkIntakePage() {
       <section className="hero-panel">
         <div>
           <p className="eyebrow">Integrated intake</p>
-          <h3>Create a new AI work item from GitHub repo context, issue-tracker issues, and repo markdown knowledge.</h3>
+          <h3>Turn issue context into execution-ready tasks with clearer prompts, acceptance criteria, and repo routing.</h3>
+          <p className="subtle-copy">
+            Designed for startup-speed operations: fewer clicks, stronger defaults, and immediate visibility into provider health.
+          </p>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
