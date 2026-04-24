@@ -894,7 +894,7 @@ def _map_cursor_agent_status(cursor_status: str) -> str:
     return "Running"
 
 
-def _resolve_pull_request_url(run: Dict[str, Any]) -> str:
+def _resolve_pull_request_url(run: Dict[str, Any], settings: Optional[Settings] = None) -> str:
     """Resolves the pull-request URL recorded for the given run."""
 
     cloud_agent = run.get("_cursorAgent") or {}
@@ -905,8 +905,11 @@ def _resolve_pull_request_url(run: Dict[str, Any]) -> str:
         # Prefer the live Cursor-created PR URL when the run was launched against GitHub.
         return pull_request_url
 
-    # Fall back to a deterministic example URL so the demo data still links somewhere.
-    return f"https://github.com/example/{run['repo']}/pull/{run['ticket'].lower()}"
+    # Prefer the connected GitHub owner so task detail links mirror the active integration setup.
+    configured_owner = str(settings.github_owner if settings is not None else "").strip() or "example"
+
+    # Fall back to a deterministic GitHub URL so the demo data still links somewhere.
+    return f"https://github.com/{configured_owner}/{run['repo']}/pull/{run['ticket'].lower()}"
 
 
 def _is_real_github_pull_request_url(pull_request_url: str) -> bool:
@@ -978,7 +981,8 @@ def _simulated_pull_request_state(run: Dict[str, Any]) -> Dict[str, Any]:
 def _resolve_pull_request_state(run: Dict[str, Any], settings: Settings) -> Dict[str, Any]:
     """Resolves the PR state for a run using live GitHub data or the simulation."""
 
-    pull_request_url = _resolve_pull_request_url(run)
+    # Resolve the PR URL with the effective settings so fallback links use the active GitHub owner.
+    pull_request_url = _resolve_pull_request_url(run, settings=settings)
 
     if _is_real_github_pull_request_url(pull_request_url):
         # Prefer real GitHub data when the run is linked to a real repository PR.
@@ -1228,11 +1232,16 @@ def _sync_pull_request_status(run: Dict[str, Any], settings: Settings) -> Dict[s
     return pr_state
 
 
-def _build_pull_request_view(run: Dict[str, Any], pr_state: Dict[str, Any]) -> Dict[str, Any]:
+def _build_pull_request_view(
+    run: Dict[str, Any],
+    pr_state: Dict[str, Any],
+    settings: Optional[Settings] = None,
+) -> Dict[str, Any]:
     """Builds the public pull-request payload shown in the task detail UI."""
 
     run_status = str(run.get("status", ""))
-    pull_request_url = _resolve_pull_request_url(run)
+    # Resolve the displayed PR URL with the effective settings when they are available.
+    pull_request_url = _resolve_pull_request_url(run, settings=settings)
     resolved_state = str(pr_state.get("state", "open"))
 
     if pr_state.get("source") == "skipped":
@@ -1301,7 +1310,8 @@ def _build_run_extensions(
             "source": "skipped",
         }
 
-    pull_request = _build_pull_request_view(run, pr_state)
+    # Build the PR payload with the same effective settings used for state sync.
+    pull_request = _build_pull_request_view(run, pr_state, settings=settings)
     ci_status = {
         "workflow": "CI",
         "status": "blocked" if run["status"] == "Blocked" else "passed",

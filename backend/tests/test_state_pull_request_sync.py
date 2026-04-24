@@ -1,5 +1,6 @@
 """Unit coverage for pull-request and run-extension helpers in state.py."""
 
+from dataclasses import replace
 import unittest
 from unittest.mock import patch
 
@@ -29,6 +30,12 @@ class StatePullRequestSyncHelperTests(unittest.TestCase):
         self.assertEqual(
             state._resolve_pull_request_url(run),
             "https://github.com/example/platform-web/pull/acp-1",
+        )
+
+        # Confirm the connected GitHub owner replaces the placeholder in task-detail fallback links.
+        self.assertEqual(
+            state._resolve_pull_request_url(run, settings=replace(get_settings(), github_owner="acme")),
+            "https://github.com/acme/platform-web/pull/acp-1",
         )
 
         # Confirm the GitHub URL helper distinguishes real GitHub PRs from example placeholders.
@@ -108,19 +115,25 @@ class StatePullRequestSyncHelperTests(unittest.TestCase):
         pull_request_view = state._build_pull_request_view(
             run,
             {"state": "approved", "source": "github", "approved": True, "merged": False},
+            settings=replace(get_settings(), github_owner="acme"),
         )
 
         # Confirm the pull-request payload exposes the normalized downstream fields.
         self.assertEqual(pull_request_view["status"], "approved")
         self.assertEqual(pull_request_view["state"], "approved")
+        self.assertEqual(pull_request_view["url"], "https://github.com/acme/platform-web/pull/acp-1")
 
         with patch("app.state._build_live_view", return_value={"timeline": []}):
             # Confirm run extensions expose issue, PR, CI, docs, user, and live-view fields.
-            public_run = state._build_run_extensions(run)
+            public_run = state._build_run_extensions(
+                run,
+                settings=replace(get_settings(), github_owner="acme"),
+            )
             self.assertEqual(public_run["issue"]["id"], "issue-1")
             self.assertEqual(public_run["requestedBy"]["email"], "maya@example.com")
             self.assertEqual(public_run["ci"]["workflow"], "CI")
             self.assertEqual(public_run["liveView"], {"timeline": []})
+            self.assertEqual(public_run["pullRequest"]["url"], "https://github.com/acme/platform-web/pull/acp-1")
 
 
 if __name__ == "__main__":
