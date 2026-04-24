@@ -1518,7 +1518,17 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
   }
 
   const activeRun = selectedRun;
-  const liveView = activeRun.liveView ?? buildFallbackRunLiveView(activeRun);
+  const liveView = activeRun.liveView ?? null;
+  const hasLiveTimeline = Boolean(liveView && liveView.timeline.length > 0);
+  const hasLiveLogs = Boolean(liveView && liveView.logs.length > 0);
+  const hasLiveEvidence = Boolean(
+    liveView
+    && (
+      liveView.evidenceTabs.diff.length > 0
+      || liveView.evidenceTabs.tests.length > 0
+      || liveView.evidenceTabs.rationale.length > 0
+    ),
+  );
 
   /**
    * Posts an approval decision and stores the updated run payload locally.
@@ -1614,14 +1624,16 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
               <p>Current step: {activeRun.currentStep}</p>
               <p>Runtime: {activeRun.runtime}</p>
               <p>Cloud agent: {activeRun.cloudAgent?.id ?? 'Not launched'}</p>
-              <p>Last updated: {formatEventTime(liveView.lastUpdatedAt)}</p>
+              <p>Last updated: {liveView ? formatEventTime(liveView.lastUpdatedAt) : 'Not available'}</p>
             </div>
           }
           title="Context"
         />
 
         <Panel
-          body={<TimelineList entries={liveView.timeline} liveLabel={liveView.statusLabel} />}
+          body={hasLiveTimeline && liveView
+            ? <TimelineList entries={liveView.timeline} liveLabel={liveView.statusLabel} />
+            : <p className="muted-copy">No live run timeline is available for this task yet.</p>}
           title="Run timeline"
         />
 
@@ -1698,17 +1710,24 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
           title="Pull request"
         />
 
-        <Panel body={<LogStream entries={liveView.logs} />} title="Streamed logs" />
+        <Panel
+          body={hasLiveLogs && liveView
+            ? <LogStream entries={liveView.logs} />
+            : <p className="muted-copy">No live log stream is available for this task yet.</p>}
+          title="Streamed logs"
+        />
       </section>
 
       <Panel
-        body={<EvidenceTabPanel activeTab={activeEvidenceTab} liveView={liveView} onTabChange={setActiveEvidenceTab} />}
+        body={hasLiveEvidence && liveView
+          ? <EvidenceTabPanel activeTab={activeEvidenceTab} liveView={liveView} onTabChange={setActiveEvidenceTab} />
+          : <p className="muted-copy">No live evidence has been captured for this task yet.</p>}
         title="Evidence"
       />
 
       <Panel
         body={<TaskImplementationPackagePanelBody run={activeRun} />}
-        title="Implementation package"
+        title="Reference links"
       />
 
       <section className="task-grid task-grid-wide">
@@ -1716,9 +1735,16 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
           body={
             <div className="stacked-copy">
               <DetailList items={activeRun.blockers} />
-              <p className="subtle-copy">
-                PR URL: {activeRun.pullRequest?.url ?? 'Not available'}
-              </p>
+              {activeRun.pullRequest?.source === 'github' && activeRun.pullRequest.url ? (
+                <p className="subtle-copy">
+                  Pull request link:{' '}
+                  <a className="external-link" href={activeRun.pullRequest.url} rel="noreferrer" target="_blank">
+                    {activeRun.pullRequest.url}
+                  </a>
+                </p>
+              ) : (
+                <p className="subtle-copy">No live pull request link is available for this task yet.</p>
+              )}
             </div>
           }
           title="Blockers and risks"
@@ -2501,82 +2527,6 @@ function buildEvidenceTabLabel(tab: EvidenceTabId): string {
 }
 
 /**
- * Builds timestamped fallback evidence entries when the backend response has no live view yet.
- */
-function buildFallbackEvidenceEntries(items: string[], tab: EvidenceTabId, run: RunSummary): RunEvidenceEntry[] {
-  const fallbackTimestamp = new Date().toISOString();
-  const fallbackEntries: RunEvidenceEntry[] = [];
-  const fallbackStatus: RunEvidenceEntry['status'] = tab === 'tests' && run.status === 'Blocked'
-    ? 'blocked'
-    : run.status === 'Running'
-      ? 'running'
-      : 'captured';
-
-  // Convert legacy string evidence into a richer fallback shape for the tabbed UI.
-  for (const [index, item] of items.entries()) {
-    fallbackEntries.push({
-      id: `${tab}-${index}`,
-      timestamp: fallbackTimestamp,
-      summary: `${buildEvidenceTabLabel(tab)} evidence ${index + 1}`,
-      detail: item,
-      status: fallbackStatus,
-    });
-  }
-
-  // Return the generated fallback evidence entries for the selected tab.
-  return fallbackEntries;
-}
-
-/**
- * Builds a minimal live-view fallback from the legacy run payload shape.
- */
-function buildFallbackRunLiveView(run: RunSummary): RunLiveView {
-  const fallbackTimestamp = new Date().toISOString();
-  const logEntries: RunLogEntry[] = [];
-
-  // Convert legacy command evidence into a simple streamed-log fallback.
-  for (const [index, command] of run.evidence.commands.entries()) {
-    logEntries.push({
-      id: `command-${index}`,
-      timestamp: fallbackTimestamp,
-      level: 'info',
-      source: 'runner',
-      message: `Executed: ${command}`,
-    });
-  }
-
-  logEntries.push({
-    id: 'run-state',
-    timestamp: fallbackTimestamp,
-    level: run.status === 'Blocked' ? 'warning' : 'success',
-    source: 'agent',
-    message: run.currentStep,
-  });
-
-  // Return a safe fallback so the task detail view remains usable between polls.
-  return {
-    isLive: run.status === 'Running',
-    statusLabel: run.status === 'Running' ? 'Streaming live' : 'Snapshot loaded',
-    lastUpdatedAt: fallbackTimestamp,
-    timeline: [
-      {
-        id: 'current-step',
-        title: run.currentStep,
-        detail: run.summary,
-        timestamp: fallbackTimestamp,
-        status: run.status === 'Running' ? 'active' : 'complete',
-      },
-    ],
-    logs: logEntries,
-    evidenceTabs: {
-      diff: buildFallbackEvidenceEntries(run.evidence.diff, 'diff', run),
-      tests: buildFallbackEvidenceEntries(run.evidence.tests, 'tests', run),
-      rationale: buildFallbackEvidenceEntries(run.evidence.rationale, 'rationale', run),
-    },
-  };
-}
-
-/**
  * Renders the run timeline with timestamps and live-state styling.
  */
 function TimelineList(props: { entries: RunTimelineEntry[]; liveLabel: string }) {
@@ -2853,11 +2803,6 @@ function buildApprovalSourceLabel(source: string | undefined): string {
     return 'GitHub';
   }
 
-  if (source === 'simulated') {
-    // Tag demo-time simulated events so operators know they are not live data.
-    return 'Simulated';
-  }
-
   // Default every remaining event to the in-app reviewer source.
   return 'Reviewer';
 }
@@ -2866,7 +2811,9 @@ function buildApprovalSourceLabel(source: string | undefined): string {
  * Renders the approval history list for a task including reviewer and GitHub events.
  */
 function ApprovalHistoryList(props: { entries: RunSummary['approvalHistory'] }) {
-  if (!props.entries || props.entries.length === 0) {
+  const visibleEntries = (props.entries ?? []).filter((entry) => entry.source !== 'simulated');
+
+  if (visibleEntries.length === 0) {
     // Return a neutral placeholder when there is no approval history yet.
     return <p className="muted-copy">No approval actions have been recorded yet.</p>;
   }
@@ -2874,7 +2821,7 @@ function ApprovalHistoryList(props: { entries: RunSummary['approvalHistory'] }) 
   const historyItems: ReactNode[] = [];
 
   // Render each approval record with its acting user, source, and timestamp.
-  for (const entry of props.entries) {
+  for (const entry of visibleEntries) {
     const sourceLabel = buildApprovalSourceLabel(entry.source);
     const decisionLabel = buildApprovalDecisionLabel(entry.decision);
     const sourceClassName = `pill approval-source-pill approval-source-${(entry.source ?? 'reviewer').toLowerCase()}`;
@@ -2944,37 +2891,49 @@ function buildPullRequestStateLabel(run: RunSummary): string {
  */
 function PullRequestPanelBody(props: { run: RunSummary }) {
   const prInfo = props.run.pullRequest;
-  const stateLabel = buildPullRequestStateLabel(props.run);
-  const approvedAt = prInfo?.approvedAt ? formatEventTime(prInfo.approvedAt) : null;
-  const mergedAt = prInfo?.mergedAt ? formatEventTime(prInfo.mergedAt) : null;
-  const sourceLabel = prInfo?.source === 'github'
-    ? 'GitHub (live)'
-    : prInfo?.source === 'simulated'
-      ? 'Simulated'
-      : 'Control pane';
+  const hasLivePullRequest = Boolean(prInfo && prInfo.source === 'github' && prInfo.url);
+  const stateLabel = hasLivePullRequest ? buildPullRequestStateLabel(props.run) : null;
+  const approvedAt = hasLivePullRequest && prInfo?.approvedAt ? formatEventTime(prInfo.approvedAt) : null;
+  const mergedAt = hasLivePullRequest && prInfo?.mergedAt ? formatEventTime(prInfo.mergedAt) : null;
+  const cloudAgentUrl = props.run.cloudAgent?.target?.url ?? '';
 
   // Return the combined PR + CI summary used on the task detail page.
   return (
     <div className="stacked-copy">
-      <p>
-        Pull request: <strong>{stateLabel}</strong>
-      </p>
-      <p className="subtle-copy">PR source: {sourceLabel}</p>
-      {prInfo?.number ? <p className="subtle-copy">PR number: #{prInfo.number}</p> : null}
-      {prInfo?.approved ? (
+      {hasLivePullRequest && stateLabel ? (
+        <p>
+          Pull request: <strong>{stateLabel}</strong>
+        </p>
+      ) : (
+        <p className="muted-copy">No live pull request metadata is available for this task yet.</p>
+      )}
+      {hasLivePullRequest && prInfo?.number ? <p className="subtle-copy">PR number: #{prInfo.number}</p> : null}
+      {hasLivePullRequest && prInfo?.url ? (
+        <p className="subtle-copy">
+          PR link:{' '}
+          <a className="external-link" href={prInfo.url} rel="noreferrer" target="_blank">
+            {prInfo.url}
+          </a>
+        </p>
+      ) : null}
+      {hasLivePullRequest && prInfo?.approved ? (
         <p className="subtle-copy">
           Approved{prInfo.approvedBy ? ` by ${prInfo.approvedBy}` : ''}
           {approvedAt ? ` at ${approvedAt}` : ''}
         </p>
       ) : null}
-      {prInfo?.merged ? (
+      {hasLivePullRequest && prInfo?.merged ? (
         <p className="subtle-copy">Merged{mergedAt ? ` at ${mergedAt}` : ''}</p>
       ) : null}
-      <p>Cursor status: {props.run.cloudAgent?.status ?? 'Unavailable'}</p>
-      <p>CI workflow: {props.run.ci?.workflow ?? 'Unavailable'}</p>
-      <p>CI status: {props.run.ci?.status ?? 'Unavailable'}</p>
-      <p>Cloud agent URL: {props.run.cloudAgent?.target?.url ?? 'Unavailable'}</p>
-      <p className="muted-copy">{props.run.ci?.summary ?? 'No CI summary available.'}</p>
+      {props.run.cloudAgent?.status ? <p>Cursor status: {props.run.cloudAgent.status}</p> : null}
+      {cloudAgentUrl ? (
+        <p className="subtle-copy">
+          Cloud agent link:{' '}
+          <a className="external-link" href={cloudAgentUrl} rel="noreferrer" target="_blank">
+            {cloudAgentUrl}
+          </a>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -3022,7 +2981,7 @@ function collectTaskDetailReferenceLinks(run: RunSummary): {
     issueLinks.push(run.issue.url);
   }
 
-  if (run.pullRequest?.url) {
+  if (run.pullRequest?.source === 'github' && run.pullRequest.url) {
     // Include the PR URL because updated UI screenshots and previews are commonly attached there.
     interfaceLinks.push(run.pullRequest.url);
   }
@@ -3064,10 +3023,16 @@ function collectTaskDetailReferenceLinks(run: RunSummary): {
 }
 
 /**
- * Renders task-level implementation rationale and reviewer-ready traceability links.
+ * Renders task-specific traceability links sourced from the run payload.
  */
 function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
   const links = collectTaskDetailReferenceLinks(props.run);
+  const hasReferenceLinks = (
+    links.issueLinks.length > 0
+    || links.interfaceLinks.length > 0
+    || links.ciLinks.length > 0
+    || links.artifactLinks.length > 0
+  );
 
   /**
    * Renders a titled list of external links used as review evidence.
@@ -3105,28 +3070,18 @@ function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
     );
   }
 
-  // Keep SIG-7 rationale explicit on the task-detail page for reviewer context.
+  if (!hasReferenceLinks) {
+    // Return a neutral placeholder when the run does not expose any concrete task links yet.
+    return <p className="muted-copy">No task-specific reference links are available for this run yet.</p>;
+  }
+
+  // Render only concrete links sourced from the run payload.
   return (
     <div className="stacked-copy">
-      <p>
-        Design rationale: follows SIG-7 wireframes and design decisions with AI-console patterns inspired by leading
-        products (persistent navigation chrome, focused content column, and evidence-first review surfaces).
-      </p>
-      <p className="subtle-copy">
-        Accessibility rationale: keyboard-navigable evidence tabs, visible focus states, async status/alert semantics,
-        and responsive behavior tuned for smaller viewports.
-      </p>
-      <p className="subtle-copy">
-        References: docs/ai-control-pane/wireframes.md and docs/ai-control-pane/SIG-7-design-decisions.md.
-      </p>
-      {renderLinkGroup('Issue traceability', links.issueLinks, 'No issue URL is currently available on this run.')}
-      {renderLinkGroup('Updated interface', links.interfaceLinks, 'No interface preview link is currently available.')}
-      {renderLinkGroup('CI results', links.ciLinks, 'No CI URL was found in the run summary yet.')}
-      {renderLinkGroup(
-        'Screenshots or artifacts',
-        links.artifactLinks,
-        'No screenshot or artifact links were detected in run evidence yet.',
-      )}
+      {links.issueLinks.length > 0 ? renderLinkGroup('Issue traceability', links.issueLinks, '') : null}
+      {links.interfaceLinks.length > 0 ? renderLinkGroup('Updated interface', links.interfaceLinks, '') : null}
+      {links.ciLinks.length > 0 ? renderLinkGroup('CI results', links.ciLinks, '') : null}
+      {links.artifactLinks.length > 0 ? renderLinkGroup('Screenshots or artifacts', links.artifactLinks, '') : null}
     </div>
   );
 }
