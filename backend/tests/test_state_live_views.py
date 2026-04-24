@@ -142,6 +142,24 @@ class StateLiveViewTests(unittest.TestCase):
             self.assertEqual(run["currentStep"], "Cursor Cloud Agent finished and prepared the review handoff")
             self.assertEqual(run["summary"], "Cursor finished cleanly.")
 
+        reviewer_decided_run = self._build_run()
+        reviewer_decided_run["status"] = "Approved"
+        reviewer_decided_run["currentStep"] = "Approved by reviewer - awaiting pull request merge"
+        reviewer_decided_run["blockers"] = ["Awaiting pull-request merge on GitHub"]
+        reviewer_decided_run["_cursorAgent"] = {
+            "id": "agent-1",
+            "status": "FINISHED",
+            "createdAt": "2026-04-24T11:58:00+00:00",
+            "target": {"branchName": "ai/acp-200", "prUrl": "https://github.com/acme/platform-web/pull/1"},
+        }
+
+        with patch("app.state.get_cursor_agent") as get_cursor_agent_mock:
+            # Confirm reviewer-driven states are not overwritten by subsequent Cursor polling.
+            state._sync_run_progress(reviewer_decided_run, settings)
+            self.assertEqual(reviewer_decided_run["status"], "Approved")
+            self.assertEqual(reviewer_decided_run["currentStep"], "Approved by reviewer - awaiting pull request merge")
+            get_cursor_agent_mock.assert_not_called()
+
         simulated_run = self._build_run()
         with patch("app.state._utc_now", return_value=state._parse_timestamp("2026-04-24T11:59:50+00:00")):
             # Confirm simulator-backed runs update runtime, cost, and current step while in progress.
