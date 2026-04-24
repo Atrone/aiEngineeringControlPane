@@ -575,11 +575,11 @@ def post_task(
     payload: TaskCreateRequest,
     request: Request,
 ) -> Dict[str, Any]:
-    """Creates a new AI work item from the integrated intake flow."""
+    """Creates a new AI work item from intake and immediately starts its run."""
 
     effective_settings, request_headers, _ = _authorized_request(request)
 
-    # Create a new task record that ties issue, repo, docs, and user identity together.
+    # Create the task record and auto-start the run before returning the detail payload.
     return create_task(effective_settings, request_headers, payload.model_dump(by_alias=True))
 
 

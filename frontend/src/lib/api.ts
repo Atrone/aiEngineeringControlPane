@@ -293,10 +293,10 @@ export async function fetchIntegrations(): Promise<IntegrationsPayload> {
 }
 
 /**
- * Creates a new integrated AI work item.
+ * Creates a new integrated AI work item and starts its run.
  */
 export async function createTask(payload: TaskCreateRequest): Promise<RunSummary> {
-  // Submit the intake form payload to create a new task and initial run.
+  // Submit the intake form payload to create the task and immediately start its run.
   return sendJson<RunSummary, TaskCreateRequest>('/api/tasks', 'POST', payload);
 }
 

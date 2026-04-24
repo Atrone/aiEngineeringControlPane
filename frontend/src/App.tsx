@@ -10,8 +10,6 @@ import {
   connectGitHub,
   connectJira,
   connectLinear,
-  createApprovalDecision,
-  createRun,
   createTask,
   enrichIntakeField,
   identifyRepositoryForIssue,
@@ -28,7 +26,6 @@ import {
   signOut,
 } from './lib/api';
 import type {
-  ApprovalDecisionRequest,
   AuthConfig,
   CurrentUser,
   CursorConnectRequest,
@@ -397,7 +394,7 @@ function App() {
           <Route element={<Navigate replace to="/dashboard" />} index />
           <Route element={<DashboardPage />} path="/dashboard" />
           <Route element={<WorkIntakePage />} path="/intake" />
-          <Route element={<TaskDetailPage currentUser={currentUser} />} path="/tasks/:runId" />
+          <Route element={<TaskDetailPage />} path="/tasks/:runId" />
           <Route
             element={
               <RoleGate allowedRoles={reviewerRoles} currentUser={currentUser} title="Settings">
@@ -1174,7 +1171,7 @@ function WorkIntakePage() {
   }
 
   /**
-   * Submits the intake form and creates a new run-backed task.
+   * Submits the intake form and creates a task that auto-starts its run.
    */
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     // Prevent the browser from performing a full page form submission.
@@ -1193,10 +1190,10 @@ function WorkIntakePage() {
     };
 
     try {
-      // Create the new AI work item from the integrated intake form.
+      // Create the task and let the backend immediately start its run.
       const createdRun = await createTask(payload);
 
-      // Navigate directly into the created task detail view.
+      // Navigate directly into the started run detail view.
       navigate(`/tasks/${createdRun.id}`);
     } catch (caughtError) {
       // Surface any backend mutation errors to the intake UI.
@@ -1460,7 +1457,7 @@ function WorkIntakePage() {
 
               <div className="form-actions">
                 <button className="primary-button" disabled={isSubmitting || !selectedRepoName || !title || !prompt} type="submit">
-                  {isSubmitting ? 'Creating task...' : 'Create task'}
+                  {isSubmitting ? 'Creating task and starting run...' : 'Create task and start run'}
                 </button>
               </div>
             </form>
@@ -1476,16 +1473,12 @@ function WorkIntakePage() {
 /**
  * Shows the full evidence package for a single task.
  */
-function TaskDetailPage(props: { currentUser: CurrentUser }) {
+function TaskDetailPage() {
   const params = useParams();
   const runId = params.runId ?? '';
   const query = useApiQuery(() => fetchRunDetail(runId), [runId], { pollIntervalMs: 2000 });
   const [runOverride, setRunOverride] = useState<RunSummary | null>(null);
-  const [decisionNotes, setDecisionNotes] = useState<string>('');
-  const [mutationError, setMutationError] = useState<string>('');
-  const [isMutating, setIsMutating] = useState<boolean>(false);
   const [activeEvidenceTab, setActiveEvidenceTab] = useState<EvidenceTabId>('diff');
-  const canReview = canAccessRole(props.currentUser.role, reviewerRoles);
 
   useEffect(() => {
     if (query.data) {
@@ -1529,67 +1522,6 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
       || liveView.evidenceTabs.rationale.length > 0
     ),
   );
-
-  /**
-   * Posts an approval decision and stores the updated run payload locally.
-   */
-  async function handleDecision(decision: ApprovalDecisionRequest['decision']): Promise<void> {
-    setMutationError('');
-    setIsMutating(true);
-
-    try {
-      // Send the approval decision to the backend so the audit history updates.
-      const updatedRun = await createApprovalDecision({
-        runId: activeRun.id,
-        decision,
-        notes: decisionNotes,
-      });
-
-      // Update the local run state with the server-confirmed result.
-      setRunOverride(updatedRun);
-    } catch (caughtError) {
-      // Surface mutation errors directly in the task detail view.
-      setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to record the decision.');
-    } finally {
-      // Mark the mutation as complete after the request settles.
-      setIsMutating(false);
-    }
-  }
-
-  /**
-   * Starts or restarts the selected run from the task detail page.
-   */
-  async function handleRunStart(): Promise<void> {
-    setMutationError('');
-    setIsMutating(true);
-
-    try {
-      // Start or restart the run against the integrated backend workflow surface.
-      const updatedRun = await createRun({
-        taskId: activeRun.id,
-        agentName: 'impl-agent',
-        executionMode: 'implement',
-      });
-
-      // Keep the local task detail view in sync with the backend response.
-      setRunOverride({
-        ...activeRun,
-        ...updatedRun,
-        issue: activeRun.issue,
-        pullRequest: activeRun.pullRequest,
-        ci: activeRun.ci,
-        documents: activeRun.documents,
-        requestedBy: activeRun.requestedBy,
-        approvalHistory: activeRun.approvalHistory,
-      });
-    } catch (caughtError) {
-      // Surface run start errors directly in the task detail UI.
-      setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to start the run.');
-    } finally {
-      // Mark the mutation as complete after the request settles.
-      setIsMutating(false);
-    }
-  }
 
   // Present everything the reviewer needs on one page.
   return (
@@ -1635,72 +1567,6 @@ function TaskDetailPage(props: { currentUser: CurrentUser }) {
             ? <TimelineList entries={liveView.timeline} liveLabel={liveView.statusLabel} />
             : <p className="muted-copy">No live run timeline is available for this task yet.</p>}
           title="Run timeline"
-        />
-
-        <Panel
-          body={
-            <div className="action-stack">
-              {canReview ? (
-                <button
-                  className="primary-button"
-                  disabled={isMutating || activeRun.status === 'Approved' || activeRun.status === 'Merged'}
-                  onClick={() => { void handleDecision('approve'); }}
-                  type="button"
-                >
-                  {activeRun.status === 'Merged'
-                    ? 'Pull request merged'
-                    : activeRun.status === 'Approved'
-                      ? 'Awaiting PR merge'
-                      : 'Approve'}
-                </button>
-              ) : null}
-              {canReview ? (
-                <button
-                  className="ghost-button"
-                  disabled={isMutating || activeRun.status === 'Merged'}
-                  onClick={() => { void handleDecision('retry'); }}
-                  type="button"
-                >
-                  Request retry
-                </button>
-              ) : null}
-              {canReview ? (
-                <button
-                  className="ghost-button"
-                  disabled={isMutating || activeRun.status === 'Merged'}
-                  onClick={() => { void handleDecision('re-scope'); }}
-                  type="button"
-                >
-                  Re-scope task
-                </button>
-              ) : null}
-              {canReview ? (
-                <button
-                  className="ghost-button"
-                  disabled={isMutating || activeRun.status === 'Merged'}
-                  onClick={() => { void handleDecision('escalate'); }}
-                  type="button"
-                >
-                  Escalate to human
-                </button>
-              ) : null}
-              <button className="ghost-button" disabled={isMutating} onClick={() => { void handleRunStart(); }} type="button">
-                Start run
-              </button>
-              {canReview ? (
-                <textarea
-                  className="notes-input"
-                  onChange={(event) => { setDecisionNotes(event.target.value); }}
-                  placeholder="Optional approval or retry notes"
-                  rows={3}
-                  value={decisionNotes}
-                />
-              ) : null}
-              {!canReview ? <p className="muted-copy">Only admin sessions can approve, reject, and manage the review workflow.</p> : null}
-              {mutationError ? <p className="error-copy">{mutationError}</p> : null}
-            </div>
-          }
-          title="Decision panel"
         />
       </section>
 

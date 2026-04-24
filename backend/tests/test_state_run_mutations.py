@@ -26,7 +26,7 @@ class StateRunMutationTests(unittest.TestCase):
         state.RUN_STORE = deepcopy(self.original_run_store)
 
     def test_create_task_creates_a_new_run_with_selected_context(self) -> None:
-        """Covers task creation and the run record it inserts into the run store."""
+        """Covers task creation and the automatic run start it triggers."""
 
         settings = get_settings()
         integration_catalog = {
@@ -38,15 +38,13 @@ class StateRunMutationTests(unittest.TestCase):
         }
 
         with patch("app.state.get_integration_catalog", return_value=integration_catalog), patch(
-            "app.state._build_run_extensions",
-            side_effect=lambda run, **kwargs: {
-                "id": run["id"],
-                "issue": kwargs["issue"],
-                "documents": kwargs["documents"],
-                "requestedBy": kwargs["current_user"],
+            "app.state.create_run",
+            side_effect=lambda settings_arg, headers_arg, payload_arg: {
+                "id": payload_arg["taskId"],
+                "executionMode": payload_arg["executionMode"],
             },
-        ):
-            # Confirm task creation stores a new run and returns the enriched payload.
+        ) as mock_create_run:
+            # Confirm task creation stores a new run and immediately starts it.
             created_task = state.create_task(
                 settings,
                 {},
@@ -60,9 +58,12 @@ class StateRunMutationTests(unittest.TestCase):
                     "executionMode": "implement",
                 },
             )
-            self.assertEqual(created_task["issue"]["id"], "issue-1")
-            self.assertEqual(created_task["documents"][0]["id"], "doc-1")
+            self.assertEqual(created_task["executionMode"], "implement")
             self.assertEqual(state.RUN_STORE[0]["repo"], "platform-web")
+            self.assertEqual(state.RUN_STORE[0]["_issueSnapshot"]["id"], "issue-1")
+            self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["id"], "doc-1")
+            self.assertEqual(state.RUN_STORE[0]["_requestedBySnapshot"]["name"], "Maya")
+            mock_create_run.assert_called_once()
 
     def test_create_run_covers_simulated_live_launch_and_cursor_live_launch_paths(self) -> None:
         """Covers simulated runs plus live Cursor-agent launches and error paths."""

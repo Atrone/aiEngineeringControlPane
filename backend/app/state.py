@@ -1848,22 +1848,22 @@ def create_task(
         "repo": payload["repoName"],
         "branch": f"ai/{_slugify(ticket)}-{_slugify(title)}",
         "owner": current_user["name"],
-        "agent": "planner-agent",
+        "agent": "impl-agent",
         "runtime": "00:00",
         "cost": "$0.00",
         "status": "Running",
         "risk": "Medium",
-        "currentStep": "Task created from integrated intake",
+        "currentStep": "Starting run from integrated intake",
         "summary": payload["prompt"],
         "evidence": {
-            "diff": ["Task created; no code changes yet."],
-            "tests": ["No checks executed yet."],
-            "commands": ["Pending run start"],
+            "diff": ["Waiting for the run to produce code changes."],
+            "tests": ["Waiting for the run to report validation results."],
+            "commands": ["Run requested from task intake"],
             "rationale": ["The run was created from issue, repo, and docs context selected in the intake flow."],
         },
-        "blockers": ["Awaiting run start"],
+        "blockers": ["Starting run"],
         "approvalHistory": [],
-        "_streamStartedAt": _utc_timestamp(),
+        "_streamStartedAt": "",
         "_executionMode": str(payload.get("executionMode", "implement")),
         "_taskPrompt": str(payload.get("prompt", "")),
         "_acceptanceCriteria": str(payload.get("acceptanceCriteria", "")),
@@ -1875,14 +1875,21 @@ def create_task(
     # Add the newly created run to the top of the in-memory run store.
     RUN_STORE.insert(0, new_run)
 
-    # Return the newly created run with its integration context.
-    return _build_run_extensions(
-        new_run,
-        issue=issue,
-        documents=selected_documents,
-        current_user=current_user,
-        settings=settings,
-    )
+    try:
+        # Immediately start the run so intake creation follows the same path as the run-start action.
+        return create_run(
+            settings,
+            headers,
+            {
+                "taskId": run_id,
+                "agentName": "impl-agent",
+                "executionMode": str(payload.get("executionMode", "implement")),
+            },
+        )
+    except Exception:
+        # Remove the half-created task when the automatic run start fails.
+        RUN_STORE[:] = [run for run in RUN_STORE if run["id"] != run_id]
+        raise
 
 
 def create_run(
