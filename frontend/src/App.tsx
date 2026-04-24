@@ -919,6 +919,8 @@ function DashboardPage() {
   const runCards: ReactNode[] = [];
   const suggestedItems: ReactNode[] = [];
   const integrationCards: ReactNode[] = [];
+  const trustSignals: ReactNode[] = [];
+  const workflowPatternCards: ReactNode[] = [];
 
   // Build cards explicitly so the UI stays easy to reshape later.
   for (const metric of derivedMetrics) {
@@ -964,6 +966,39 @@ function DashboardPage() {
     integrationCards.push(<IntegrationStatusCard key={status.id} status={status} />);
   }
 
+  // Build a lightweight credibility row inspired by startup trust sections.
+  for (const signal of ['Linear-backed scope', 'GitHub-linked delivery', 'OpenAI-assisted triage', 'Reviewer-first evidence']) {
+    trustSignals.push(
+      <li className="trust-signal-item" key={signal}>
+        {signal}
+      </li>,
+    );
+  }
+
+  // Build value-story cards that highlight the core operating loop.
+  for (const pattern of [
+    {
+      title: 'Prioritize with confidence',
+      description: 'Issue-linked runs and AI-suggested actions keep work focused on the highest leverage tickets first.',
+    },
+    {
+      title: 'Execute with full context',
+      description: 'Provider integrations and run summaries keep implementation, review, and merge context visible in one place.',
+    },
+    {
+      title: 'Ship with review evidence',
+      description: 'Structured status, blockers, and approvals streamline handoff quality and reduce reviewer back-and-forth.',
+    },
+  ]) {
+    workflowPatternCards.push(
+      <article className="story-card" key={pattern.title}>
+        <p className="eyebrow">Pattern</p>
+        <h3>{pattern.title}</h3>
+        <p className="muted-copy">{pattern.description}</p>
+      </article>,
+    );
+  }
+
   // Choose the suggestions rail body so loading, error, and empty states all read clearly.
   let suggestionsBody: ReactNode;
 
@@ -994,40 +1029,34 @@ function DashboardPage() {
   // Surface the operational view, queue summary, and blocked context together.
   return (
     <div className="page-grid">
-      <section className="hero-panel">
-        <div>
-          <p className="eyebrow">Modern AI startup pattern</p>
-          <h3>Show, don&apos;t tell: lead with the product surface, trust signals, and clean execution telemetry.</h3>
+      <section className="hero-panel hero-panel-revamp">
+        <div className="hero-panel-leading">
+          <p className="eyebrow">SIG-7 frontend revamp</p>
+          <h3>Launch AI delivery flows with a modern operator cockpit inspired by leading startup product patterns.</h3>
           <p className="muted-copy">
-            Inspired by product-first patterns seen across top AI teams: minimal navigation, high-contrast dark surfaces, and immediately actionable workflow context.
+            Convert issue context into merged outcomes with clearer hierarchy, trust signals, and faster action paths for operators and reviewers.
           </p>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
           <span className="pill">{query.data.currentUser.role}</span>
           <span className="pill">{query.data.integrationStatuses.length} provider categories</span>
+          <Link className="primary-button hero-cta-button" to="/intake">
+            Start a new intake
+          </Link>
         </div>
       </section>
 
-      <section className="signal-strip" aria-label="Design reference signals">
-        <article className="signal-card">
-          <p className="sidebar-label">Pattern 1</p>
-          <h3>Product-first hero</h3>
-          <p className="subtle-copy">The interface itself is the headline, so users can understand value in seconds.</p>
-        </article>
-        <article className="signal-card">
-          <p className="sidebar-label">Pattern 2</p>
-          <h3>Evidence-focused trust</h3>
-          <p className="subtle-copy">Live run status, issue linkage, and integration state act as built-in proof points.</p>
-        </article>
-        <article className="signal-card">
-          <p className="sidebar-label">Pattern 3</p>
-          <h3>Minimal + high signal</h3>
-          <p className="subtle-copy">Clear typography, restrained gradients, and concise actions reduce cognitive overhead.</p>
-        </article>
+      <section className="trust-strip" aria-label="Product trust signals">
+        <p className="eyebrow">Trusted operating model</p>
+        <ul className="trust-signal-list">{trustSignals}</ul>
       </section>
 
       <section className="metric-grid">{metricCards}</section>
+
+      <section className="story-grid" aria-label="Workflow value patterns">
+        {workflowPatternCards}
+      </section>
 
       <section className="content-grid">
         <Panel
@@ -1045,6 +1074,13 @@ function DashboardPage() {
       </section>
 
       <Panel body={<div className="integration-grid">{integrationCards}</div>} title="Integration status" />
+
+      <section className="panel revamp-footnote">
+        <p className="eyebrow">Traceability</p>
+        <p className="muted-copy">
+          Ticket SIG-7 remains in progress while this revamp strengthens discoverability, action clarity, and review readiness across the frontend experience.
+        </p>
+      </section>
     </div>
   );
 }

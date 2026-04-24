@@ -350,6 +350,46 @@ ul {
   max-width: 40rem;
 }
 
+.hero-panel-revamp {
+  align-items: flex-start;
+}
+
+.hero-panel-leading {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 52rem;
+}
+
+.hero-cta-button {
+  min-width: 12rem;
+}
+
+.trust-strip {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.2rem 1.5rem;
+  border-radius: 20px;
+  border: 1px solid var(--panel-border);
+  background: rgba(8, 16, 30, 0.82);
+}
+
+.trust-signal-list {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  padding: 0;
+}
+
+.trust-signal-item {
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  background: rgba(56, 189, 248, 0.08);
+  color: #dff6ff;
+  font-weight: 600;
+}
+
 .pill {
   padding: 0.5rem 0.85rem;
   border-radius: 999px;
@@ -370,6 +410,27 @@ ul {
   background:
     linear-gradient(170deg, rgba(56, 189, 248, 0.08), rgba(15, 23, 42, 0.04)),
     var(--panel-bg);
+}
+
+.story-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.story-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1.25rem;
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(10, 20, 36, 0.8);
+  box-shadow: var(--panel-shadow);
+}
+
+.revamp-footnote {
+  display: grid;
+  gap: 0.55rem;
 }
 
 .metric-value {
@@ -931,6 +992,8 @@ ul {
   .auth-shell,
   .auth-role-grid,
   .metric-grid,
+  .story-grid,
+  .trust-signal-list,
   .signal-strip,
   .task-grid,
   .evidence-grid,
