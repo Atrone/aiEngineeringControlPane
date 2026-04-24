@@ -1,4 +1,4 @@
-import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
+import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useId, useState } from 'react';
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useApiQuery } from './hooks/useApiQuery';
@@ -10,6 +10,7 @@ import {
   connectGitHub,
   connectJira,
   connectLinear,
+  createApprovalDecision,
   createTask,
   enrichIntakeField,
   identifyRepositoryForIssue,
@@ -1568,6 +1569,11 @@ function TaskDetailPage() {
             : <p className="muted-copy">No live run timeline is available for this task yet.</p>}
           title="Run timeline"
         />
+
+        <Panel
+          body={<TaskDecisionPanelBody onRunUpdated={setRunOverride} run={activeRun} />}
+          title="Decision panel"
+        />
       </section>
 
       <section className="content-grid task-detail-live-grid">
@@ -1628,6 +1634,138 @@ function TaskDetailPage() {
         />
       </section>
     </div>
+  );
+}
+
+/**
+ * Renders the reviewer decision controls for a task and persists outcomes through the backend.
+ */
+function TaskDecisionPanelBody(props: { run: RunSummary; onRunUpdated: (run: RunSummary) => void }) {
+  const [notes, setNotes] = useState<string>('');
+  const [activeDecision, setActiveDecision] = useState<string>('');
+  const [mutationError, setMutationError] = useState<string>('');
+  const [mutationSuccess, setMutationSuccess] = useState<string>('');
+  const isDecisionLocked = props.run.status === 'Running' || props.run.status === 'Merged';
+  const isSubmittingDecision = activeDecision !== '';
+
+  /**
+   * Keeps the notes textarea synchronized with the current reviewer input.
+   */
+  function handleNotesChange(event: ChangeEvent<HTMLTextAreaElement>): void {
+    // Mirror the latest textarea value so the next decision includes the reviewer note.
+    setNotes(event.target.value);
+  }
+
+  /**
+   * Sends the selected decision to the backend and applies the returned run state locally.
+   */
+  async function handleDecisionSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    // Prevent the browser from leaving the task detail page during the mutation.
+    event.preventDefault();
+
+    const nativeSubmitEvent = event.nativeEvent as SubmitEvent;
+    const submitter = nativeSubmitEvent.submitter;
+
+    if (!(submitter instanceof HTMLButtonElement)) {
+      // Surface a readable error when the browser does not expose the clicked decision button.
+      setMutationError('Unable to determine which review action was selected.');
+      setMutationSuccess('');
+      return;
+    }
+
+    const decision = submitter.value.trim().toLowerCase();
+
+    if (!decision) {
+      // Guard against empty decision payloads before calling the backend.
+      setMutationError('Choose a review action before submitting.');
+      setMutationSuccess('');
+      return;
+    }
+
+    setActiveDecision(decision);
+    setMutationError('');
+    setMutationSuccess('');
+
+    try {
+      // Persist the reviewer action so task detail and dashboard read the same backend-backed run state.
+      const updatedRun = await createApprovalDecision({
+        runId: props.run.id,
+        decision,
+        notes,
+      });
+
+      // Replace the visible task snapshot with the backend response immediately after the mutation succeeds.
+      props.onRunUpdated(updatedRun);
+
+      if (decision === 'approve') {
+        // Confirm that the task moved into the approved state that the dashboard also summarizes.
+        setMutationSuccess('Task approved. The dashboard will show it as approved when you return.');
+      } else if (decision === 'retry') {
+        // Confirm that the task moved into the retry state for another agent attempt.
+        setMutationSuccess('Retry requested. The dashboard will now treat this task as a retry.');
+      } else if (decision === 're-scope') {
+        // Confirm that the task moved into the blocked state pending updated scope.
+        setMutationSuccess('Re-scope requested. The dashboard will now show this task as blocked.');
+      } else {
+        // Confirm that fallback reviewer actions land in the blocked escalation path.
+        setMutationSuccess('Escalation recorded. The dashboard will now show this task as blocked.');
+      }
+
+      // Clear the notes field once the reviewer decision has been saved successfully.
+      setNotes('');
+    } catch (caughtError) {
+      // Surface backend approval failures directly in the decision panel.
+      setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to save the reviewer decision.');
+      setMutationSuccess('');
+    } finally {
+      // Restore the decision buttons after the mutation settles.
+      setActiveDecision('');
+    }
+  }
+
+  // Explain when the reviewer controls are intentionally unavailable for the current run state.
+  const helperCopy = isDecisionLocked
+    ? (props.run.status === 'Merged'
+        ? 'This run has already merged, so no further reviewer decision is needed.'
+        : 'Reviewer controls unlock after the run finishes and reaches a reviewable state.')
+    : 'Save a reviewer decision here to update the run state the dashboard summarizes.';
+
+  return (
+    <form className="form-grid" onSubmit={handleDecisionSubmit}>
+      <p className="muted-copy">{helperCopy}</p>
+
+      <label className="field-group field-group-wide">
+        <span>Reviewer notes</span>
+        <textarea
+          className="notes-input"
+          disabled={isSubmittingDecision}
+          onChange={handleNotesChange}
+          placeholder="Summarize why this task should be approved, retried, re-scoped, or escalated."
+          rows={4}
+          value={notes}
+        />
+      </label>
+
+      <div aria-live="polite" className="status-message-region" role="status">
+        {mutationSuccess ? <p className="success-copy">{mutationSuccess}</p> : null}
+        {mutationError ? <p className="error-copy">{mutationError}</p> : null}
+      </div>
+
+      <div className="action-stack">
+        <button className="primary-button" disabled={isDecisionLocked || isSubmittingDecision} type="submit" value="approve">
+          {activeDecision === 'approve' ? 'Saving approval...' : 'Approve'}
+        </button>
+        <button className="ghost-button" disabled={isDecisionLocked || isSubmittingDecision} type="submit" value="retry">
+          {activeDecision === 'retry' ? 'Saving retry...' : 'Retry'}
+        </button>
+        <button className="ghost-button" disabled={isDecisionLocked || isSubmittingDecision} type="submit" value="re-scope">
+          {activeDecision === 're-scope' ? 'Saving re-scope...' : 'Re-scope'}
+        </button>
+        <button className="ghost-button" disabled={isDecisionLocked || isSubmittingDecision} type="submit" value="escalate">
+          {activeDecision === 'escalate' ? 'Saving escalation...' : 'Escalate'}
+        </button>
+      </div>
+    </form>
   );
 }
 
