@@ -1026,7 +1026,7 @@ function DashboardPage() {
     );
   }
 
-  // Surface the operational view, queue summary, and blocked context together.
+  // Surface the operational view with a product-led hero, social proof, and conversion-focused sections.
   return (
     <div className="page-grid">
       <section className="hero-panel hero-panel-revamp">
@@ -1071,6 +1071,29 @@ function DashboardPage() {
         <div className="rail-stack">
           <Panel body={suggestionsBody} title="Suggested next actions" />
         </div>
+      </section>
+
+      <section className="workflow-grid">
+        <Panel
+          title="Execution workflow"
+          body={(
+            <ol className="detail-list compact-list">
+              <li>Capture scoped work from linked issue providers.</li>
+              <li>Launch coding agents with repository context.</li>
+              <li>Monitor live progress, blockers, and evidence.</li>
+              <li>Review approvals and move merged work to delivery.</li>
+            </ol>
+          )}
+        />
+        <Panel
+          title="Why this layout"
+          body={(
+            <div className="stacked-copy">
+              <p className="muted-copy">Product-led hero with actionable stats mirrors high-performing AI startup landing pages.</p>
+              <p className="muted-copy">Bento metrics and trust strip keep signal density high without cluttering operator workflows.</p>
+            </div>
+          )}
+        />
       </section>
 
       <Panel body={<div className="integration-grid">{integrationCards}</div>} title="Integration status" />

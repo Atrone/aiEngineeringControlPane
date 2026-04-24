@@ -339,6 +339,65 @@ ul {
     var(--panel-bg);
 }
 
+.hero-panel-revamp {
+  align-items: stretch;
+  gap: 1.25rem;
+}
+
+.hero-copy {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.hero-visual {
+  display: grid;
+  gap: 0.8rem;
+  min-width: min(320px, 100%);
+}
+
+.hero-visual-card {
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  background: linear-gradient(155deg, rgba(56, 189, 248, 0.12), rgba(15, 23, 42, 0.58));
+}
+
+.hero-visual-value {
+  margin: 0.35rem 0;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.trust-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.trust-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.4rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(148, 163, 184, 0.08);
+  color: #dceaf8;
+  font-size: 0.84rem;
+  text-align: center;
+}
+
+.bento-grid .metric-card {
+  background: linear-gradient(175deg, rgba(56, 189, 248, 0.09), rgba(10, 18, 34, 0.88));
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 1rem;
+}
+
 .hero-panel h3,
 .task-header h3,
 .panel h3,
@@ -995,11 +1054,13 @@ ul {
   .story-grid,
   .trust-signal-list,
   .signal-strip,
+  .trust-strip,
   .task-grid,
   .evidence-grid,
   .content-grid,
   .approvals-grid,
-  .task-grid-wide {
+  .task-grid-wide,
+  .workflow-grid {
     grid-template-columns: 1fr;
   }
 }
