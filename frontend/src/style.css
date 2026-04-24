@@ -831,6 +831,26 @@ ul {
   margin-top: 0.65rem;
 }
 
+.external-link-list {
+  margin-top: 0.3rem;
+  padding-left: 1.1rem;
+}
+
+.external-link-list li + li {
+  margin-top: 0.45rem;
+}
+
+.external-link {
+  color: #bae6fd;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+.external-link:hover {
+  color: #e0f2fe;
+}
+
 .action-stack .ghost-button,
 .action-stack .primary-button {
   width: 100%;
