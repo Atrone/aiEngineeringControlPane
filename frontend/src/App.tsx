@@ -1157,6 +1157,10 @@ function WorkIntakePage() {
     }
   }
 
+  // Keep the repository identification action reserved for well-scoped issues only.
+  const isSelectedIssueWellScoped = selectedIssueId !== ''
+    && issueScopeById.get(selectedIssueId) === 'well_scoped';
+
   // Build the repository selector options from the integrated repo catalog.
   for (const repository of query.data.repositories) {
     repositoryOptions.push(
@@ -1276,6 +1280,12 @@ function WorkIntakePage() {
       return;
     }
 
+    if (!isSelectedIssueWellScoped) {
+      // Limit repository identification to issues the scoping step marked as executable.
+      setIdentifyError('Select a Well Scoped issue before identifying the matching repository.');
+      return;
+    }
+
     setIsIdentifyingRepo(true);
 
     try {
@@ -1379,7 +1389,7 @@ function WorkIntakePage() {
                 <div className="enrich-row">
                   <button
                     className="ghost-button enrich-button"
-                    disabled={isIdentifyingRepo || enrichingField !== '' || isSubmitting || !selectedIssueId}
+                    disabled={isIdentifyingRepo || enrichingField !== '' || isSubmitting || !isSelectedIssueWellScoped}
                     onClick={() => { void handleIdentifyRepository(); }}
                     type="button"
                   >

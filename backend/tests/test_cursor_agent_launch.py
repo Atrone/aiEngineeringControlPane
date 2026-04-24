@@ -186,6 +186,9 @@ class CursorAgentLaunchTests(unittest.TestCase):
             self.assertEqual(task_response.status_code, 200)
             created_run = task_response.json()
 
+            # Task creation auto-starts a run, so reset the capture before the explicit rerun request.
+            launched_payloads.clear()
+
             # Start the run so the backend launches a real Cursor Cloud Agent request.
             run_response = self.client.post(
                 "/api/runs",
