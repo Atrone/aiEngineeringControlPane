@@ -594,6 +594,12 @@ def _sync_run_progress(run: Dict[str, Any], settings: Settings) -> None:
     """Updates a live run based on elapsed time inside the simulated stream."""
 
     if run.get("_cursorAgent"):
+        current_status = str(run.get("status", ""))
+
+        if current_status in {"Approved", "Blocked", "Retry", "Merged"}:
+            # Preserve reviewer-driven or terminal states after the live agent has already finished.
+            return
+
         # Poll the Cursor-backed run so the control pane reflects the latest agent status.
         try:
             latest_agent = get_cursor_agent(settings, str(run["_cursorAgent"].get("id", "")))
