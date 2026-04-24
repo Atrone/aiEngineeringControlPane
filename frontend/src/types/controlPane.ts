@@ -66,6 +66,10 @@ export type DocumentRecord = {
   updatedAt: string;
 };
 
+export type UploadedDocumentRecord = DocumentRecord & {
+  content: string;
+};
+
 export type IntegrationStatus = {
   id: string;
   name: string;
@@ -257,6 +261,7 @@ export type TaskCreateRequest = {
   prompt: string;
   acceptanceCriteria: string;
   documentIds: string[];
+  uploadedDocuments: UploadedDocumentRecord[];
   executionMode: string;
 };
 
@@ -306,6 +311,7 @@ export type IntakeEnrichRequest = {
   repoName: string;
   executionMode: string;
   issueId?: string;
+  uploadedDocuments: UploadedDocumentRecord[];
 };
 
 export type IntakeEnrichResponse = {

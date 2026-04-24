@@ -800,6 +800,35 @@ def _select_documents(all_documents: List[Dict[str, Any]], document_ids: List[st
     return selected_documents
 
 
+def _normalize_uploaded_documents(uploaded_documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Normalizes uploaded intake documents into stored task document snapshots."""
+
+    normalized_documents: List[Dict[str, Any]] = []
+
+    # Convert each upload into the same document shape used by the task detail UI.
+    for uploaded_document in uploaded_documents:
+        document_id = str(uploaded_document.get("id") or "").strip()
+        document_path = str(uploaded_document.get("path") or "").strip()
+        document_title = str(uploaded_document.get("title") or "").strip()
+
+        if not document_id or not document_path or not document_title:
+            # Skip malformed uploads so a partial browser payload does not poison task creation.
+            continue
+
+        normalized_documents.append(
+            {
+                "id": document_id,
+                "title": document_title,
+                "path": document_path,
+                "source": str(uploaded_document.get("source") or "uploaded_repo_document"),
+                "updatedAt": str(uploaded_document.get("updatedAt") or ""),
+            }
+        )
+
+    # Return the sanitized upload list for run snapshots and task detail rendering.
+    return normalized_documents
+
+
 def _build_cursor_issue_block(issue: Dict[str, Any]) -> str:
     """Builds the issue-context section used inside the Cursor Cloud Agent prompt."""
 
@@ -1848,10 +1877,18 @@ def create_task(
 
     integration_catalog = get_integration_catalog(settings, headers)
     issue = _find_issue(integration_catalog["issues"], payload.get("issueId"))
-    selected_documents = _select_documents(
-        integration_catalog["documents"],
-        list(payload.get("documentIds", [])),
-    )
+    uploaded_documents = _normalize_uploaded_documents(list(payload.get("uploadedDocuments", [])))
+
+    if uploaded_documents:
+        # Prefer the uploaded repo documents so the created task carries the same context used for enrichment.
+        selected_documents = uploaded_documents
+    else:
+        # Fall back to document IDs selected from the integration catalog when no uploads were provided.
+        selected_documents = _select_documents(
+            integration_catalog["documents"],
+            list(payload.get("documentIds", [])),
+        )
+
     current_user = integration_catalog["currentUser"]
     title = str(payload.get("title", "")).strip() or str(issue["title"] if issue else "Generated task")
     ticket = str(issue["ticket"] if issue else f"ACP-{len(RUN_STORE) + 200}")

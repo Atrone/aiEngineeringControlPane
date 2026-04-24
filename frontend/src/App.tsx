@@ -50,6 +50,7 @@ import type {
   RunTimelineEntry,
   SignInRequest,
   TaskCreateRequest,
+  UploadedDocumentRecord,
   UserRole,
 } from './types/controlPane';
 
@@ -66,6 +67,41 @@ const ignoredBlockerReasons: Set<string> = new Set([
   'reviewer controls unlock after the live agent finishes',
   'awaiting pull-request merge on github',
 ]);
+
+/**
+ * Converts a browser file into the uploaded-document payload shape used by intake APIs.
+ */
+async function buildUploadedDocumentRecord(file: File): Promise<UploadedDocumentRecord> {
+  // Read the raw file contents so enrichment can use the exact uploaded repo context.
+  const content = await file.text();
+  const normalizedName = file.name.trim() || 'uploaded-document.txt';
+  const title = normalizedName.replace(/\.[^.]+$/, '') || normalizedName;
+  const updatedAt = file.lastModified > 0
+    ? new Date(file.lastModified).toISOString()
+    : new Date().toISOString();
+
+  return {
+    id: `upload-${normalizedName}-${file.lastModified}-${file.size}`,
+    title,
+    path: `uploads/${normalizedName}`,
+    source: 'uploaded_repo_document',
+    updatedAt,
+    content,
+  };
+}
+
+/**
+ * Returns the label the intake form should use for enrichment grounding.
+ */
+function buildEnrichmentSourceLabel(uploadedDocuments: UploadedDocumentRecord[]): string {
+  if (uploadedDocuments.length > 0) {
+    // Call out uploaded docs when the operator has overridden the default repo source.
+    return 'uploaded docs';
+  }
+
+  // Fall back to the repository docs label when no uploads are present.
+  return 'repo docs';
+}
 
 /**
  * Reports whether a blocker string should contribute to the dashboard summaries.
@@ -1043,6 +1079,8 @@ function WorkIntakePage() {
   const [isIdentifyingRepo, setIsIdentifyingRepo] = useState<boolean>(false);
   const [identifyError, setIdentifyError] = useState<string>('');
   const [identifyNotice, setIdentifyNotice] = useState<string>('');
+  const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocumentRecord[]>([]);
+  const [uploadError, setUploadError] = useState<string>('');
 
   /**
    * Loads the OpenAI-scored issue scoping groups for the visible intake issues.
@@ -1185,6 +1223,7 @@ function WorkIntakePage() {
       prompt,
       acceptanceCriteria,
       documentIds: [],
+      uploadedDocuments,
       executionMode,
     };
 
@@ -1227,6 +1266,7 @@ function WorkIntakePage() {
       repoName: selectedRepoName,
       executionMode,
       issueId: selectedIssueId || undefined,
+      uploadedDocuments,
     };
 
     try {
@@ -1247,8 +1287,8 @@ function WorkIntakePage() {
 
       setEnrichNotice(
         enrichedResult.docsConsidered
-          ? `Refined with ${enrichedResult.model} using repo docs context.`
-          : `Refined with ${enrichedResult.model} (no repo docs were available to ground the response).`,
+          ? `Refined with ${enrichedResult.model} using ${buildEnrichmentSourceLabel(uploadedDocuments)} context.`
+          : `Refined with ${enrichedResult.model} (no ${buildEnrichmentSourceLabel(uploadedDocuments)} were available to ground the response).`,
       );
     } catch (caughtError) {
       // Surface enrichment failures so the user can retry or adjust configuration.
@@ -1311,6 +1351,59 @@ function WorkIntakePage() {
       // Mark the inline identification request as complete regardless of outcome.
       setIsIdentifyingRepo(false);
     }
+  }
+
+  /**
+   * Reads the selected repo documents into local state for enrichment and task creation.
+   */
+  async function handleUploadedDocumentsChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    // Clear any prior upload error before processing the newly selected files.
+    setUploadError('');
+
+    const selectedFiles = Array.from(event.target.files ?? []);
+
+    if (selectedFiles.length === 0) {
+      // Reset the file input value when the chooser closes without new files.
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      // Convert each browser file into the shared uploaded-document payload shape.
+      const nextUploadedDocuments = await Promise.all(
+        selectedFiles.map((file) => buildUploadedDocumentRecord(file)),
+      );
+
+      setUploadedDocuments((currentDocuments) => {
+        const mergedDocuments = new Map<string, UploadedDocumentRecord>();
+
+        // Keep existing uploads unless the user re-selected the same file.
+        for (const currentDocument of currentDocuments) {
+          mergedDocuments.set(currentDocument.id, currentDocument);
+        }
+
+        // Overwrite duplicates with the latest uploaded file snapshot.
+        for (const nextDocument of nextUploadedDocuments) {
+          mergedDocuments.set(nextDocument.id, nextDocument);
+        }
+
+        return Array.from(mergedDocuments.values());
+      });
+    } catch (caughtError) {
+      // Surface file-reading failures so the operator knows the upload was ignored.
+      setUploadError(caughtError instanceof Error ? caughtError.message : 'Unable to read the selected documents.');
+    } finally {
+      // Reset the native input so the same file can be selected again after removal.
+      event.target.value = '';
+    }
+  }
+
+  /**
+   * Removes a single uploaded repo document from the intake form.
+   */
+  function handleRemoveUploadedDocument(documentId: string): void {
+    // Drop the selected upload so later enrich requests stop grounding on it.
+    setUploadedDocuments((currentDocuments) => currentDocuments.filter((document) => document.id !== documentId));
   }
 
   // Render the integrated task intake experience.
@@ -1406,6 +1499,45 @@ function WorkIntakePage() {
 
               <div className="field-group field-group-wide">
                 <label className="field-group">
+                  <span>Repo documents</span>
+                  <input
+                    accept=".md,.markdown,.txt,text/markdown,text/plain"
+                    multiple
+                    onChange={(event) => { void handleUploadedDocumentsChange(event); }}
+                    type="file"
+                  />
+                </label>
+                <p className="subtle-copy">
+                  Upload markdown or text documents to ground the enrich buttons and attach that repo context to the created task.
+                </p>
+                {uploadError ? <p className="error-copy">{uploadError}</p> : null}
+                {uploadedDocuments.length > 0 ? (
+                  <div className="mini-list">
+                    {uploadedDocuments.map((document) => (
+                      <div className="document-upload-row" key={document.id}>
+                        <div className="mini-row">
+                          <strong>{document.title}</strong>
+                          <span className="subtle-copy">{document.path}</span>
+                        </div>
+                        <button
+                          className="ghost-button document-upload-remove-button"
+                          onClick={() => { handleRemoveUploadedDocument(document.id); }}
+                          type="button"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted-copy">
+                    No uploaded repo documents yet. Enrich will use the selected repository docs until you add files here.
+                  </p>
+                )}
+              </div>
+
+              <div className="field-group field-group-wide">
+                <label className="field-group">
                   <span>Task title</span>
                   <input onChange={(event) => { setTitle(event.target.value); }} placeholder="Build settings workflow" type="text" value={title} />
                 </label>
@@ -1416,7 +1548,7 @@ function WorkIntakePage() {
                     onClick={() => { void handleEnrichField('title'); }}
                     type="button"
                   >
-                    {enrichingField === 'title' ? 'Enriching title...' : 'Enrich title with repo docs'}
+                    {enrichingField === 'title' ? 'Enriching title...' : `Enrich title with ${buildEnrichmentSourceLabel(uploadedDocuments)}`}
                   </button>
                 </div>
               </div>
@@ -1433,7 +1565,7 @@ function WorkIntakePage() {
                     onClick={() => { void handleEnrichField('prompt'); }}
                     type="button"
                   >
-                    {enrichingField === 'prompt' ? 'Enriching prompt...' : 'Enrich prompt with repo docs'}
+                    {enrichingField === 'prompt' ? 'Enriching prompt...' : `Enrich prompt with ${buildEnrichmentSourceLabel(uploadedDocuments)}`}
                   </button>
                 </div>
               </div>
@@ -1450,7 +1582,7 @@ function WorkIntakePage() {
                     onClick={() => { void handleEnrichField('acceptanceCriteria'); }}
                     type="button"
                   >
-                    {enrichingField === 'acceptanceCriteria' ? 'Enriching acceptance criteria...' : 'Enrich acceptance criteria with repo docs'}
+                    {enrichingField === 'acceptanceCriteria' ? 'Enriching acceptance criteria...' : `Enrich acceptance criteria with ${buildEnrichmentSourceLabel(uploadedDocuments)}`}
                   </button>
                 </div>
               </div>

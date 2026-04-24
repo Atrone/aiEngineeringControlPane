@@ -5,6 +5,19 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class UploadedDocumentRequest(BaseModel):
+    """Defines a user-uploaded repo document sent from the intake form."""
+
+    id: str
+    title: str
+    path: str
+    source: str = "uploaded_repo_document"
+    updated_at: str = Field(default="", alias="updatedAt")
+    content: str = ""
+
+    model_config = {"populate_by_name": True}
+
+
 class TaskCreateRequest(BaseModel):
     """Defines the payload used to create a new AI work item."""
 
@@ -14,7 +27,13 @@ class TaskCreateRequest(BaseModel):
     prompt: str
     acceptance_criteria: str = Field(alias="acceptanceCriteria")
     document_ids: List[str] = Field(default_factory=list, alias="documentIds")
+    uploaded_documents: List[UploadedDocumentRequest] = Field(
+        default_factory=list,
+        alias="uploadedDocuments",
+    )
     execution_mode: str = Field(default="implement", alias="executionMode")
+
+    model_config = {"populate_by_name": True}
 
 
 class RunCreateRequest(BaseModel):
@@ -95,6 +114,10 @@ class IntakeEnrichRequest(BaseModel):
     repo_name: str = Field(default="", alias="repoName")
     execution_mode: str = Field(default="implement", alias="executionMode")
     issue_id: Optional[str] = Field(default=None, alias="issueId")
+    uploaded_documents: List[UploadedDocumentRequest] = Field(
+        default_factory=list,
+        alias="uploadedDocuments",
+    )
 
     model_config = {"populate_by_name": True}
 

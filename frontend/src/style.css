@@ -534,6 +534,17 @@ ul {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.document-upload-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.document-upload-remove-button {
+  min-height: 2.4rem;
+}
+
 .run-list,
 .queue-list,
 .policy-list,

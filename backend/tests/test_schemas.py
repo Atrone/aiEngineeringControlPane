@@ -21,11 +21,21 @@ class SchemaModelTests(unittest.TestCase):
                 "title": "Ship feature",
                 "prompt": "Implement the feature.",
                 "acceptanceCriteria": "Works end to end.",
+                "uploadedDocuments": [
+                    {
+                        "id": "upload-doc-1",
+                        "title": "Architecture",
+                        "path": "uploads/architecture.md",
+                        "updatedAt": "2026-04-24T18:00:00Z",
+                        "content": "# Architecture",
+                    }
+                ],
             }
         )
         self.assertEqual(task_request.issue_id, "issue-1")
         self.assertEqual(task_request.repo_name, "platform-web")
         self.assertEqual(task_request.document_ids, [])
+        self.assertEqual(task_request.uploaded_documents[0].path, "uploads/architecture.md")
         self.assertEqual(task_request.execution_mode, "implement")
 
         # Confirm run creation applies the default agent and execution mode.
@@ -89,11 +99,21 @@ class SchemaModelTests(unittest.TestCase):
                 "repoName": "platform-web",
                 "executionMode": "plan",
                 "issueId": "issue-1",
+                "uploadedDocuments": [
+                    {
+                        "id": "upload-doc-1",
+                        "title": "Architecture",
+                        "path": "uploads/architecture.md",
+                        "updatedAt": "2026-04-24T18:00:00Z",
+                        "content": "# Architecture",
+                    }
+                ],
             }
         )
         self.assertEqual(enrich_request.acceptance_criteria, "A")
         self.assertEqual(enrich_request.repo_name, "platform-web")
         self.assertEqual(enrich_request.execution_mode, "plan")
+        self.assertEqual(enrich_request.uploaded_documents[0].title, "Architecture")
 
         # Confirm the identify-repository, issue-scoping, and dashboard models accept aliases.
         identify_request = schemas.IntakeIdentifyRepositoryRequest.model_validate({"issueId": "issue-1"})

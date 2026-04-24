@@ -35,6 +35,12 @@ class ProviderEnrichmentTests(unittest.TestCase):
         )
         self.assertEqual(enrichment_messages[0]["role"], "system")
         self.assertIn("platform-web", enrichment_messages[1]["content"])
+        self.assertIn(
+            "uploads/architecture.md",
+            providers._build_uploaded_doc_context(
+                [{"path": "uploads/architecture.md", "content": "# Architecture"}]
+            ),
+        )
 
         # Confirm OpenAI content extraction handles both string and list-of-parts payloads.
         self.assertEqual(
@@ -104,7 +110,10 @@ class ProviderEnrichmentTests(unittest.TestCase):
             openai_base_url="https://api.openai.com/v1",
         )
 
-        with patch("app.providers._fetch_remote_repo_doc_context", return_value="### README.md\nDocs"), patch(
+        with patch(
+            "app.providers._fetch_remote_repo_doc_context",
+            return_value="### README.md\nDocs",
+        ) as mock_remote_docs, patch(
             "app.providers._request_json",
             return_value={"choices": [{"message": {"content": "Refined prompt"}}]},
         ):
@@ -118,9 +127,18 @@ class ProviderEnrichmentTests(unittest.TestCase):
                 acceptance_criteria="- [ ] Add tests",
                 repo_name="platform-web",
                 execution_mode="implement",
+                uploaded_documents=[
+                    {
+                        "id": "upload-doc-1",
+                        "title": "Architecture",
+                        "path": "uploads/architecture.md",
+                        "content": "# Architecture",
+                    }
+                ],
             )
             self.assertEqual(enrichment_result["value"], "Refined prompt")
             self.assertTrue(enrichment_result["docsConsidered"])
+            mock_remote_docs.assert_not_called()
 
         with patch("app.providers._collect_doc_context", return_value="### README.md\nDocs"), patch(
             "app.providers._request_json",

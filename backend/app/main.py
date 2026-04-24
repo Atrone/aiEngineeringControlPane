@@ -517,6 +517,7 @@ def post_intake_enrich(payload: IntakeEnrichRequest, request: Request) -> Dict[s
             acceptance_criteria=payload.acceptance_criteria,
             repo_name=payload.repo_name,
             execution_mode=payload.execution_mode,
+            uploaded_documents=payload.uploaded_documents,
         )
     except OpenAIEnrichmentError as enrichment_error:
         # Translate enrichment failures into a clear 4xx/5xx client response.

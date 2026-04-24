@@ -1941,6 +1941,41 @@ def _build_enrichment_messages(
     ]
 
 
+def _build_uploaded_doc_context(
+    uploaded_documents: List[Mapping[str, Any]],
+    *,
+    per_doc_chars: int = 4000,
+    max_docs: int = 8,
+) -> str:
+    """Builds an enrichment context blob from documents uploaded in the intake UI."""
+
+    context_sections: List[str] = []
+
+    # Clamp the uploaded document list so large uploads stay within prompt budget.
+    for uploaded_document in uploaded_documents[:max_docs]:
+        # Read the uploaded file body and skip entries that do not carry any content.
+        document_body = str(uploaded_document.get("content") or "").strip()
+
+        if not document_body:
+            # Ignore empty uploaded documents so the prompt stays focused.
+            continue
+
+        # Prefer the original path label so the model can cite the uploaded source cleanly.
+        document_label = str(
+            uploaded_document.get("path")
+            or uploaded_document.get("title")
+            or uploaded_document.get("id")
+            or "uploaded-document"
+        ).strip()
+
+        context_sections.append(
+            _format_remote_doc_section(document_label, document_body, per_doc_chars)
+        )
+
+    # Return the combined uploaded-doc context for the enrichment request.
+    return "\n\n".join(context_sections)
+
+
 def _extract_openai_message(response_payload: Dict[str, Any]) -> str:
     """Extracts the assistant text from an OpenAI chat completion response."""
 
@@ -1982,6 +2017,7 @@ def enrich_intake_field(
     acceptance_criteria: str,
     repo_name: str,
     execution_mode: str,
+    uploaded_documents: Optional[List[Mapping[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Refines a work intake field with OpenAI using repo doc context."""
 
@@ -1999,10 +2035,14 @@ def enrich_intake_field(
             "OpenAI is not configured for this environment. Set OPENAI_API_KEY to enable enrichment."
         )
 
-    # Pull grounding docs from the selected remote repository so the Enrich
-    # buttons reflect the repo the user just picked in the work intake form
-    # instead of the application's local docs folder.
-    docs_context = _fetch_remote_repo_doc_context(settings, repo_name=repo_name)
+    # Prefer the documents uploaded in the intake form so Enrich uses the exact
+    # repo context the operator supplied for this task.
+    docs_context = _build_uploaded_doc_context(list(uploaded_documents or []))
+
+    if not docs_context:
+        # Fall back to the selected remote repository docs when no uploads were provided.
+        docs_context = _fetch_remote_repo_doc_context(settings, repo_name=repo_name)
+
     messages = _build_enrichment_messages(
         field=normalized_field,
         value=value,

@@ -55,13 +55,24 @@ class StateRunMutationTests(unittest.TestCase):
                     "prompt": "Implement the requested feature.",
                     "acceptanceCriteria": "- [ ] Add tests",
                     "documentIds": ["doc-1"],
+                    "uploadedDocuments": [
+                        {
+                            "id": "upload-doc-1",
+                            "title": "Architecture",
+                            "path": "uploads/architecture.md",
+                            "source": "uploaded_repo_document",
+                            "updatedAt": "2026-04-24T18:00:00Z",
+                            "content": "# Architecture",
+                        }
+                    ],
                     "executionMode": "implement",
                 },
             )
             self.assertEqual(created_task["executionMode"], "implement")
             self.assertEqual(state.RUN_STORE[0]["repo"], "platform-web")
             self.assertEqual(state.RUN_STORE[0]["_issueSnapshot"]["id"], "issue-1")
-            self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["id"], "doc-1")
+            self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["id"], "upload-doc-1")
+            self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["path"], "uploads/architecture.md")
             self.assertEqual(state.RUN_STORE[0]["_requestedBySnapshot"]["name"], "Maya")
             mock_create_run.assert_called_once()
 

@@ -102,6 +102,15 @@ class MainIntakeRouteTests(unittest.TestCase):
                 "acceptanceCriteria": "criterion",
                 "repoName": "platform-web",
                 "executionMode": "implement",
+                "uploadedDocuments": [
+                    {
+                        "id": "upload-doc-1",
+                        "title": "Architecture",
+                        "path": "uploads/architecture.md",
+                        "updatedAt": "2026-04-24T18:00:00Z",
+                        "content": "# Architecture",
+                    }
+                ],
             }
         )
 
@@ -113,6 +122,7 @@ class MainIntakeRouteTests(unittest.TestCase):
             response = main.post_intake_enrich(enrich_payload, request)
             self.assertEqual(response["value"], "Refined prompt")
             self.assertEqual(mock_enrich.call_args.kwargs["repo_name"], "platform-web")
+            self.assertEqual(mock_enrich.call_args.kwargs["uploaded_documents"][0].path, "uploads/architecture.md")
 
         with patch("app.main._authorized_request", return_value=("settings", {"x": "y"}, "session")), patch(
             "app.main.enrich_intake_field",
