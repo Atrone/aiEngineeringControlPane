@@ -453,10 +453,10 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
 
       <aside aria-label="Workspace navigation" className="sidebar">
         <div className="brand-card">
-          <p className="eyebrow">AI Control Pane</p>
-          <h1>Mission Control</h1>
+          <p className="eyebrow">SIG-7 Frontend Revamp</p>
+          <h1>AI Engineering Control Pane</h1>
           <p className="muted-copy">
-            Coordinate AI coding agents across issue intake, repo context, approval, and delivery workflows.
+            Operate a production-style AI engineering workflow with polished UX patterns inspired by leading AI startups.
           </p>
           <div className="brand-meta">
             <span className="pill">Linear-ready</span>
@@ -495,12 +495,13 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
           <header className="topbar">
             <div className="topbar-leading">
               <div>
-                <p className="eyebrow">Product Eng Control Plane</p>
-                <h2>Ship AI changes with traceable delivery</h2>
+                <p className="eyebrow">Provider: Linear · Ticket SIG-7</p>
+                <h2>Frontend revamp operations view</h2>
               </div>
             </div>
             <div className="topbar-actions">
               <span className="pill">{buildRoleLabel(props.currentUser.role)}</span>
+              <span className="pill">Design-forward UX</span>
               {canReview ? (
                 <Link className="ghost-button link-button" to="/settings">
                   Open settings
@@ -995,11 +996,10 @@ function DashboardPage() {
     <div className="page-grid">
       <section className="hero-panel">
         <div>
-          <p className="eyebrow">Live operations</p>
-          <h3>See every run, unblock high-risk work, and move issues from scope to shipped pull request.</h3>
-          <p className="subtle-copy">
-            SIG-7 frontend revamp aligns this workspace with modern AI startup product patterns: bold signal hierarchy,
-            compact KPI cards, and high-clarity workflow rails.
+          <p className="eyebrow">Modern AI startup pattern</p>
+          <h3>Show, don&apos;t tell: lead with the product surface, trust signals, and clean execution telemetry.</h3>
+          <p className="muted-copy">
+            Inspired by product-first patterns seen across top AI teams: minimal navigation, high-contrast dark surfaces, and immediately actionable workflow context.
           </p>
         </div>
         <div className="hero-pills">
@@ -1007,6 +1007,24 @@ function DashboardPage() {
           <span className="pill">{query.data.currentUser.role}</span>
           <span className="pill">{query.data.integrationStatuses.length} provider categories</span>
         </div>
+      </section>
+
+      <section className="signal-strip" aria-label="Design reference signals">
+        <article className="signal-card">
+          <p className="sidebar-label">Pattern 1</p>
+          <h3>Product-first hero</h3>
+          <p className="subtle-copy">The interface itself is the headline, so users can understand value in seconds.</p>
+        </article>
+        <article className="signal-card">
+          <p className="sidebar-label">Pattern 2</p>
+          <h3>Evidence-focused trust</h3>
+          <p className="subtle-copy">Live run status, issue linkage, and integration state act as built-in proof points.</p>
+        </article>
+        <article className="signal-card">
+          <p className="sidebar-label">Pattern 3</p>
+          <h3>Minimal + high signal</h3>
+          <p className="subtle-copy">Clear typography, restrained gradients, and concise actions reduce cognitive overhead.</p>
+        </article>
       </section>
 
       <section className="metric-grid">{metricCards}</section>
