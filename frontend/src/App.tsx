@@ -1932,7 +1932,6 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     { id: 'linear-settings', label: 'Linear setup' },
     { id: 'jira-settings', label: 'Jira setup' },
     { id: 'cursor-settings', label: 'Cursor setup' },
-    { id: 'settings-guidance', label: 'Traceability and UX guidance' },
   ];
 
   useEffect(() => {
@@ -2119,6 +2118,11 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
         </div>
       </section>
 
+      <div aria-live="polite" className="status-message-region" role="status">
+        {mutationSuccess ? <p className="success-copy">{mutationSuccess}</p> : null}
+        {mutationError ? <p className="error-copy">{mutationError}</p> : null}
+      </div>
+
       <section id="provider-status">
         <Panel body={<div className="integration-grid">{integrationCards}</div>} title="Provider status" />
       </section>
@@ -2297,27 +2301,6 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
                 </button>
               </div>
             </form>
-          }
-        />
-
-        <Panel
-          title="Guided setup notes"
-          body={
-            <div className="stacked-copy" id="settings-guidance">
-              <p>Roles: every signed-in session is treated as an admin and can manage provider connections.</p>
-              <p>GitHub Actions piggybacks on the GitHub repo connection so CI status activates automatically.</p>
-              <p>When GitHub plus Cursor are connected, the task detail Start run action launches a real Cursor Cloud Agent instead of the local simulator.</p>
-              <p>Sessions are stored in memory for this demo, so reconnect after a backend restart.</p>
-              <p>UX and design reference: NNG usability heuristics and WCAG 2.2 focus visibility / labeling guidance inform this settings update.</p>
-              <p>
-                SIG-7 frontend revamp: responsive shell navigation, clearer content max-width, and tablist semantics on evidence panels align with common AI product console patterns and WCAG 2.1 guidance.
-              </p>
-              <p>Audit trail expectation: keep ticket IDs and provider metadata visible in task, run, and pull-request records for review-ready evidence.</p>
-              <div aria-live="polite" className="status-message-region" role="status">
-                {mutationSuccess ? <p className="success-copy">{mutationSuccess}</p> : null}
-                {mutationError ? <p className="error-copy">{mutationError}</p> : null}
-              </div>
-            </div>
           }
         />
       </section>
