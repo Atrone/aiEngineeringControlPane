@@ -949,7 +949,6 @@ function DashboardPage() {
   const metricCards: ReactNode[] = [];
   const runCards: ReactNode[] = [];
   const suggestedItems: ReactNode[] = [];
-  const integrationCards: ReactNode[] = [];
 
   // Build cards explicitly so the UI stays easy to reshape later.
   for (const metric of derivedMetrics) {
@@ -990,11 +989,6 @@ function DashboardPage() {
     );
   }
 
-  // Render provider integration cards so the operator can see live vs fallback modes.
-  for (const status of query.data.integrationStatuses) {
-    integrationCards.push(<IntegrationStatusCard key={status.id} status={status} />);
-  }
-
   // Choose the suggestions rail body so loading, error, and empty states all read clearly.
   let suggestionsBody: ReactNode;
 
@@ -1028,7 +1022,7 @@ function DashboardPage() {
       <section className="hero-panel">
         <div>
           <p className="eyebrow">Live operations</p>
-          <h3>Track AI work across planning, implementation, testing, review, and integration status.</h3>
+          <h3>Track AI work across planning, implementation, testing, and review.</h3>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
@@ -1053,8 +1047,6 @@ function DashboardPage() {
           <Panel body={suggestionsBody} title="Suggested next actions" />
         </div>
       </section>
-
-      <Panel body={<div className="integration-grid">{integrationCards}</div>} title="Integration status" />
     </div>
   );
 }
