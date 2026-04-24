@@ -1091,21 +1091,15 @@ function WorkIntakePage() {
       return;
     }
 
-    if (!title) {
-      // Seed the task title from the selected issue.
-      setTitle(issue.title);
-    }
+    // Refresh the intake title so it always matches the currently selected issue.
+    setTitle(issue.title);
 
-    if (!prompt) {
-      // Seed the implementation prompt from the selected issue description.
-      setPrompt(issue.description || `Implement ${issue.ticket}: ${issue.title}`);
-    }
+    // Refresh the implementation prompt from the selected issue details.
+    setPrompt(issue.description || `Implement ${issue.ticket}: ${issue.title}`);
 
-    if (!acceptanceCriteria) {
-      // Seed the acceptance criteria from the selected issue title and status.
-      setAcceptanceCriteria(`Deliver ${issue.ticket} with clear review evidence and preserve issue traceability from ${issue.status}.`);
-    }
-  }, [acceptanceCriteria, prompt, query.data, selectedIssueId, title]);
+    // Refresh the acceptance criteria so it stays aligned with the selected issue.
+    setAcceptanceCriteria(`Deliver ${issue.ticket} with clear review evidence and preserve issue traceability from ${issue.status}.`);
+  }, [query.data, selectedIssueId]);
 
   if (query.isLoading) {
     // Render a lightweight loading state while intake options are fetched.
