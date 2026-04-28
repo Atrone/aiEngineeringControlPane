@@ -1,4 +1,4 @@
-import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode } from 'react';
+import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { useEffect, useId, useState } from 'react';
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useApiQuery } from './hooks/useApiQuery';
@@ -57,6 +57,16 @@ import type {
 
 const reviewerRoles: UserRole[] = ['admin'];
 type EvidenceTabId = keyof RunEvidenceTabs;
+type RunChannelTone = 'active' | 'blocked' | 'merged';
+type RunTeamGroup = {
+  key: string;
+  label: string;
+  initials: string;
+  runs: RunSummary[];
+  activeCount: number;
+  blockedCount: number;
+  mergedCount: number;
+};
 const googleAuthCallbackExchanges = new Map<string, Promise<AuthSession>>();
 const ignoredBlockerReasons: Set<string> = new Set([
   'none',
@@ -361,6 +371,123 @@ function buildIssueTrackerRunLabel(run: RunSummary): string {
 }
 
 /**
+ * Builds a stable team key from the ownership fields available on each run.
+ */
+function buildRunTeamKey(run: RunSummary): string {
+  const ownerKey = run.owner.trim();
+
+  if (ownerKey) {
+    // Prefer owner because it maps most closely to the Discord-style team/server metaphor.
+    return ownerKey;
+  }
+
+  // Fall back to repo identity so unowned runs still land in a visible team.
+  return run.repo.trim() || 'Unassigned team';
+}
+
+/**
+ * Builds a compact initials label for a team server icon.
+ */
+function buildTeamInitials(label: string): string {
+  const words = label
+    .split(/[\s/_-]+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length > 0);
+
+  if (words.length === 0) {
+    // Keep the avatar populated even when the source label is empty.
+    return 'AI';
+  }
+
+  // Use up to two leading characters so the server rail stays compact.
+  return words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? '').join('');
+}
+
+/**
+ * Maps a run status to the channel tone used by the Discord-style run list.
+ */
+function getRunChannelTone(run: RunSummary): RunChannelTone {
+  if (run.status === 'Blocked' || run.status === 'Retry') {
+    // Treat retries as blocked because they need reviewer or agent follow-up.
+    return 'blocked';
+  }
+
+  if (run.status === 'Merged' || run.pullRequest?.merged) {
+    // Treat backend status and live PR metadata as terminal merged signals.
+    return 'merged';
+  }
+
+  // Everything else is still active from an operator perspective.
+  return 'active';
+}
+
+/**
+ * Builds the hover text that explains the review effort behind a run channel.
+ */
+function buildReviewEffortLabel(run: RunSummary): string {
+  const blockerCount = collectBlockerReasons([run]).size;
+  const blockerCopy = blockerCount > 0
+    ? ` · ${blockerCount} actionable blocker${blockerCount === 1 ? '' : 's'}`
+    : '';
+
+  // Include runtime, risk, and blockers because those are the fastest review-effort signals.
+  return `Review effort: ${run.runtime} runtime · ${run.risk} risk · ${run.status}${blockerCopy}`;
+}
+
+/**
+ * Groups runs into Discord-style teams and counts channel state by team.
+ */
+function buildRunTeamGroups(runs: RunSummary[]): RunTeamGroup[] {
+  const groupsByKey = new Map<string, RunTeamGroup>();
+
+  // Preserve the backend run order while collecting team buckets.
+  for (const run of runs) {
+    const key = buildRunTeamKey(run);
+    const existingGroup = groupsByKey.get(key);
+    const group = existingGroup ?? {
+      key,
+      label: key,
+      initials: buildTeamInitials(key),
+      runs: [],
+      activeCount: 0,
+      blockedCount: 0,
+      mergedCount: 0,
+    };
+    const tone = getRunChannelTone(run);
+
+    // Keep every run inside the team so the channel list mirrors the dashboard feed.
+    group.runs.push(run);
+
+    if (tone === 'blocked') {
+      // Count blocked channels separately for the team server hover.
+      group.blockedCount += 1;
+    } else if (tone === 'merged') {
+      // Count merged channels separately so terminal runs stay visually distinct.
+      group.mergedCount += 1;
+    } else {
+      // Count the remaining channels as active work.
+      group.activeCount += 1;
+    }
+
+    // Write the group back when this is the first run for the team.
+    groupsByKey.set(key, group);
+  }
+
+  // Return groups in the insertion order established by the run feed.
+  return Array.from(groupsByKey.values());
+}
+
+/**
+ * Builds the team server hover summary shown in the Discord rail.
+ */
+function buildTeamHoverLabel(group: RunTeamGroup): string {
+  const runCount = group.runs.length;
+
+  // Summarize the channel state mix so the server hover carries operational signal.
+  return `${group.label}: ${runCount} run${runCount === 1 ? '' : 's'} · ${group.activeCount} active · ${group.blockedCount} blocked · ${group.mergedCount} merged`;
+}
+
+/**
  * Renders the top-level routed application.
  */
 function App() {
@@ -505,7 +632,7 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
     }
   }
 
-  // Keep the shell visible so the app feels like a real control center.
+  // Keep the shell visible so the app feels like a real Discord-inspired team workspace.
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -513,34 +640,37 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
       </a>
 
       <aside aria-label="Workspace navigation" className="sidebar">
-        <div className="brand-card">
+        <div className="brand-card discord-brand-card">
+          <div className="discord-home-mark" aria-hidden="true">
+            AI
+          </div>
           <p className="eyebrow">AI Control Pane</p>
-          <h1>Mission Control</h1>
+          <h1>Engineering Discord</h1>
           <p className="muted-copy">
-            Coordinate AI coding agents across issue intake, repo context, approval, and delivery workflows.
+            Teams are servers, runs are channels, and every run opens into a focused review room.
           </p>
         </div>
 
         <nav aria-label="Primary" className="nav-list">
           <Link className={getNavLinkClassName(location.pathname, '/dashboard')} to="/dashboard">
-            Dashboard
+            # run-lobby
           </Link>
           <Link className={getNavLinkClassName(location.pathname, '/intake')} to="/intake">
-            Work Intake
+            # new-work
           </Link>
           {canReview ? (
             <Link className={getNavLinkClassName(location.pathname, '/settings')} to="/settings">
-              Settings
+              # settings
             </Link>
           ) : null}
           {location.pathname.startsWith('/tasks/') ? (
             <Link className="nav-link active" to={location.pathname}>
-              Task Detail
+              # selected-run
             </Link>
           ) : null}
         </nav>
 
-        <div className="sidebar-card">
+        <div className="sidebar-card discord-user-card">
           <p className="sidebar-label">Current user</p>
           <p className="sidebar-stat">{buildUserHeadline(props.currentUser)}</p>
           <p className="muted-copy">{buildUserSubtitle(props.currentUser)}</p>
@@ -553,7 +683,7 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
             <div className="topbar-leading">
               <div>
                 <p className="eyebrow">Product Eng</p>
-                <h2>Team operations view</h2>
+                <h2>Run channels</h2>
               </div>
             </div>
             <div className="topbar-actions">
@@ -892,6 +1022,7 @@ function DashboardPage() {
   const [suggestionsError, setSuggestionsError] = useState<string>('');
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState<boolean>(false);
   const [suggestionsModel, setSuggestionsModel] = useState<string>('');
+  const [selectedTeamKey, setSelectedTeamKey] = useState<string>('');
 
   // Build a stable, comma-joined key so the effect reruns only when the visible run IDs change.
   const visibleRunIdsKey = query.data
@@ -968,11 +1099,26 @@ function DashboardPage() {
     return <ErrorState message={query.error ?? 'Dashboard data was unavailable.'} />;
   }
 
+  /**
+   * Switches the active Discord-style server in the dashboard run browser.
+   */
+  function handleTeamSelect(event: MouseEvent<HTMLButtonElement>): void {
+    const teamKey = event.currentTarget.dataset.teamKey ?? '';
+
+    // Store only the selected team key because the groups are derived fresh from query data.
+    setSelectedTeamKey(teamKey);
+  }
+
   // Limit the dashboard run feed to runs backed by real issue-tracker records.
   const issueTrackerLinkedRuns = query.data.runs.filter((run) => isIssueTrackerRun(run));
   const derivedMetrics = deriveDashboardMetrics(issueTrackerLinkedRuns);
+  const teamGroups = buildRunTeamGroups(issueTrackerLinkedRuns);
+  const selectedTeam = teamGroups.find((group) => group.key === selectedTeamKey) ?? teamGroups[0] ?? null;
+  const selectedTeamRuns = selectedTeam?.runs ?? [];
+  const selectedPreviewRun = selectedTeamRuns[0] ?? null;
   const metricCards: ReactNode[] = [];
-  const runCards: ReactNode[] = [];
+  const teamServerButtons: ReactNode[] = [];
+  const runChannels: ReactNode[] = [];
   const suggestedItems: ReactNode[] = [];
 
   // Build cards explicitly so the UI stays easy to reshape later.
@@ -980,27 +1126,44 @@ function DashboardPage() {
     metricCards.push(<MetricCard hint={metric.hint} key={metric.label} label={metric.label} value={metric.value} />);
   }
 
-  // Build the active run list from the fetched execution feed.
-  for (const run of issueTrackerLinkedRuns) {
-    runCards.push(
-      <Link className="run-row" key={run.id} to={`/tasks/${run.id}`}>
-        <div className="run-row-main">
-          <div className="run-ticket">
-            <p className="ticket-code">{run.ticket}</p>
-            <h3>{run.title}</h3>
-          </div>
-          <p className="muted-copy">{run.summary}</p>
-          <p className="subtle-copy">
-            {buildIssueTrackerRunLabel(run)} · {run.repo} · {run.agent}
-          </p>
-        </div>
+  // Build the Discord server rail from owner-backed team groups.
+  for (const group of teamGroups) {
+    const isActiveTeam = selectedTeam?.key === group.key;
 
-        <div className="run-row-meta">
-          <StatusBadge risk={run.risk} status={run.status} />
-          <span>{run.repo}</span>
-          <span>{run.owner}</span>
-          <span>{run.runtime}</span>
-        </div>
+    teamServerButtons.push(
+      <button
+        aria-label={buildTeamHoverLabel(group)}
+        className={`server-button${isActiveTeam ? ' server-button-active' : ''}`}
+        data-team-key={group.key}
+        key={group.key}
+        onClick={handleTeamSelect}
+        title={buildTeamHoverLabel(group)}
+        type="button"
+      >
+        <span>{group.initials}</span>
+      </button>,
+    );
+  }
+
+  // Build the run channel list for the selected team.
+  for (const run of selectedTeamRuns) {
+    const channelTone = getRunChannelTone(run);
+    const reviewEffort = buildReviewEffortLabel(run);
+
+    runChannels.push(
+      <Link
+        aria-label={`${run.ticket}: ${run.title}. ${reviewEffort}`}
+        className={`run-channel run-channel-${channelTone}`}
+        key={run.id}
+        title={reviewEffort}
+        to={`/tasks/${run.id}`}
+      >
+        <span className="run-channel-hash" aria-hidden="true">#</span>
+        <span className="run-channel-copy">
+          <span className="run-channel-title">{run.ticket} {run.title}</span>
+          <span className="run-channel-meta">{run.repo} · {run.runtime}</span>
+        </span>
+        <span className="run-channel-status">{run.status}</span>
       </Link>,
     );
   }
@@ -1041,33 +1204,75 @@ function DashboardPage() {
     );
   }
 
-  // Surface the operational view, queue summary, and blocked context together.
+  // Surface the operational view as a Discord-style server, channel, and run room.
   return (
     <div className="page-grid">
-      <section className="hero-panel">
+      <section className="hero-panel discord-hero-panel">
         <div>
           <p className="eyebrow">Live operations</p>
-          <h3>Track AI work across planning, implementation, testing, and review.</h3>
+          <h3>Pick a team server, scan run channels, then open the run room for evidence and review.</h3>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
-          <span className="pill">{query.data.currentUser.role}</span>
+          <span className="pill">{teamGroups.length} teams</span>
           <span className="pill">{query.data.integrationStatuses.length} provider categories</span>
         </div>
       </section>
 
       <section className="metric-grid">{metricCards}</section>
 
-      <section className="content-grid">
-        <Panel
-          body={
-            runCards.length > 0
-              ? <div className="run-list">{runCards}</div>
-              : <p className="muted-copy">No live issue-tracker-linked runs are available yet.</p>
-          }
-          title="Active and recent runs"
-        />
+      <section className="discord-workspace" aria-label="Team run workspace">
+        <div className="server-rail" aria-label="Team servers">
+          {teamServerButtons.length > 0 ? teamServerButtons : <span className="server-empty-state">AI</span>}
+        </div>
 
+        <div className="channel-panel" aria-label="Run channels">
+          <div className="channel-panel-header">
+            <p className="eyebrow">Team server</p>
+            <h3>{selectedTeam?.label ?? 'No team selected'}</h3>
+            <p className="subtle-copy">Hover a run channel to see review effort.</p>
+          </div>
+          <div className="run-channel-list">
+            {runChannels.length > 0 ? runChannels : <p className="muted-copy">No run channels are available for this team.</p>}
+          </div>
+        </div>
+
+        <div className="run-room-preview" aria-label="Selected run preview">
+          {selectedPreviewRun ? (
+            <div className="run-room-card">
+              <div className="run-room-card-header">
+                <div>
+                  <p className="eyebrow">#{selectedPreviewRun.ticket}</p>
+                  <h3>{selectedPreviewRun.title}</h3>
+                  <p className="muted-copy">{selectedPreviewRun.summary}</p>
+                </div>
+                <StatusBadge risk={selectedPreviewRun.risk} status={selectedPreviewRun.status} />
+              </div>
+
+              <div className="run-room-facts">
+                <span>{buildIssueTrackerRunLabel(selectedPreviewRun)}</span>
+                <span>{selectedPreviewRun.repo}</span>
+                <span>{selectedPreviewRun.agent}</span>
+                <span>{selectedPreviewRun.runtime}</span>
+              </div>
+
+              <p className="subtle-copy">{buildReviewEffortLabel(selectedPreviewRun)}</p>
+
+              <Link className="primary-button link-button" to={`/tasks/${selectedPreviewRun.id}`}>
+                Open run room
+              </Link>
+            </div>
+          ) : (
+            <div className="run-room-card">
+              <p className="eyebrow">No channels</p>
+              <h3>No live issue-tracker-linked runs are available yet.</h3>
+              <p className="muted-copy">New Linear or Jira-backed runs will appear here as Discord-style channels.</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="content-grid discord-support-grid">
         <div className="rail-stack">
           <Panel body={suggestionsBody} title="Suggested next actions" />
         </div>
@@ -1677,16 +1882,16 @@ function TaskDetailPage() {
     ),
   );
 
-  // Present everything the reviewer needs on one page.
+  // Present the run as a Discord-style channel room instead of a message thread.
   return (
-    <div className="page-grid">
-      <section className="task-header panel">
+    <div className="page-grid run-room-page">
+      <section className="task-header panel run-room-header">
         <div>
-          <p className="eyebrow">{activeRun.ticket}</p>
+          <p className="eyebrow">#{activeRun.ticket}</p>
           <h3>{activeRun.title}</h3>
           <p className="muted-copy">{activeRun.summary}</p>
           <p className="subtle-copy">
-            {activeRun.issue?.ticket ?? activeRun.ticket} · {activeRun.issue?.provider ?? 'fallback'} issue context
+            {buildRunTeamKey(activeRun)} server · {activeRun.issue?.provider ?? 'fallback'} issue context · {buildReviewEffortLabel(activeRun)}
           </p>
         </div>
 
@@ -1701,7 +1906,7 @@ function TaskDetailPage() {
         </div>
       </section>
 
-      <section className="task-grid">
+      <section className="task-grid run-room-status-grid">
         <Panel
           body={
             <div className="stacked-copy">
@@ -1713,33 +1918,33 @@ function TaskDetailPage() {
               <p>Last updated: {liveView ? formatEventTime(liveView.lastUpdatedAt) : 'Not available'}</p>
             </div>
           }
-          title="Context"
+          title="Channel context"
         />
 
         <Panel
           body={hasLiveTimeline && liveView
             ? <TimelineList entries={liveView.timeline} liveLabel={liveView.statusLabel} />
             : <p className="muted-copy">No live run timeline is available for this task yet.</p>}
-          title="Run timeline"
+          title="Live activity"
         />
 
         <Panel
           body={<TaskDecisionPanelBody onRunUpdated={setRunOverride} run={activeRun} />}
-          title="Decision panel"
+          title="Review controls"
         />
       </section>
 
-      <section className="content-grid task-detail-live-grid">
+      <section className="content-grid task-detail-live-grid run-room-stream-grid">
         <Panel
           body={<PullRequestPanelBody run={activeRun} />}
-          title="Pull request"
+          title="Pull request status"
         />
 
         <Panel
           body={hasLiveLogs && liveView
             ? <LogStream entries={liveView.logs} />
             : <p className="muted-copy">No live log stream is available for this task yet.</p>}
-          title="Streamed logs"
+          title="Run stream"
         />
       </section>
 
@@ -1747,7 +1952,7 @@ function TaskDetailPage() {
         body={hasLiveEvidence && liveView
           ? <EvidenceTabPanel activeTab={activeEvidenceTab} liveView={liveView} onTabChange={setActiveEvidenceTab} />
           : <p className="muted-copy">No live evidence has been captured for this task yet.</p>}
-        title="Evidence"
+        title="Evidence tabs"
       />
 
       <Panel

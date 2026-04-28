@@ -1,26 +1,28 @@
 :root {
-  color: #e8f0fa;
-  background: #050c18;
+  color: #f2f3f5;
+  background: #1e1f22;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --page-bg: radial-gradient(1200px 800px at 12% -10%, rgba(56, 189, 248, 0.12), transparent 55%),
-    radial-gradient(900px 600px at 88% 0%, rgba(99, 102, 241, 0.1), transparent 50%),
-    linear-gradient(180deg, #050c18 0%, #0a1426 55%, #050c18 100%);
-  --panel-bg: rgba(10, 18, 34, 0.82);
-  --panel-border: rgba(148, 163, 184, 0.2);
-  --panel-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
-  --accent: #7dd3fc;
-  --accent-strong: #38bdf8;
-  --accent-glow: rgba(56, 189, 248, 0.35);
-  --text-muted: #9fb3c8;
-  --success: #34d399;
-  --warning: #fbbf24;
-  --danger: #fb7185;
-  --sidebar-width: 340px;
-  --content-max: 1200px;
+  --page-bg: #313338;
+  --panel-bg: #2b2d31;
+  --panel-border: rgba(78, 80, 88, 0.82);
+  --panel-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+  --accent: #b5bac1;
+  --accent-strong: #5865f2;
+  --accent-glow: rgba(88, 101, 242, 0.42);
+  --text-muted: #949ba4;
+  --success: #23a559;
+  --warning: #f0b232;
+  --danger: #f23f43;
+  --sidebar-width: 320px;
+  --content-max: 1480px;
+  --server-rail: #1e1f22;
+  --channel-bg: #2b2d31;
+  --chat-bg: #313338;
+  --channel-hover: rgba(78, 80, 88, 0.58);
 }
 
 * {
@@ -133,6 +135,7 @@ ul {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   min-height: 100vh;
   position: relative;
+  background: var(--chat-bg);
 }
 
 .app-main {
@@ -144,11 +147,10 @@ ul {
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-  padding: 1.5rem;
-  border-right: 1px solid var(--panel-border);
-  background: rgba(4, 10, 20, 0.78);
-  backdrop-filter: blur(14px);
+  gap: 1rem;
+  padding: 0.75rem;
+  border-right: 1px solid #1f2023;
+  background: var(--server-rail);
   z-index: 40;
 }
 
@@ -166,7 +168,27 @@ ul {
 
 .brand-card,
 .sidebar-card {
-  padding: 1.25rem;
+  padding: 1rem;
+}
+
+.discord-brand-card,
+.discord-user-card {
+  background: #2b2d31;
+  border-color: rgba(30, 31, 34, 0.95);
+  box-shadow: none;
+}
+
+.discord-home-mark {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 0.75rem;
+  border-radius: 18px;
+  place-items: center;
+  background: #5865f2;
+  color: #ffffff;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 .eyebrow,
@@ -204,26 +226,26 @@ ul {
 .nav-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.25rem;
 }
 
 .nav-link {
-  padding: 0.85rem 1rem;
-  border-radius: 14px;
-  color: #d7e4f2;
+  padding: 0.72rem 0.85rem;
+  border-radius: 8px;
+  color: #949ba4;
   text-decoration: none;
   transition: background 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
 .nav-link:hover,
 .nav-link.active {
-  background: rgba(61, 127, 173, 0.2);
+  background: #35373c;
   color: #ffffff;
-  transform: translateX(2px);
+  transform: none;
 }
 
 .page-shell {
-  padding: 1.5rem;
+  padding: 0;
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
@@ -235,7 +257,12 @@ ul {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 1.5rem;
+  min-height: 4rem;
+  margin-bottom: 0;
+  padding: 0.85rem 1.5rem;
+  border-bottom: 1px solid #26272b;
+  background: #313338;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.22);
 }
 
 .topbar-leading {
@@ -293,6 +320,7 @@ ul {
 .page-grid {
   display: grid;
   gap: 1.25rem;
+  padding: 1.5rem;
 }
 
 .hero-panel,
@@ -344,6 +372,181 @@ ul {
   gap: 1rem;
 }
 
+.discord-hero-panel {
+  align-items: center;
+  background: linear-gradient(135deg, #2b2d31 0%, #35373c 100%);
+}
+
+.discord-workspace {
+  display: grid;
+  grid-template-columns: 72px minmax(260px, 340px) minmax(0, 1fr);
+  min-height: 560px;
+  overflow: hidden;
+  border: 1px solid #222327;
+  border-radius: 24px;
+  background: var(--chat-bg);
+  box-shadow: var(--panel-shadow);
+}
+
+.server-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 1rem 0.6rem;
+  background: var(--server-rail);
+}
+
+.server-button,
+.server-empty-state {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  place-items: center;
+  border: 0;
+  background: #313338;
+  color: #dbdee1;
+  font-weight: 800;
+  cursor: pointer;
+  transition: border-radius 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.server-button:hover,
+.server-button-active {
+  border-radius: 16px;
+  background: #5865f2;
+  color: #ffffff;
+}
+
+.channel-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-right: 1px solid #25262a;
+  background: var(--channel-bg);
+}
+
+.channel-panel-header {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border-bottom: 1px solid #242529;
+}
+
+.run-channel-list {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  overflow: auto;
+}
+
+.run-channel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.7rem 0.75rem;
+  border-left: 3px solid transparent;
+  border-radius: 8px;
+  color: #949ba4;
+  text-decoration: none;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.run-channel:hover {
+  background: var(--channel-hover);
+  color: #f2f3f5;
+}
+
+.run-channel-active {
+  border-left-color: var(--success);
+}
+
+.run-channel-blocked {
+  border-left-color: var(--danger);
+  background: rgba(242, 63, 67, 0.09);
+  color: #f2c2c4;
+}
+
+.run-channel-merged {
+  border-left-color: #5865f2;
+  color: #c7d2fe;
+}
+
+.run-channel-hash {
+  color: #80848e;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.run-channel-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+
+.run-channel-title {
+  overflow: hidden;
+  color: inherit;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-channel-meta,
+.run-channel-status {
+  color: #949ba4;
+  font-size: 0.78rem;
+}
+
+.run-channel-status {
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(78, 80, 88, 0.62);
+}
+
+.run-room-preview {
+  display: grid;
+  min-width: 0;
+  padding: 1rem;
+  background: var(--chat-bg);
+}
+
+.run-room-card {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(78, 80, 88, 0.78);
+  border-radius: 18px;
+  background: #2b2d31;
+}
+
+.run-room-card-header,
+.run-room-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.run-room-facts {
+  justify-content: flex-start;
+}
+
+.run-room-facts span {
+  padding: 0.5rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(78, 80, 88, 0.62);
+  color: #dbdee1;
+}
+
+.discord-support-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .approvals-grid {
   grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
 }
@@ -358,6 +561,8 @@ ul {
 
 .panel {
   padding: 1.25rem;
+  background: #2b2d31;
+  box-shadow: none;
 }
 
 .settings-nav-panel {
@@ -610,32 +815,32 @@ ul {
 
 .status-running,
 .risk-low {
-  background: rgba(52, 211, 153, 0.16);
-  color: #bbf7d0;
+  background: rgba(35, 165, 89, 0.18);
+  color: #bdf7d0;
 }
 
 .status-review,
 .risk-medium {
-  background: rgba(251, 191, 36, 0.16);
-  color: #fde68a;
+  background: rgba(240, 178, 50, 0.18);
+  color: #ffe7a3;
 }
 
 .status-blocked,
 .risk-high {
-  background: rgba(251, 113, 133, 0.16);
-  color: #fecdd3;
+  background: rgba(242, 63, 67, 0.2);
+  color: #ffc5c7;
 }
 
 .status-retry,
 .status-merged {
-  background: rgba(96, 165, 250, 0.16);
-  color: #bfdbfe;
+  background: rgba(88, 101, 242, 0.2);
+  color: #c7d2fe;
 }
 
 .status-approved {
-  background: rgba(125, 211, 252, 0.18);
-  color: #bae6fd;
-  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: rgba(88, 101, 242, 0.2);
+  color: #dbe4ff;
+  border: 1px solid rgba(88, 101, 242, 0.45);
 }
 
 .approval-history-row {
@@ -687,6 +892,21 @@ ul {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.run-room-page {
+  background: var(--chat-bg);
+}
+
+.run-room-header {
+  align-items: center;
+  border-color: rgba(78, 80, 88, 0.88);
+  background: linear-gradient(135deg, #2b2d31 0%, #35373c 100%);
+}
+
+.run-room-status-grid .panel,
+.run-room-stream-grid .panel {
+  background: #2b2d31;
+}
+
 .detail-list,
 .timeline-list {
   color: #d9e8f5;
@@ -721,12 +941,12 @@ ul {
   padding: 0.95rem 1rem;
   border-radius: 16px;
   border: 1px solid rgba(155, 179, 209, 0.12);
-  background: rgba(255, 255, 255, 0.03);
+  background: #313338;
 }
 
 .timeline-entry-active {
-  border-color: rgba(125, 211, 252, 0.4);
-  background: rgba(125, 211, 252, 0.09);
+  border-color: rgba(88, 101, 242, 0.45);
+  background: rgba(88, 101, 242, 0.12);
 }
 
 .timeline-entry-pending {
@@ -755,7 +975,7 @@ ul {
   padding: 0.95rem 1rem;
   border-radius: 16px;
   border: 1px solid rgba(155, 179, 209, 0.12);
-  background: rgba(255, 255, 255, 0.03);
+  background: #313338;
 }
 
 .log-entry-header {
@@ -809,7 +1029,7 @@ ul {
   padding: 1rem;
   border-radius: 16px;
   border: 1px solid rgba(155, 179, 209, 0.12);
-  background: rgba(255, 255, 255, 0.03);
+  background: #313338;
 }
 
 .evidence-status {
@@ -884,6 +1104,8 @@ ul {
 .role-card:focus-visible,
 .selection-row:focus-within,
 .evidence-tab:focus-visible,
+.server-button:focus-visible,
+.run-channel:focus-visible,
 .page-shell:focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
@@ -896,9 +1118,20 @@ ul {
   .task-grid,
   .evidence-grid,
   .content-grid,
+  .discord-workspace,
   .approvals-grid,
   .task-grid-wide {
     grid-template-columns: 1fr;
+  }
+
+  .server-rail {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .channel-panel {
+    border-right: none;
+    border-bottom: 1px solid #25262a;
   }
 }
 
@@ -932,6 +1165,10 @@ ul {
   }
 
   .page-shell {
+    padding: 0;
+  }
+
+  .page-grid {
     padding: 1rem;
   }
 
@@ -943,10 +1180,16 @@ ul {
   .sidebar {
     padding: 1rem;
   }
+
+  .topbar {
+    padding: 1rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .nav-link,
+.run-channel,
+.server-button,
   .skip-link,
   .sidebar {
     transition: none;
