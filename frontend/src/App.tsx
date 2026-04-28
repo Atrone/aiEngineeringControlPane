@@ -1069,6 +1069,16 @@ function DashboardPage() {
         />
 
         <div className="rail-stack">
+          <Panel
+            body={(
+              <ul className="detail-list compact-list">
+                <li><strong>Progressive disclosure:</strong> top metrics, channel list, then focused run-room detail.</li>
+                <li><strong>Provenance by default:</strong> issue links, PR state, CI evidence, and captured rationale stay visible.</li>
+                <li><strong>Action-driven workflow:</strong> suggested next actions convert state into reviewer decisions quickly.</li>
+              </ul>
+            )}
+            title="Startup pattern references"
+          />
           <Panel body={suggestionsBody} title="Suggested next actions" />
         </div>
       </section>
