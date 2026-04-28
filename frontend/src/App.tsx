@@ -1183,6 +1183,7 @@ function DashboardPage() {
     // Render the list of OpenAI-generated suggestions when everything succeeded.
     suggestionsBody = (
       <div>
+        {suggestionsModel ? <p className="eyebrow">Model: {suggestionsModel}</p> : null}
         <div className="rail-list">{suggestedItems}</div>
       </div>
     );
