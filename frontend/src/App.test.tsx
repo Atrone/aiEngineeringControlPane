@@ -56,6 +56,7 @@ import {
   deriveDashboardMetrics,
   exchangeGoogleAuthCodeOnce,
   extractUrlsFromText,
+  extractCursorAgentIdFromRun,
   findIntegrationStatus,
   findIssueById,
   formatArtifactSize,
@@ -99,9 +100,9 @@ vi.mock('./lib/api', () => ({
   fetchCurrentUser: vi.fn(),
   fetchDashboard: vi.fn(),
   fetchDashboardSuggestedActions: vi.fn(),
+  fetchCursorAgentArtifactResults: vi.fn(),
   fetchIntegrations: vi.fn(),
   fetchIntakeOptions: vi.fn(),
-  fetchRunArtifactResults: vi.fn(),
   fetchRunDetail: vi.fn(),
   hasSessionToken: vi.fn(),
   identifyRepositoryForIssue: vi.fn(),
@@ -311,6 +312,13 @@ describe('App pure helper functions', () => {
     expect(formatArtifactSize(null)).toBe('Size unavailable');
     expect(formatArtifactSize(512)).toBe('512 B');
     expect(formatArtifactSize(2048)).toBe('2.0 KiB');
+    expect(extractCursorAgentIdFromRun(createRunFixture({
+      cloudAgent: {
+        id: 'fallback-agent',
+        status: 'completed',
+        target: { url: 'https://cursor.com/agents?id=bc-cloud-agent-1' },
+      },
+    }))).toBe('bc-cloud-agent-1');
 
     const groups = buildRunTeamGroups([reviewRun, blockedRun, mergedRun]);
     expect(groups).toHaveLength(2);
@@ -434,29 +442,25 @@ describe('App presentational component functions', () => {
 
   it('renders Cursor artifact result contents', () => {
     const run = createRunFixture();
+    mockedUseApiQuery().mockReturnValue({
+      data: {
+        agentId: 'agent-1',
+        items: [{
+          path: 'artifacts/result.txt',
+          sizeBytes: 12,
+          updatedAt: '2026-04-28T10:08:00.000Z',
+          downloadUrl: 'https://cursor-artifacts.example.com/result.txt',
+          expiresAt: '2026-04-28T10:23:00.000Z',
+          contentType: 'text/plain',
+          encoding: 'utf-8',
+          content: 'artifact body',
+        }],
+      },
+      error: null,
+      isLoading: false,
+    });
 
-    render(
-      <ArtifactResultsPanelBody
-        query={{
-          data: {
-            agentId: 'agent-1',
-            items: [{
-              path: 'artifacts/result.txt',
-              sizeBytes: 12,
-              updatedAt: '2026-04-28T10:08:00.000Z',
-              downloadUrl: 'https://cursor-artifacts.example.com/result.txt',
-              expiresAt: '2026-04-28T10:23:00.000Z',
-              contentType: 'text/plain',
-              encoding: 'utf-8',
-              content: 'artifact body',
-            }],
-          },
-          error: null,
-          isLoading: false,
-        }}
-        run={run}
-      />,
-    );
+    render(<ArtifactResultsPanelBody run={run} />);
 
     expect(screen.getByText('artifacts/result.txt')).toBeInTheDocument();
     expect(screen.getByText('artifact body')).toBeInTheDocument();

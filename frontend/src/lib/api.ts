@@ -226,11 +226,11 @@ export async function fetchRunDetail(runId: string): Promise<RunSummary> {
 }
 
 /**
- * Fetches downloaded Cursor artifact contents for a specific run.
+ * Fetches downloaded Cursor artifact contents for a specific Cursor Cloud Agent.
  */
-export async function fetchRunArtifactResults(runId: string): Promise<CursorArtifactResultsPayload> {
-  // Load the artifact result payload through the backend Cursor proxy.
-  return getJson<CursorArtifactResultsPayload>(`/api/runs/${runId}/artifacts`);
+export async function fetchCursorAgentArtifactResults(agentId: string): Promise<CursorArtifactResultsPayload> {
+  // Load artifact contents by Cursor agent ID instead of the control-pane task slug.
+  return getJson<CursorArtifactResultsPayload>(`/api/cursor/agents/${encodeURIComponent(agentId)}/artifacts`);
 }
 
 /**

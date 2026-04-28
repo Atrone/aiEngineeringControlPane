@@ -21,7 +21,7 @@ import {
   fetchDashboardSuggestedActions,
   fetchIntegrations,
   fetchIntakeOptions,
-  fetchRunArtifactResults,
+  fetchCursorAgentArtifactResults,
   fetchRunDetail,
   hasSessionToken,
   signIn,
@@ -1824,7 +1824,6 @@ function TaskDetailPage() {
   const params = useParams();
   const runId = params.runId ?? '';
   const query = useApiQuery(() => fetchRunDetail(runId), [runId], { pollIntervalMs: 2000 });
-  const artifactQuery = useApiQuery(() => fetchRunArtifactResults(runId), [runId], { pollIntervalMs: 15000 });
   const [runOverride, setRunOverride] = useState<RunSummary | null>(null);
   const [activeEvidenceTab, setActiveEvidenceTab] = useState<EvidenceTabId>('diff');
 
@@ -1945,7 +1944,7 @@ function TaskDetailPage() {
       />
 
       <Panel
-        body={<ArtifactResultsPanelBody query={artifactQuery} run={activeRun} />}
+        body={<ArtifactResultsPanelBody run={activeRun} />}
         title="Artifact results"
       />
 
@@ -2015,6 +2014,31 @@ function formatArtifactSize(sizeBytes?: number | null): string {
 }
 
 /**
+ * Extracts the Cursor agent id from the Cloud Agent URL stored on a run.
+ */
+function extractCursorAgentIdFromRun(run: RunSummary): string {
+  const cloudAgentUrl = run.cloudAgent?.target?.url ?? '';
+
+  if (cloudAgentUrl) {
+    try {
+      // Cursor Cloud Agent URLs carry the provider agent id in the id query parameter.
+      const parsedUrl = new URL(cloudAgentUrl);
+      const urlAgentId = parsedUrl.searchParams.get('id')?.trim() ?? '';
+
+      if (urlAgentId) {
+        // Prefer the provider id from the URL over the control-pane task or PR slug.
+        return urlAgentId;
+      }
+    } catch {
+      // Fall through to the direct cloudAgent id if the stored URL is not parseable.
+    }
+  }
+
+  // Fall back to the provider payload id for older stored runs that lack a URL.
+  return run.cloudAgent?.id?.trim() ?? '';
+}
+
+/**
  * Renders one downloaded artifact body in a review-friendly format.
  */
 function ArtifactResultBody(props: { artifact: CursorArtifactResult }) {
@@ -2043,28 +2067,38 @@ function ArtifactResultBody(props: { artifact: CursorArtifactResult }) {
 /**
  * Shows the downloaded Cursor artifact contents for the selected run room.
  */
-function ArtifactResultsPanelBody(props: {
-  query: { data: CursorArtifactResultsPayload | null; error: string | null; isLoading: boolean };
-  run: RunSummary;
-}) {
-  const agentId = props.run.cloudAgent?.id ?? props.query.data?.agentId ?? '';
+function ArtifactResultsPanelBody(props: { run: RunSummary }) {
+  const agentId = extractCursorAgentIdFromRun(props.run);
+  const query = useApiQuery<CursorArtifactResultsPayload>(
+    () => {
+      if (!agentId) {
+        // Resolve an empty artifact payload without touching the backend for simulated runs.
+        return Promise.resolve({ agentId: '', items: [] });
+      }
+
+      // Fetch artifacts by Cursor agent id, not the run-room URL slug or PR branch name.
+      return fetchCursorAgentArtifactResults(agentId);
+    },
+    [agentId],
+    { pollIntervalMs: agentId ? 15000 : undefined },
+  );
 
   if (!agentId) {
     // Simulated or offline runs do not have Cursor artifact storage to query.
     return <p className="muted-copy">No Cursor Cloud Agent is linked to this run, so artifact results are unavailable.</p>;
   }
 
-  if (props.query.isLoading && !props.query.data) {
+  if (query.isLoading && !query.data) {
     // Keep the panel stable while the backend lists and downloads Cursor artifacts.
     return <p className="muted-copy">Loading Cursor artifact results...</p>;
   }
 
-  if (props.query.error) {
+  if (query.error) {
     // Surface Cursor download failures without hiding the rest of the run room.
-    return <p className="error-copy">{props.query.error}</p>;
+    return <p className="error-copy">{query.error}</p>;
   }
 
-  const artifacts = props.query.data?.items ?? [];
+  const artifacts = query.data?.items ?? [];
 
   if (artifacts.length === 0) {
     // Cursor agents may finish without writing files under artifacts/.
@@ -3630,6 +3664,7 @@ export {
   extractUrlsFromText,
   findIntegrationStatus,
   findIssueById,
+  extractCursorAgentIdFromRun,
   formatArtifactSize,
   formatEventTime,
   formatReviewEffortValue,

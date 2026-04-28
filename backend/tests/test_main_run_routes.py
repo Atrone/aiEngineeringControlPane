@@ -69,13 +69,22 @@ class MainRunRouteTests(unittest.TestCase):
 
         with patch("app.main._authorized_request", return_value=("settings", {"x": "y"}, "session")), patch(
             "app.main.get_run_detail",
-            return_value={"cloudAgent": {"id": "agent-1"}},
+            return_value={"cloudAgent": {"id": "pr-name", "target": {"url": "https://cursor.com/agents?id=agent-1"}}},
         ), patch(
             "app.main._build_cursor_artifact_results",
             return_value={"agentId": "agent-1", "items": [{"path": "artifacts/result.txt"}]},
         ) as mock_build_cursor_artifact_results:
             # Confirm the route resolves the run and delegates artifact assembly to the Cursor helper.
             artifact_response = main.read_run_artifacts("run-1", request)
+            self.assertEqual(artifact_response["agentId"], "agent-1")
+            self.assertEqual(mock_build_cursor_artifact_results.call_args.args[1], "agent-1")
+
+        with patch("app.main._authorized_request", return_value=("settings", {"x": "y"}, "session")), patch(
+            "app.main._build_cursor_artifact_results",
+            return_value={"agentId": "agent-1", "items": [{"path": "artifacts/result.txt"}]},
+        ) as mock_build_cursor_artifact_results:
+            # Confirm the direct Cursor agent route avoids resolving a control-pane task id.
+            artifact_response = main.read_cursor_agent_artifacts("agent-1", request)
             self.assertEqual(artifact_response["agentId"], "agent-1")
             self.assertEqual(mock_build_cursor_artifact_results.call_args.args[1], "agent-1")
 
