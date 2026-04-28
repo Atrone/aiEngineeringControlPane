@@ -27,6 +27,7 @@ import {
   signOut,
 } from './lib/api';
 import type {
+  AuthSession,
   AuthConfig,
   CurrentUser,
   CursorConnectRequest,
@@ -56,6 +57,7 @@ import type {
 
 const reviewerRoles: UserRole[] = ['admin'];
 type EvidenceTabId = keyof RunEvidenceTabs;
+const googleAuthCallbackExchanges = new Map<string, Promise<AuthSession>>();
 const ignoredBlockerReasons: Set<string> = new Set([
   'none',
   'no active blockers',
@@ -67,6 +69,29 @@ const ignoredBlockerReasons: Set<string> = new Set([
   'reviewer controls unlock after the live agent finishes',
   'awaiting pull-request merge on github',
 ]);
+
+/**
+ * Exchanges a Google callback code once during the current browser page load.
+ */
+function exchangeGoogleAuthCodeOnce(code: string): Promise<AuthSession> {
+  const cachedExchange = googleAuthCallbackExchanges.get(code);
+
+  if (cachedExchange) {
+    // Reuse the first request when React remounts the callback route in development.
+    return cachedExchange;
+  }
+
+  // Start the backend exchange and keep the promise available for duplicate effects.
+  const exchangePromise = exchangeGoogleAuthCode(code).catch((caughtError: unknown) => {
+    // Allow a real failed exchange to be retried without reloading the app.
+    googleAuthCallbackExchanges.delete(code);
+    throw caughtError;
+  });
+
+  // Cache the in-flight exchange before returning it to callback route effects.
+  googleAuthCallbackExchanges.set(code, exchangePromise);
+  return exchangePromise;
+}
 
 /**
  * Converts a browser file into the uploaded-document payload shape used by intake APIs.
@@ -778,7 +803,7 @@ function GoogleAuthCallbackPage(props: { onSignedIn: (user: CurrentUser) => void
 
       try {
         // Exchange the callback code for the same app session used by guided sign-in.
-        const session = await exchangeGoogleAuthCode(exchangeCode);
+        const session = await exchangeGoogleAuthCodeOnce(exchangeCode);
 
         if (isActive) {
           // Save the signed-in user in the top-level app shell before navigating away.
