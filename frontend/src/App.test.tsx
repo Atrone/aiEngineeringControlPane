@@ -6,6 +6,7 @@ import {
   AccessDeniedState,
   App,
   ApprovalHistoryList,
+  ArtifactResultsPanelBody,
   DashboardPage,
   DetailList,
   DocumentList,
@@ -57,6 +58,7 @@ import {
   extractUrlsFromText,
   findIntegrationStatus,
   findIssueById,
+  formatArtifactSize,
   formatEventTime,
   formatReviewEffortValue,
   getConnectionValue,
@@ -99,6 +101,7 @@ vi.mock('./lib/api', () => ({
   fetchDashboardSuggestedActions: vi.fn(),
   fetchIntegrations: vi.fn(),
   fetchIntakeOptions: vi.fn(),
+  fetchRunArtifactResults: vi.fn(),
   fetchRunDetail: vi.fn(),
   hasSessionToken: vi.fn(),
   identifyRepositoryForIssue: vi.fn(),
@@ -305,6 +308,9 @@ describe('App pure helper functions', () => {
     expect(getRunChannelTone(blockedRun)).toBe('blocked');
     expect(getRunChannelTone(mergedRun)).toBe('merged');
     expect(buildReviewEffortLabel(blockedRun)).toContain('1 actionable blocker');
+    expect(formatArtifactSize(null)).toBe('Size unavailable');
+    expect(formatArtifactSize(512)).toBe('512 B');
+    expect(formatArtifactSize(2048)).toBe('2.0 KiB');
 
     const groups = buildRunTeamGroups([reviewRun, blockedRun, mergedRun]);
     expect(groups).toHaveLength(2);
@@ -424,6 +430,37 @@ describe('App presentational component functions', () => {
     expect(screen.getByText('Reviewer approved')).toBeInTheDocument();
     expect(screen.getByText('Pull request:')).toBeInTheDocument();
     expect(screen.getByText('Issue traceability')).toBeInTheDocument();
+  });
+
+  it('renders Cursor artifact result contents', () => {
+    const run = createRunFixture();
+
+    render(
+      <ArtifactResultsPanelBody
+        query={{
+          data: {
+            agentId: 'agent-1',
+            items: [{
+              path: 'artifacts/result.txt',
+              sizeBytes: 12,
+              updatedAt: '2026-04-28T10:08:00.000Z',
+              downloadUrl: 'https://cursor-artifacts.example.com/result.txt',
+              expiresAt: '2026-04-28T10:23:00.000Z',
+              contentType: 'text/plain',
+              encoding: 'utf-8',
+              content: 'artifact body',
+            }],
+          },
+          error: null,
+          isLoading: false,
+        }}
+        run={run}
+      />,
+    );
+
+    expect(screen.getByText('artifacts/result.txt')).toBeInTheDocument();
+    expect(screen.getByText('artifact body')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open temporary download' })).toHaveAttribute('href', 'https://cursor-artifacts.example.com/result.txt');
   });
 
   it('renders empty states for list-oriented components', () => {

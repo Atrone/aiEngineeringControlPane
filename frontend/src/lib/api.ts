@@ -4,6 +4,7 @@ import type {
   AuthConfig,
   AuthSession,
   CurrentUser,
+  CursorArtifactResultsPayload,
   CursorConnectRequest,
   DashboardPayload,
   DashboardSuggestedActionsRequest,
@@ -222,6 +223,14 @@ export async function fetchDashboardSuggestedActions(
 export async function fetchRunDetail(runId: string): Promise<RunSummary> {
   // Load the selected run by ID so the detail page can render evidence.
   return getJson<RunSummary>(`/api/runs/${runId}`);
+}
+
+/**
+ * Fetches downloaded Cursor artifact contents for a specific run.
+ */
+export async function fetchRunArtifactResults(runId: string): Promise<CursorArtifactResultsPayload> {
+  // Load the artifact result payload through the backend Cursor proxy.
+  return getJson<CursorArtifactResultsPayload>(`/api/runs/${runId}/artifacts`);
 }
 
 /**

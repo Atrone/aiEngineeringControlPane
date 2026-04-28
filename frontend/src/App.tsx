@@ -21,6 +21,7 @@ import {
   fetchDashboardSuggestedActions,
   fetchIntegrations,
   fetchIntakeOptions,
+  fetchRunArtifactResults,
   fetchRunDetail,
   hasSessionToken,
   signIn,
@@ -30,6 +31,8 @@ import type {
   AuthSession,
   AuthConfig,
   CurrentUser,
+  CursorArtifactResult,
+  CursorArtifactResultsPayload,
   CursorConnectRequest,
   DashboardMetric,
   DocumentRecord,
@@ -1821,6 +1824,7 @@ function TaskDetailPage() {
   const params = useParams();
   const runId = params.runId ?? '';
   const query = useApiQuery(() => fetchRunDetail(runId), [runId], { pollIntervalMs: 2000 });
+  const artifactQuery = useApiQuery(() => fetchRunArtifactResults(runId), [runId], { pollIntervalMs: 15000 });
   const [runOverride, setRunOverride] = useState<RunSummary | null>(null);
   const [activeEvidenceTab, setActiveEvidenceTab] = useState<EvidenceTabId>('diff');
 
@@ -1941,6 +1945,11 @@ function TaskDetailPage() {
       />
 
       <Panel
+        body={<ArtifactResultsPanelBody query={artifactQuery} run={activeRun} />}
+        title="Artifact results"
+      />
+
+      <Panel
         body={<TaskImplementationPackagePanelBody run={activeRun} />}
         title="Reference links"
       />
@@ -1976,6 +1985,115 @@ function TaskDetailPage() {
           title="Knowledge and audit"
         />
       </section>
+    </div>
+  );
+}
+
+/**
+ * Formats a byte count for compact artifact metadata.
+ */
+function formatArtifactSize(sizeBytes?: number | null): string {
+  if (sizeBytes === null || sizeBytes === undefined || !Number.isFinite(sizeBytes)) {
+    // Return a neutral placeholder when Cursor did not include a size.
+    return 'Size unavailable';
+  }
+
+  if (sizeBytes < 1024) {
+    // Keep tiny artifacts in exact bytes so logs and text files remain precise.
+    return `${sizeBytes} B`;
+  }
+
+  const kibibytes = sizeBytes / 1024;
+
+  if (kibibytes < 1024) {
+    // Use KiB for normal screenshots, logs, and small generated files.
+    return `${kibibytes.toFixed(1)} KiB`;
+  }
+
+  // Use MiB for larger binary artifacts.
+  return `${(kibibytes / 1024).toFixed(1)} MiB`;
+}
+
+/**
+ * Renders one downloaded artifact body in a review-friendly format.
+ */
+function ArtifactResultBody(props: { artifact: CursorArtifactResult }) {
+  const isImageArtifact = props.artifact.encoding === 'base64' && props.artifact.contentType.toLowerCase().startsWith('image/');
+
+  if (isImageArtifact) {
+    // Render binary image artifacts inline using the backend-provided base64 payload.
+    return (
+      <img
+        alt={`Artifact ${props.artifact.path}`}
+        className="artifact-result-image"
+        src={`data:${props.artifact.contentType};base64,${props.artifact.content}`}
+      />
+    );
+  }
+
+  if (props.artifact.encoding === 'base64') {
+    // Show non-image binary artifacts as base64 so reviewers can still inspect or copy the bytes.
+    return <pre className="artifact-result-content">{props.artifact.content}</pre>;
+  }
+
+  // Render text-like artifacts exactly as downloaded from Cursor.
+  return <pre className="artifact-result-content">{props.artifact.content}</pre>;
+}
+
+/**
+ * Shows the downloaded Cursor artifact contents for the selected run room.
+ */
+function ArtifactResultsPanelBody(props: {
+  query: { data: CursorArtifactResultsPayload | null; error: string | null; isLoading: boolean };
+  run: RunSummary;
+}) {
+  const agentId = props.run.cloudAgent?.id ?? props.query.data?.agentId ?? '';
+
+  if (!agentId) {
+    // Simulated or offline runs do not have Cursor artifact storage to query.
+    return <p className="muted-copy">No Cursor Cloud Agent is linked to this run, so artifact results are unavailable.</p>;
+  }
+
+  if (props.query.isLoading && !props.query.data) {
+    // Keep the panel stable while the backend lists and downloads Cursor artifacts.
+    return <p className="muted-copy">Loading Cursor artifact results...</p>;
+  }
+
+  if (props.query.error) {
+    // Surface Cursor download failures without hiding the rest of the run room.
+    return <p className="error-copy">{props.query.error}</p>;
+  }
+
+  const artifacts = props.query.data?.items ?? [];
+
+  if (artifacts.length === 0) {
+    // Cursor agents may finish without writing files under artifacts/.
+    return <p className="muted-copy">No downloaded artifact results are available for this run yet.</p>;
+  }
+
+  // Render every downloaded artifact with metadata and its inline content.
+  return (
+    <div className="artifact-results-list">
+      {artifacts.map((artifact) => (
+        <article className="artifact-result-card" key={artifact.path}>
+          <div className="artifact-result-header">
+            <div>
+              <strong>{artifact.path}</strong>
+              <p className="subtle-copy">
+                {formatArtifactSize(artifact.sizeBytes)} · {artifact.contentType || 'Unknown content type'}
+                {artifact.updatedAt ? ` · Updated ${formatEventTime(artifact.updatedAt)}` : ''}
+              </p>
+            </div>
+            {artifact.downloadUrl ? (
+              <a className="external-link" href={artifact.downloadUrl} rel="noreferrer" target="_blank">
+                Open temporary download
+              </a>
+            ) : null}
+          </div>
+          {artifact.expiresAt ? <p className="subtle-copy">Download URL expires {formatEventTime(artifact.expiresAt)}.</p> : null}
+          <ArtifactResultBody artifact={artifact} />
+        </article>
+      ))}
     </div>
   );
 }
@@ -3458,6 +3576,8 @@ export {
   AccessDeniedState,
   App,
   ApprovalHistoryList,
+  ArtifactResultBody,
+  ArtifactResultsPanelBody,
   DashboardPage,
   DetailList,
   DocumentList,
@@ -3510,6 +3630,7 @@ export {
   extractUrlsFromText,
   findIntegrationStatus,
   findIssueById,
+  formatArtifactSize,
   formatEventTime,
   formatReviewEffortValue,
   getConnectionValue,

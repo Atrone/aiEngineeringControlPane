@@ -958,7 +958,8 @@ ul {
 }
 
 .log-stream,
-.evidence-row-list {
+.evidence-row-list,
+.artifact-results-list {
   display: grid;
   gap: 0.85rem;
 }
@@ -1030,6 +1031,41 @@ ul {
   border-radius: 16px;
   border: 1px solid rgba(155, 179, 209, 0.12);
   background: #313338;
+}
+
+.artifact-result-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(155, 179, 209, 0.12);
+  background: #313338;
+}
+
+.artifact-result-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.artifact-result-content {
+  max-height: 28rem;
+  overflow: auto;
+  padding: 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(155, 179, 209, 0.12);
+  background: rgba(6, 14, 24, 0.82);
+  color: #e5eef9;
+  font: 0.85rem/1.55 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.artifact-result-image {
+  max-width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(155, 179, 209, 0.12);
 }
 
 .evidence-status {
