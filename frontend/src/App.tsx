@@ -644,8 +644,8 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
           <div className="discord-home-mark" aria-hidden="true">
             AI
           </div>
-          <p className="eyebrow">AI Control Pane</p>
-          <h1>Engineering Discord</h1>
+          <p className="eyebrow">AI Control Plane</p>
+          <h1>Engineering</h1>
           <p className="muted-copy">
             Teams are servers, runs are channels, and every run opens into a focused review room.
           </p>
@@ -1252,7 +1252,7 @@ function DashboardPage() {
             <div className="run-room-card">
               <p className="eyebrow">No channels</p>
               <h3>No live issue-tracker-linked runs are available yet.</h3>
-              <p className="muted-copy">New Linear or Jira-backed runs will appear here as Discord-style channels.</p>
+              <p className="muted-copy">New Linear or Jira-backed runs will appear here as channels.</p>
             </div>
           )}
         </div>
