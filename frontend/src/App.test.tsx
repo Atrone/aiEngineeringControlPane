@@ -13,6 +13,7 @@ import {
   ErrorState,
   EvidenceTabPanel,
   GoogleAuthCallbackPage,
+  GoogleOAuthReturnPage,
   IntegrationStatusCard,
   IntegrationsPage,
   LoadingState,
@@ -561,6 +562,24 @@ describe('App route and page component functions', () => {
       expect(screen.getByText('access_denied')).toBeInTheDocument();
     });
     expect(api.exchangeGoogleAuthCode).not.toHaveBeenCalled();
+  });
+
+  it('forwards Google OAuth return parameters to the backend callback route', async () => {
+    const originalLocation = window.location;
+    const replaceMock = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, replace: replaceMock },
+    });
+
+    renderWithRouter(<GoogleOAuthReturnPage />, '/auth/google/callback?code=oauth-code&state=state-1');
+
+    expect(screen.getByText('Redirecting your callback...')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenCalledWith('/api/auth/google/callback?code=oauth-code&state=state-1');
+    });
+
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
   });
 
   it('renders dashboard data and requests suggested actions', async () => {
