@@ -663,11 +663,6 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
               # settings
             </Link>
           ) : null}
-          {location.pathname.startsWith('/tasks/') ? (
-            <Link className="nav-link active" to={location.pathname}>
-              # selected-run
-            </Link>
-          ) : null}
         </nav>
 
         <div className="sidebar-card discord-user-card">
