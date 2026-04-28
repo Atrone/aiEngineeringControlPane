@@ -1496,8 +1496,8 @@ function WorkIntakePage() {
 
       setEnrichNotice(
         enrichedResult.docsConsidered
-          ? `Refined with ${enrichedResult.model} using ${buildEnrichmentSourceLabel(uploadedDocuments)} context.`
-          : `Refined with ${enrichedResult.model} (no ${buildEnrichmentSourceLabel(uploadedDocuments)} were available to ground the response).`,
+          ? `Refined using ${buildEnrichmentSourceLabel(uploadedDocuments)} context.`
+          : `Refined without ${buildEnrichmentSourceLabel(uploadedDocuments)} available to ground the response.`,
       );
     } catch (caughtError) {
       // Surface enrichment failures so the user can retry or adjust configuration.
@@ -1538,7 +1538,7 @@ function WorkIntakePage() {
       // Update the repository dropdown to reflect the AI-suggested match.
       setSelectedRepoName(identificationResult.repoName);
 
-      // Build a human-readable notice that summarizes the model decision for the UI.
+      // Build a human-readable notice that summarizes the repository match for the UI.
       const confidenceSuffix =
         typeof identificationResult.confidence === 'number'
           ? ` (confidence ${(identificationResult.confidence * 100).toFixed(0)}%)`
@@ -1549,7 +1549,7 @@ function WorkIntakePage() {
         : ` No repo docs were available for grounding.`;
 
       setIdentifyNotice(
-        `Linked to ${identificationResult.repoFullName || identificationResult.repoName} via ${identificationResult.model}${confidenceSuffix}.${reasoningSuffix}${docsSuffix}`,
+        `Linked to ${identificationResult.repoFullName || identificationResult.repoName}${confidenceSuffix}.${reasoningSuffix}${docsSuffix}`,
       );
     } catch (caughtError) {
       // Surface identification failures so the user can retry or adjust configuration.
@@ -1670,7 +1670,7 @@ function WorkIntakePage() {
                 ) : null}
                 {issueScopingQuery.data ? (
                   <p className="muted-copy">
-                    Issue groups were separated with {issueScopingQuery.data.model}.
+                    Issue groups were separated by scope quality.
                   </p>
                 ) : null}
               </label>
