@@ -132,13 +132,15 @@ class StateLiveViewTests(unittest.TestCase):
             return_value={
                 "id": "agent-1",
                 "status": "FINISHED",
+                "createdAt": "2026-04-24T11:58:00+00:00",
                 "summary": "Cursor finished cleanly.",
                 "target": {"branchName": "ai/acp-200", "prUrl": "https://github.com/acme/platform-web/pull/1"},
             },
-        ):
+        ), patch("app.state._utc_now", return_value=state._parse_timestamp("2026-04-24T11:58:00+00:00")):
             # Confirm Cursor-backed runs are updated from the live Cursor status payload.
             state._sync_run_progress(run, settings)
             self.assertEqual(run["status"], "Review")
+            self.assertEqual(run["runtime"], "00:01")
             self.assertEqual(run["currentStep"], "Cursor Cloud Agent finished and prepared the review handoff")
             self.assertEqual(run["summary"], "Cursor finished cleanly.")
 

@@ -64,7 +64,7 @@ export function hasSessionToken(): boolean {
 /**
  * Builds the shared request headers for authenticated API calls.
  */
-function buildRequestHeaders(additionalHeaders?: HeadersInit): HeadersInit {
+export function buildRequestHeaders(additionalHeaders?: HeadersInit): HeadersInit {
   const requestHeaders = new Headers(additionalHeaders);
   const sessionToken = getSessionToken();
 
@@ -80,7 +80,7 @@ function buildRequestHeaders(additionalHeaders?: HeadersInit): HeadersInit {
 /**
  * Extracts a readable error message from a failed fetch response.
  */
-async function buildErrorMessage(path: string, response: Response): Promise<string> {
+export async function buildErrorMessage(path: string, response: Response): Promise<string> {
   try {
     // Attempt to read the JSON error payload returned by the backend.
     const errorPayload = (await response.json()) as { detail?: string };
@@ -100,7 +100,7 @@ async function buildErrorMessage(path: string, response: Response): Promise<stri
 /**
  * Fetches and parses a JSON response from the backend API.
  */
-async function getJson<T>(path: string): Promise<T> {
+export async function getJson<T>(path: string): Promise<T> {
   // Build the full request URL from the configured API base.
   const response = await fetch(`${apiBaseUrl}${path}`, {
     headers: buildRequestHeaders(),
@@ -118,7 +118,7 @@ async function getJson<T>(path: string): Promise<T> {
 /**
  * Sends a JSON request body to the backend API and parses the response.
  */
-async function sendJson<TResponse, TRequest>(path: string, method: 'POST', payload: TRequest): Promise<TResponse> {
+export async function sendJson<TResponse, TRequest>(path: string, method: 'POST', payload: TRequest): Promise<TResponse> {
   // Send the JSON request body to the configured backend API.
   const response = await fetch(`${apiBaseUrl}${path}`, {
     method,

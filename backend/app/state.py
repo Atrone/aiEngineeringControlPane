@@ -108,6 +108,21 @@ def _format_runtime(total_seconds: int) -> str:
     return f"{minutes:02d}:{seconds:02d}"
 
 
+def _format_cursor_agent_runtime(agent: Mapping[str, Any], *, require_nonzero: bool) -> str:
+    """Formats the elapsed runtime for a Cursor Cloud Agent payload."""
+
+    # Parse the provider creation timestamp so Cursor-backed runs get a live runtime.
+    created_at = _parse_timestamp(str(agent.get("createdAt", "")))
+    elapsed_seconds = max(0, int((_utc_now() - created_at).total_seconds()))
+
+    if require_nonzero:
+        # Finished review handoffs should not display as a zero-second review runtime.
+        elapsed_seconds = max(1, elapsed_seconds)
+
+    # Return the shared mm:ss display string used by dashboard and run-room views.
+    return _format_runtime(elapsed_seconds)
+
+
 def _build_step_timestamp(started_at: datetime, offset_seconds: int) -> str:
     """Builds an ISO timestamp for a simulated run step."""
 
@@ -607,12 +622,16 @@ def _sync_run_progress(run: Dict[str, Any], settings: Settings) -> None:
             # Keep the last known state when the Cursor status lookup fails.
             return
 
+        previous_agent = dict(run["_cursorAgent"])
         cursor_status = str(latest_agent.get("status", "CREATING"))
         mapped_status = _map_cursor_agent_status(cursor_status)
         target_payload = latest_agent.get("target", {}) if isinstance(latest_agent, dict) else {}
+        agent_runtime_payload = dict(previous_agent)
+        agent_runtime_payload.update(latest_agent)
         run["_cursorAgent"] = latest_agent
         run["status"] = mapped_status
         run["branch"] = str(target_payload.get("branchName", "")).strip() or run["branch"]
+        run["runtime"] = _format_cursor_agent_runtime(agent_runtime_payload, require_nonzero=cursor_status == "FINISHED")
 
         if cursor_status == "FINISHED":
             # Move finished Cursor runs into the review-ready state.
