@@ -682,15 +682,6 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
               </div>
             </div>
             <div className="topbar-actions">
-              <span className="pill">{buildRoleLabel(props.currentUser.role)}</span>
-              {canReview ? (
-                <Link className="ghost-button link-button" to="/settings">
-                  Open settings
-                </Link>
-              ) : null}
-              <Link className="primary-button link-button" to="/intake">
-                New task
-              </Link>
               <button className="ghost-button" disabled={isSigningOut} onClick={() => { void handleSignOutClick(); }} type="button">
                 {isSigningOut ? 'Signing out...' : 'Sign out'}
               </button>
