@@ -616,6 +616,7 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
   const location = useLocation();
   const [isSigningOut, setIsSigningOut] = useState<boolean>(false);
   const canReview = canAccessRole(props.currentUser.role, reviewerRoles);
+  const pageTitle = buildShellPageTitle(location.pathname);
 
   /**
    * Signs the user out from the shell header action.
@@ -678,7 +679,7 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
             <div className="topbar-leading">
               <div>
                 <p className="eyebrow">Product Eng</p>
-                <h2>Run channels</h2>
+                <h2>{pageTitle}</h2>
               </div>
             </div>
             <div className="topbar-actions">
@@ -2535,6 +2536,29 @@ function getNavLinkClassName(pathname: string, targetPath: string): string {
 
   // Highlight the current section so navigation stays oriented.
   return pathname === targetPath ? 'nav-link active' : 'nav-link';
+}
+
+/**
+ * Builds the shared shell title for the current page route.
+ */
+function buildShellPageTitle(pathname: string): string {
+  if (pathname.startsWith('/tasks/')) {
+    // Label individual run detail pages as focused run rooms.
+    return 'Run Room';
+  }
+
+  if (pathname === '/intake') {
+    // Match the intake route to the new-work navigation label.
+    return 'New Work';
+  }
+
+  if (pathname === '/settings' || pathname === '/integrations') {
+    // Treat the legacy integrations alias as the settings page.
+    return 'Settings';
+  }
+
+  // Keep the dashboard title as the default shell landing state.
+  return 'Run Channels';
 }
 
 /**
