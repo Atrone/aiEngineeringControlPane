@@ -70,6 +70,7 @@ import {
   isIssueTrackerProvider,
   isIssueTrackerRun,
   parseRuntimeSeconds,
+  resolveCurrentPullRequestUrl,
 } from './App';
 import * as api from './lib/api';
 import { useApiQuery } from './hooks/useApiQuery';
@@ -310,6 +311,8 @@ describe('App pure helper functions', () => {
     expect(getRunChannelTone(blockedRun)).toBe('blocked');
     expect(getRunChannelTone(mergedRun)).toBe('merged');
     expect(buildReviewEffortLabel(blockedRun)).toContain('1 actionable blocker');
+    expect(resolveCurrentPullRequestUrl(reviewRun)).toBe('https://github.com/octo/repo/pull/42');
+    expect(resolveCurrentPullRequestUrl(createRunFixture({ pullRequest: undefined }))).toBe('https://github.com/octo/repo/pull/42');
     expect(formatArtifactSize(null)).toBe('Size unavailable');
     expect(formatArtifactSize(512)).toBe('512 B');
     expect(formatArtifactSize(2048)).toBe('2.0 KiB');
@@ -628,7 +631,7 @@ describe('App route and page component functions', () => {
   });
 
   it('submits reviewer decisions through TaskDecisionPanelBody', async () => {
-    const run = createRunFixture();
+    const run = createRunFixture({ cloudAgent: undefined, pullRequest: undefined });
     const updatedRun = createRunFixture({ status: 'Approved' });
     const onRunUpdated = vi.fn();
     vi.mocked(api.createApprovalDecision).mockResolvedValue(updatedRun);
@@ -642,5 +645,14 @@ describe('App route and page component functions', () => {
     });
     expect(onRunUpdated).toHaveBeenCalledWith(updatedRun);
     expect(screen.getByText('Task approved. The dashboard will show it as approved when you return.')).toBeInTheDocument();
+  });
+
+  it('links approval control to the current pull request when available', () => {
+    const run = createRunFixture();
+
+    render(<TaskDecisionPanelBody onRunUpdated={vi.fn()} run={run} />);
+
+    expect(screen.getByText('Open the current pull request to approve the work in GitHub; the run room will sync the PR review state.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Approve' })).toHaveAttribute('href', 'https://github.com/octo/repo/pull/42');
   });
 });

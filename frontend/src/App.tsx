@@ -2039,6 +2039,23 @@ function extractCursorAgentIdFromRun(run: RunSummary): string {
 }
 
 /**
+ * Resolves the best current pull-request URL available for a run room.
+ */
+function resolveCurrentPullRequestUrl(run: RunSummary): string {
+  const canonicalPullRequestUrl = run.pullRequest?.source === 'github'
+    ? run.pullRequest.url.trim()
+    : '';
+
+  if (canonicalPullRequestUrl) {
+    // Prefer the backend-normalized PR payload because it carries current review state.
+    return canonicalPullRequestUrl;
+  }
+
+  // Fall back to the Cursor target PR URL while the canonical run payload catches up.
+  return run.cloudAgent?.target?.prUrl?.trim() ?? '';
+}
+
+/**
  * Renders one downloaded artifact body in a review-friendly format.
  */
 function ArtifactResultBody(props: { artifact: CursorArtifactResult }) {
@@ -2142,6 +2159,8 @@ function TaskDecisionPanelBody(props: { run: RunSummary; onRunUpdated: (run: Run
   const [mutationSuccess, setMutationSuccess] = useState<string>('');
   const isDecisionLocked = props.run.status === 'Running' || props.run.status === 'Merged';
   const isSubmittingDecision = activeDecision !== '';
+  const approvalPullRequestUrl = resolveCurrentPullRequestUrl(props.run);
+  const shouldLinkApprovalToPullRequest = Boolean(approvalPullRequestUrl && !isDecisionLocked && !isSubmittingDecision);
 
   /**
    * Keeps the notes textarea synchronized with the current reviewer input.
@@ -2223,7 +2242,9 @@ function TaskDecisionPanelBody(props: { run: RunSummary; onRunUpdated: (run: Run
     ? (props.run.status === 'Merged'
         ? 'This run has already merged, so no further reviewer decision is needed.'
         : 'Reviewer controls unlock after the run finishes and reaches a reviewable state.')
-    : 'Save a reviewer decision here to update the run state the dashboard summarizes.';
+    : (approvalPullRequestUrl
+        ? 'Open the current pull request to approve the work in GitHub; the run room will sync the PR review state.'
+        : 'Save a reviewer decision here to update the run state the dashboard summarizes.');
 
   return (
     <form className="form-grid" onSubmit={handleDecisionSubmit}>
@@ -2247,9 +2268,15 @@ function TaskDecisionPanelBody(props: { run: RunSummary; onRunUpdated: (run: Run
       </div>
 
       <div className="action-stack">
-        <button className="primary-button" disabled={isDecisionLocked || isSubmittingDecision} type="submit" value="approve">
-          {activeDecision === 'approve' ? 'Saving approval...' : 'Approve'}
-        </button>
+        {shouldLinkApprovalToPullRequest ? (
+          <a className="primary-button" href={approvalPullRequestUrl} rel="noreferrer" target="_blank">
+            Approve
+          </a>
+        ) : (
+          <button className="primary-button" disabled={isDecisionLocked || isSubmittingDecision} type="submit" value="approve">
+            {activeDecision === 'approve' ? 'Saving approval...' : 'Approve'}
+          </button>
+        )}
         <button className="ghost-button" disabled={isDecisionLocked || isSubmittingDecision} type="submit" value="retry">
           {activeDecision === 'retry' ? 'Saving retry...' : 'Retry'}
         </button>
@@ -3396,6 +3423,7 @@ function buildPullRequestStateLabel(run: RunSummary): string {
  */
 function PullRequestPanelBody(props: { run: RunSummary }) {
   const prInfo = props.run.pullRequest;
+  const currentPullRequestUrl = resolveCurrentPullRequestUrl(props.run);
   const hasLivePullRequest = Boolean(prInfo && prInfo.source === 'github' && prInfo.url);
   const stateLabel = hasLivePullRequest ? buildPullRequestStateLabel(props.run) : null;
   const approvedAt = hasLivePullRequest && prInfo?.approvedAt ? formatEventTime(prInfo.approvedAt) : null;
@@ -3413,11 +3441,11 @@ function PullRequestPanelBody(props: { run: RunSummary }) {
         <p className="muted-copy">No live pull request metadata is available for this task yet.</p>
       )}
       {hasLivePullRequest && prInfo?.number ? <p className="subtle-copy">PR number: #{prInfo.number}</p> : null}
-      {hasLivePullRequest && prInfo?.url ? (
+      {currentPullRequestUrl ? (
         <p className="subtle-copy">
           PR link:{' '}
-          <a className="external-link" href={prInfo.url} rel="noreferrer" target="_blank">
-            {prInfo.url}
+          <a className="external-link" href={currentPullRequestUrl} rel="noreferrer" target="_blank">
+            {currentPullRequestUrl}
           </a>
         </p>
       ) : null}
@@ -3675,6 +3703,7 @@ export {
   isIssueTrackerProvider,
   isIssueTrackerRun,
   parseRuntimeSeconds,
+  resolveCurrentPullRequestUrl,
 };
 
 export default App;
