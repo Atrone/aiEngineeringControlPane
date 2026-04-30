@@ -557,7 +557,7 @@ ul {
 
 .intake-grid {
   align-items: start;
-  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(260px, 0.65fr) minmax(0, 1.6fr) minmax(300px, 0.75fr);
 }
 
 .intake-flow {

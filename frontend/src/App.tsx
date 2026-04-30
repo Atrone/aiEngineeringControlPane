@@ -1679,6 +1679,32 @@ function WorkIntakePage() {
       </section>
 
       <section className="content-grid intake-grid">
+        <aside className="rail-stack intake-summary-rail">
+          <Panel
+            title="Intake summary"
+            body={(
+              <div className="mini-list">
+                <div className="mini-row">
+                  <strong>Issue</strong>
+                  <span className="subtle-copy">{selectedIssue ? `${selectedIssue.ticket} · ${selectedIssue.title}` : 'No linked issue'}</span>
+                </div>
+                <div className="mini-row">
+                  <strong>Repository</strong>
+                  <span className="subtle-copy">{selectedRepository?.fullName || selectedRepoName || 'Select a repository'}</span>
+                </div>
+                <div className="mini-row">
+                  <strong>Mode</strong>
+                  <span className="subtle-copy">{executionMode}</span>
+                </div>
+                <div className="mini-row">
+                  <strong>Documents</strong>
+                  <span className="subtle-copy">{uploadedDocuments.length > 0 ? `${uploadedDocuments.length} uploaded` : `${query.data.documents.length} repo docs available`}</span>
+                </div>
+              </div>
+            )}
+          />
+        </aside>
+
         <form className="intake-flow" onSubmit={(event) => { void handleSubmit(event); }}>
           <nav className="intake-step-nav" aria-label="New work setup pages">
             <a href="#intake-issues">1. Issues</a>
@@ -1911,31 +1937,8 @@ function WorkIntakePage() {
           </section>
         </form>
 
-        <aside className="rail-stack intake-summary-rail">
+        <aside className="rail-stack">
           <Panel title="Provider readiness" body={<div className="integration-grid">{integrationCards}</div>} />
-          <Panel
-            title="Intake summary"
-            body={(
-              <div className="mini-list">
-                <div className="mini-row">
-                  <strong>Issue</strong>
-                  <span className="subtle-copy">{selectedIssue ? `${selectedIssue.ticket} · ${selectedIssue.title}` : 'No linked issue'}</span>
-                </div>
-                <div className="mini-row">
-                  <strong>Repository</strong>
-                  <span className="subtle-copy">{selectedRepository?.fullName || selectedRepoName || 'Select a repository'}</span>
-                </div>
-                <div className="mini-row">
-                  <strong>Mode</strong>
-                  <span className="subtle-copy">{executionMode}</span>
-                </div>
-                <div className="mini-row">
-                  <strong>Documents</strong>
-                  <span className="subtle-copy">{uploadedDocuments.length > 0 ? `${uploadedDocuments.length} uploaded` : `${query.data.documents.length} repo docs available`}</span>
-                </div>
-              </div>
-            )}
-          />
         </aside>
       </section>
     </div>
