@@ -602,7 +602,31 @@ describe('App route and page component functions', () => {
       integrationStatuses: [integrationStatus],
       currentUser,
     };
-    mockedUseApiQuery().mockReturnValue({ data: dashboard, error: null, isLoading: false });
+    mockedUseApiQuery().mockImplementation((loader) => {
+      if (loader === api.fetchDashboard) {
+        // Return dashboard data to the route-level query across rerenders.
+        return { data: dashboard, error: null, isLoading: false };
+      }
+
+      // Return Cursor artifact contents for the run-room preview query.
+      return {
+        data: {
+          agentId: 'agent-1',
+          items: [{
+            path: 'artifacts/result.txt',
+            sizeBytes: 12,
+            updatedAt: '2026-04-28T10:08:00.000Z',
+            downloadUrl: 'https://cursor-artifacts.example.com/result.txt',
+            expiresAt: '2026-04-28T10:23:00.000Z',
+            contentType: 'text/plain',
+            encoding: 'utf-8',
+            content: 'artifact body',
+          }],
+        },
+        error: null,
+        isLoading: false,
+      };
+    });
 
     renderWithRouter(<DashboardPage />, '/dashboard');
 
@@ -610,6 +634,16 @@ describe('App route and page component functions', () => {
     await waitFor(() => {
       expect(api.fetchDashboardSuggestedActions).toHaveBeenCalledWith({ runIds: ['run-1'] });
     });
+
+    const suggestionsTitle = await screen.findByText('Suggested next actions');
+    const teamWorkspace = screen.getByRole('region', { name: 'Team run workspace' });
+    const artifactResultsTitle = screen.getByText('Artifact results');
+    const openRunRoomLink = screen.getByRole('link', { name: 'Open run room' });
+
+    expect(screen.queryByText(/Model:/i)).not.toBeInTheDocument();
+    expect(suggestionsTitle.compareDocumentPosition(teamWorkspace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('artifact body')).toBeInTheDocument();
+    expect(artifactResultsTitle.compareDocumentPosition(openRunRoomLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('renders loading states for data-backed page components', () => {

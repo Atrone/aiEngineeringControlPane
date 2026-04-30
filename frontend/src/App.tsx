@@ -1030,7 +1030,6 @@ function DashboardPage() {
   const [suggestedActions, setSuggestedActions] = useState<string[]>([]);
   const [suggestionsError, setSuggestionsError] = useState<string>('');
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState<boolean>(false);
-  const [suggestionsModel, setSuggestionsModel] = useState<string>('');
   const [selectedTeamKey, setSelectedTeamKey] = useState<string>('');
 
   // Build a stable, comma-joined key so the effect reruns only when the visible run IDs change.
@@ -1046,7 +1045,6 @@ function DashboardPage() {
       // Skip the suggestions call when there are no visible issue-tracker-linked runs.
       setSuggestedActions([]);
       setSuggestionsError('');
-      setSuggestionsModel('');
       setIsSuggestionsLoading(false);
       return;
     }
@@ -1071,7 +1069,6 @@ function DashboardPage() {
         }
 
         setSuggestedActions(response.suggestedActions);
-        setSuggestionsModel(response.model);
       } catch (error) {
         if (!isActive) {
           // Skip state updates when the effect has already been cleaned up.
@@ -1081,7 +1078,6 @@ function DashboardPage() {
         const readableMessage = error instanceof Error ? error.message : 'Suggested actions were unavailable.';
         setSuggestedActions([]);
         setSuggestionsError(readableMessage);
-        setSuggestionsModel('');
       } finally {
         if (isActive) {
           // Always clear the loading flag once the request settles.
@@ -1205,7 +1201,6 @@ function DashboardPage() {
     // Render the list of OpenAI-generated suggestions when everything succeeded.
     suggestionsBody = (
       <div>
-        {suggestionsModel ? <p className="eyebrow">Model: {suggestionsModel}</p> : null}
         <div className="rail-list">{suggestedItems}</div>
       </div>
     );
@@ -1227,6 +1222,12 @@ function DashboardPage() {
       </section>
 
       <section className="metric-grid">{metricCards}</section>
+
+      <section className="content-grid discord-support-grid">
+        <div className="rail-stack">
+          <Panel body={suggestionsBody} title="Suggested next actions" />
+        </div>
+      </section>
 
       <section className="discord-workspace" aria-label="Team run workspace">
         <div className="server-rail" aria-label="Team servers">
@@ -1265,6 +1266,11 @@ function DashboardPage() {
 
               <p className="subtle-copy">{buildReviewEffortLabel(selectedPreviewRun)}</p>
 
+              <div className="run-room-artifact-preview">
+                <p className="eyebrow">Artifact results</p>
+                <ArtifactResultsPanelBody run={selectedPreviewRun} />
+              </div>
+
               <Link className="primary-button link-button" to={`/tasks/${selectedPreviewRun.id}`}>
                 Open run room
               </Link>
@@ -1276,12 +1282,6 @@ function DashboardPage() {
               <p className="muted-copy">New Linear or Jira-backed runs will appear here as channels.</p>
             </div>
           )}
-        </div>
-      </section>
-
-      <section className="content-grid discord-support-grid">
-        <div className="rail-stack">
-          <Panel body={suggestionsBody} title="Suggested next actions" />
         </div>
       </section>
     </div>
