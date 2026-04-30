@@ -67,6 +67,9 @@ class GoogleAuthExchangeRequest(BaseModel):
     """Defines the payload used to exchange a Google callback code for a session."""
 
     code: str
+    team_id: str = Field(default="", alias="teamId")
+
+    model_config = {"populate_by_name": True}
 
 
 class GitHubConnectRequest(BaseModel):

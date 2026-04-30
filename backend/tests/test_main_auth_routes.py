@@ -209,10 +209,11 @@ class MainAuthRouteTests(unittest.TestCase):
         with patch("app.main._ensure_google_sso_enabled"), patch(
             "app.main.consume_google_exchange_code",
             return_value={"sessionToken": "google-session"},
-        ):
+        ) as mock_consume_google_exchange_code:
             # Confirm the exchange route delegates to the shared exchange-code helper.
-            response = main.post_google_exchange(GoogleAuthExchangeRequest(code="exchange-code"))
+            response = main.post_google_exchange(GoogleAuthExchangeRequest(code="exchange-code", team_id="platform"))
             self.assertEqual(response["sessionToken"], "google-session")
+            mock_consume_google_exchange_code.assert_called_once_with("exchange-code", team_id="platform")
 
         request = SimpleNamespace(headers={"authorization": "Bearer session"})
         with patch("app.main.sign_out_session") as mock_sign_out_session:

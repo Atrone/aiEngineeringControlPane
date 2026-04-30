@@ -289,7 +289,13 @@ describe('App pure helper functions', () => {
   it('covers dashboard, blocker, runtime, and team helpers', () => {
     const reviewRun = createRunFixture();
     const blockedRun = createRunFixture({ id: 'run-2', status: 'Blocked', blockers: ['Missing API key'], owner: '', repo: 'fallback-repo', runtime: '03:00' });
-    const mergedRun = createRunFixture({ id: 'run-3', status: 'Merged', blockers: [], runtime: '01:00' });
+    const mergedRun = createRunFixture({
+      id: 'run-3',
+      status: 'Merged',
+      blockers: [],
+      runtime: '01:00',
+      requestedBy: { ...currentUser, teamId: 'ops' },
+    });
 
     expect(buildEnrichmentSourceLabel([])).toBe('repo docs');
     expect(buildEnrichmentSourceLabel([{} as UploadedDocumentRecord])).toBe('uploaded docs');
@@ -327,7 +333,7 @@ describe('App pure helper functions', () => {
 
     const groups = buildRunTeamGroups([reviewRun, blockedRun, mergedRun]);
     expect(groups).toHaveLength(2);
-    expect(buildTeamHoverLabel(groups[0])).toContain('Platform Team: 2 runs');
+    expect(buildTeamHoverLabel(groups[0])).toContain('platform: 2 runs');
   });
 
   it('covers route, role, lookup, class, and label helpers', () => {
@@ -526,7 +532,7 @@ describe('App route and page component functions', () => {
       expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeInTheDocument();
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue with Google' }));
-    expect(api.beginGoogleSignIn).toHaveBeenCalled();
+    expect(api.beginGoogleSignIn).toHaveBeenCalledWith('platform');
   });
 
   it('renders RootLayout, handles sign out, and gates roles', async () => {

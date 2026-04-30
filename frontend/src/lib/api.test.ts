@@ -172,6 +172,7 @@ describe('auth API functions', () => {
   beforeEach(() => {
     // Clear persisted auth and restore global browser mocks before each auth case.
     window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.unstubAllGlobals();
   });
 
@@ -207,22 +208,24 @@ describe('auth API functions', () => {
       value: { ...originalLocation, assign: assignMock },
     });
 
-    beginGoogleSignIn();
+    beginGoogleSignIn('platform-team');
 
     expect(assignMock).toHaveBeenCalledWith(expect.stringContaining('/api/auth/google/start'));
+    expect(window.sessionStorage.getItem('ai-control-pane.google-team-id')).toBe('platform-team');
     Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
   });
 
   it('exchanges Google auth code and persists the session token', async () => {
-    const session = { sessionToken: 'google-token', currentUser: { name: 'Maya Chen', email: 'maya@example.com', role: 'admin', provider: 'google' } };
+    const session = { sessionToken: 'google-token', currentUser: { name: 'Maya Chen', email: 'maya@example.com', role: 'admin', teamId: 'platform-team', provider: 'google' } };
     const fetchMock = vi.fn().mockResolvedValue(createJsonResponse(session));
     vi.stubGlobal('fetch', fetchMock);
+    window.sessionStorage.setItem('ai-control-pane.google-team-id', 'platform-team');
 
     await expect(exchangeGoogleAuthCode('oauth-code')).resolves.toEqual(session);
 
     const call = getLatestFetchCall(fetchMock);
     expect(call.url).toContain('/api/auth/google/exchange');
-    expect(call.init?.body).toBe(JSON.stringify({ code: 'oauth-code' }));
+    expect(call.init?.body).toBe(JSON.stringify({ code: 'oauth-code', teamId: 'platform-team' }));
     expect(getSessionToken()).toBe('google-token');
   });
 

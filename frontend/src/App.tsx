@@ -806,7 +806,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
     setSubmitError('');
 
     // Redirect the browser to the backend route that begins Google OAuth.
-    beginGoogleSignIn();
+    beginGoogleSignIn(teamId);
   }
 
   // Present the signed-out auth shell and role guidance together.
@@ -848,11 +848,16 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
               <p className="muted-copy">Continue with Google to create the same app session used by the rest of the control pane.</p>
             </div>
 
+            <label className="field-group">
+              <span>Team ID</span>
+              <input onChange={(event) => { setTeamId(event.target.value); }} placeholder="platform" type="text" value={teamId} />
+            </label>
+
             {authConfigError ? <p className="error-copy">{authConfigError}</p> : null}
             {submitError ? <p className="error-copy">{submitError}</p> : null}
 
             <div className="form-actions">
-              <button className="primary-button" onClick={handleGoogleSignInClick} type="button">
+              <button className="primary-button" disabled={!teamId} onClick={handleGoogleSignInClick} type="button">
                 Continue with Google
               </button>
             </div>

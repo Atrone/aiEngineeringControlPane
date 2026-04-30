@@ -29,6 +29,7 @@ import type {
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8000' : '');
 const sessionStorageKey = 'ai-control-pane.session-token';
+const googleTeamStorageKey = 'ai-control-pane.google-team-id';
 
 /**
  * Reads the persisted session token from browser storage.
@@ -60,6 +61,30 @@ export function clearSessionToken(): void {
 export function hasSessionToken(): boolean {
   // Return true only when the saved auth token is non-empty.
   return Boolean(getSessionToken());
+}
+
+/**
+ * Stores the team selected before the Google redirect leaves the app.
+ */
+function setPendingGoogleTeamId(teamId: string): void {
+  // Keep the selected team in tab-scoped storage until the callback exchange finishes.
+  window.sessionStorage.setItem(googleTeamStorageKey, teamId.trim());
+}
+
+/**
+ * Reads the team selected before the Google redirect flow began.
+ */
+function getPendingGoogleTeamId(): string {
+  // Return the pending team id or an empty string when the callback has no saved choice.
+  return window.sessionStorage.getItem(googleTeamStorageKey) ?? '';
+}
+
+/**
+ * Clears the saved Google team selection after a successful session exchange.
+ */
+function clearPendingGoogleTeamId(): void {
+  // Remove the one-time team selection so a later login starts from the visible form value.
+  window.sessionStorage.removeItem(googleTeamStorageKey);
 }
 
 /**
@@ -163,7 +188,10 @@ export async function signIn(payload: SignInRequest): Promise<AuthSession> {
 /**
  * Starts the browser-based Google sign-in redirect flow.
  */
-export function beginGoogleSignIn(): void {
+export function beginGoogleSignIn(teamId: string): void {
+  // Save the chosen team before navigating away for the OAuth redirect.
+  setPendingGoogleTeamId(teamId);
+
   // Send the browser to the backend route that begins the Google OAuth flow.
   window.location.assign(`${apiBaseUrl}/api/auth/google/start`);
 }
@@ -172,11 +200,16 @@ export function beginGoogleSignIn(): void {
  * Exchanges the Google callback code for the standard app session payload.
  */
 export async function exchangeGoogleAuthCode(code: string): Promise<AuthSession> {
+  const teamId = getPendingGoogleTeamId();
+
   // Exchange the short-lived callback code for the app's normal signed-in session.
-  const session = await sendJson<AuthSession, GoogleAuthExchangeRequest>('/api/auth/google/exchange', 'POST', { code });
+  const session = await sendJson<AuthSession, GoogleAuthExchangeRequest>('/api/auth/google/exchange', 'POST', { code, teamId });
 
   // Persist the returned session token so refreshes can restore the signed-in user.
   setSessionToken(session.sessionToken);
+
+  // Drop the pending team once the backend has minted a session for it.
+  clearPendingGoogleTeamId();
 
   // Return the standard auth session payload to the caller.
   return session;

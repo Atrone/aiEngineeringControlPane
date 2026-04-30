@@ -411,7 +411,7 @@ def post_google_exchange(payload: GoogleAuthExchangeRequest) -> Dict[str, Any]:
     _ensure_google_sso_enabled()
 
     # Convert the short-lived Google exchange code into the shared auth session shape.
-    return consume_google_exchange_code(payload.code)
+    return consume_google_exchange_code(payload.code, team_id=payload.team_id)
 
 
 @app.post("/auth/sign-out")

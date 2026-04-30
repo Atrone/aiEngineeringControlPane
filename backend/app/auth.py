@@ -437,7 +437,7 @@ def store_google_exchange_code(name: str, email: str, role: str) -> str:
     return exchange_code
 
 
-def consume_google_exchange_code(exchange_code: str) -> Dict[str, Any]:
+def consume_google_exchange_code(exchange_code: str, team_id: str = "") -> Dict[str, Any]:
     """Consumes a short-lived Google exchange code and creates an app session."""
 
     _prune_expired_google_records()
@@ -446,7 +446,7 @@ def consume_google_exchange_code(exchange_code: str) -> Dict[str, Any]:
 
     if record and record.expires_at > time.time():
         # Convert the one-time exchange code into the standard app session payload.
-        return create_session(record.name, record.email, record.role, provider="google_sso")
+        return create_session(record.name, record.email, record.role, team_id=team_id, provider="google_sso")
 
     # Reject missing, reused, or expired exchange codes before creating a session.
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The Google sign-in response is no longer valid.")

@@ -125,6 +125,7 @@ class ProviderNormalizationTests(unittest.TestCase):
         )
         self.assertEqual(current_user["email"], "user@example.com")
         self.assertEqual(current_user["provider"], "google_sso")
+        self.assertEqual(current_user["teamId"], "default")
 
         # Confirm connection payloads summarize non-secret integration fields.
         self.assertEqual(providers._build_connection_payload(settings, "github")["values"]["owner"], "acme")

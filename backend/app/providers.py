@@ -1428,13 +1428,16 @@ def resolve_current_user(settings: Settings, headers: Mapping[str, str]) -> Dict
         or settings.default_user_email
     )
     name_header = headers.get("x-demo-user-name") or settings.default_user_name
+    team_header = headers.get("x-demo-team-id") or "default"
     normalized_email = email_header.split(":")[-1].strip()
+    normalized_team_id = team_header.strip().lower() or "default"
 
     # Return the resolved user identity used for approvals and audit history.
     return {
         "name": name_header,
         "email": normalized_email,
         "role": "admin",
+        "teamId": normalized_team_id,
         "provider": "google_sso" if settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri else "configured_default",
     }
 

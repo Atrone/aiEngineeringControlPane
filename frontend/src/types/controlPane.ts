@@ -33,6 +33,7 @@ export type SignInRequest = {
 
 export type GoogleAuthExchangeRequest = {
   code: string;
+  teamId: string;
 };
 
 export type RepositoryRecord = {

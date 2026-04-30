@@ -94,8 +94,9 @@ class AuthGoogleHelpersTests(unittest.TestCase):
 
         with patch("app.auth.time.time", return_value=1002):
             # Confirm exchange codes create a normal app session payload when consumed.
-            payload = auth.consume_google_exchange_code(exchange_code)
+            payload = auth.consume_google_exchange_code(exchange_code, team_id="platform-team")
             self.assertEqual(payload["currentUser"]["provider"], "google_sso")
+            self.assertEqual(payload["currentUser"]["teamId"], "platform-team")
 
         with patch("app.auth.time.time", return_value=1003):
             # Confirm reused state tokens are rejected.

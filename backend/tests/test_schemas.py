@@ -55,10 +55,11 @@ class SchemaModelTests(unittest.TestCase):
         sign_in_request = schemas.SignInRequest.model_validate(
             {"name": "User", "email": "user@example.com", "role": "admin", "teamId": "platform"}
         )
-        exchange_request = schemas.GoogleAuthExchangeRequest.model_validate({"code": "exchange-code"})
+        exchange_request = schemas.GoogleAuthExchangeRequest.model_validate({"code": "exchange-code", "teamId": "Platform"})
         self.assertEqual(sign_in_request.email, "user@example.com")
         self.assertEqual(sign_in_request.team_id, "platform")
         self.assertEqual(exchange_request.code, "exchange-code")
+        self.assertEqual(exchange_request.team_id, "Platform")
 
     def test_connection_request_models_accept_expected_alias_shapes(self) -> None:
         """Covers the GitHub, Linear, Jira, Cursor, and docs connection request models."""
