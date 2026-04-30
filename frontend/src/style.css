@@ -317,6 +317,10 @@ ul {
   color: #e5eef9;
 }
 
+.run-room-card .primary-button.link-button {
+  box-shadow: none;
+}
+
 .page-grid {
   display: grid;
   gap: 1.25rem;
@@ -541,6 +545,28 @@ ul {
   border-radius: 999px;
   background: rgba(78, 80, 88, 0.62);
   color: #dbdee1;
+}
+
+.run-room-artifact-preview {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid rgba(155, 179, 209, 0.12);
+  border-radius: 16px;
+  background: rgba(49, 51, 56, 0.72);
+}
+
+.run-room-artifact-preview .artifact-result-card {
+  background: rgba(30, 31, 34, 0.58);
+}
+
+.run-room-artifact-preview .artifact-result-content {
+  max-height: 14rem;
+}
+
+.run-room-artifact-preview .artifact-result-image {
+  max-height: 16rem;
+  object-fit: contain;
 }
 
 .discord-support-grid {
