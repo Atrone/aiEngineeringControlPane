@@ -44,6 +44,47 @@ JIRA_STATUS_IN_PROGRESS = "In Progress"
 JIRA_STATUS_DONE = "Done"
 
 
+def _normalize_team_id(team_id: str) -> str:
+    """Normalizes a team identifier used for run-lobby isolation."""
+
+    normalized_team_id = str(team_id or "").strip().lower()
+
+    if normalized_team_id:
+        # Return the caller-provided team id in canonical lowercase form.
+        return normalized_team_id
+
+    # Fall back to the legacy single-user team key for backwards compatibility.
+    return "default-team"
+
+
+def _resolve_team_id_from_headers(headers: Mapping[str, str]) -> str:
+    """Resolves the active team id from normalized request headers."""
+
+    # Prefer the explicit team header attached by authenticated session middleware.
+    return _normalize_team_id(str(headers.get("x-demo-team-id", "")))
+
+
+def _run_belongs_to_team(run: Mapping[str, Any], team_id: str) -> bool:
+    """Reports whether the run belongs to the requested team."""
+
+    # Compare the run's stored team id with the active request team id.
+    return _normalize_team_id(str(run.get("_teamId", ""))) == _normalize_team_id(team_id)
+
+
+def _list_team_runs(team_id: str) -> List[Dict[str, Any]]:
+    """Returns all in-memory runs visible to the requested team."""
+
+    visible_runs: List[Dict[str, Any]] = []
+
+    # Keep only runs whose stored team id matches the active team scope.
+    for run in RUN_STORE:
+        if _run_belongs_to_team(run, team_id):
+            visible_runs.append(run)
+
+    # Return the team-scoped run list while preserving insertion order.
+    return visible_runs
+
+
 def _utc_now() -> datetime:
     """Returns the current UTC time used for live run simulation."""
 
@@ -703,13 +744,13 @@ def _fallback_issues() -> List[Dict[str, Any]]:
     return issues
 
 
-def _fallback_repositories() -> List[Dict[str, Any]]:
+def _fallback_repositories(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Builds a fallback repository catalog from the seeded run summaries."""
 
     unique_names: List[str] = []
 
     # Preserve the first-seen order of repository names from the seeded data.
-    for run in RUN_STORE:
+    for run in runs:
         repo_name = str(run.get("repo", ""))
 
         if repo_name and repo_name not in unique_names:
@@ -1491,7 +1532,7 @@ def _build_review_effort_value(review_candidate_count: int, total_review_runtime
     return f"{max(1, round(average_runtime_seconds / 60))} min"
 
 
-def _compute_metrics() -> List[Dict[str, str]]:
+def _compute_metrics(runs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     """Computes dashboard metrics from the in-memory run state."""
 
     active_runs = 0
@@ -1505,7 +1546,7 @@ def _compute_metrics() -> List[Dict[str, str]]:
     blocker_counts = _collect_blocker_counts()
 
     # Aggregate the run counts needed by the dashboard cards.
-    for run in RUN_STORE:
+    for run in runs:
         status = str(run.get("status", ""))
 
         if status in {"Running", "Review", "Approved", "Blocked", "Retry"}:
@@ -1596,13 +1637,14 @@ def _find_integration_status(statuses: List[Dict[str, Any]], integration_id: str
 
 def _build_dashboard_suggested_actions(
     *,
+    runs: List[Dict[str, Any]],
     repository_names: List[str],
     integration_statuses: List[Dict[str, Any]],
 ) -> List[str]:
     """Builds dashboard suggestions from current run and integration state."""
 
-    review_ready_count = len([run for run in RUN_STORE if run.get("status") == "Review"])
-    stalled_runs = len([run for run in RUN_STORE if run.get("status") in {"Blocked", "Retry"}])
+    review_ready_count = len([run for run in runs if run.get("status") == "Review"])
+    stalled_runs = len([run for run in runs if run.get("status") in {"Blocked", "Retry"}])
     blocker_counts = _collect_blocker_counts()
     suggested_actions: List[str] = []
     top_blocker = next(iter(blocker_counts), "")
@@ -1660,13 +1702,15 @@ def _build_dashboard_suggested_actions(
 def get_integration_catalog(settings: Settings, headers: Mapping[str, str]) -> Dict[str, Any]:
     """Builds the shared integration catalog used by the intake and integrations views."""
 
+    active_team_id = _resolve_team_id_from_headers(headers)
+    team_runs = _list_team_runs(active_team_id)
     repositories = list_github_repositories(settings)
     issues = _list_connected_issues(settings)
     documents = list_repo_documents(settings)
 
     if not repositories:
         # Fall back to repo records derived from the seeded task data.
-        repositories = _fallback_repositories()
+        repositories = _fallback_repositories(team_runs)
 
     if not issues:
         # Fall back to issue records derived from the seeded task data.
@@ -1685,6 +1729,8 @@ def get_integration_catalog(settings: Settings, headers: Mapping[str, str]) -> D
         "documents": documents,
         "currentUser": current_user,
         "statuses": get_integration_statuses(settings),
+        "teamRuns": team_runs,
+        "teamId": active_team_id,
     }
 
 
@@ -1692,11 +1738,12 @@ def get_dashboard_payload(settings: Settings, headers: Mapping[str, str]) -> Dic
     """Builds the dashboard payload from the live-or-fallback run state."""
 
     integration_catalog = get_integration_catalog(settings, headers)
+    team_runs = list(integration_catalog.get("teamRuns", []))
     repository_names = summarize_repository_names(integration_catalog["repositories"])
     runs: List[Dict[str, Any]] = []
 
     # Enrich each run with integration context for the task detail view.
-    for run in RUN_STORE:
+    for run in team_runs:
         _sync_run_progress(run, settings)
         documents = integration_catalog["documents"][:2]
         runs.append(
@@ -1710,13 +1757,14 @@ def get_dashboard_payload(settings: Settings, headers: Mapping[str, str]) -> Dic
 
     blocked_reasons = _build_dashboard_blocked_reasons()
     suggested_actions = _build_dashboard_suggested_actions(
+        runs=team_runs,
         repository_names=repository_names,
         integration_statuses=integration_catalog["statuses"],
     )
 
     # Return the derived dashboard payload plus integration status context.
     return {
-        "metrics": _compute_metrics(),
+        "metrics": _compute_metrics(team_runs),
         "runs": runs,
         "blockedReasons": blocked_reasons,
         "suggestedActions": suggested_actions,
@@ -1729,9 +1777,10 @@ def get_run_detail(run_id: str, settings: Settings, headers: Mapping[str, str]) 
     """Returns the enriched run detail payload for a specific run."""
 
     integration_catalog = get_integration_catalog(settings, headers)
+    team_runs = list(integration_catalog.get("teamRuns", []))
 
     # Search the in-memory run store for the requested record.
-    for run in RUN_STORE:
+    for run in team_runs:
         if run["id"] == run_id:
             _sync_run_progress(run, settings)
             documents = integration_catalog["documents"][:2]
@@ -1766,10 +1815,11 @@ def get_runs_by_ids(
         return []
 
     integration_catalog = get_integration_catalog(settings, headers)
+    team_runs = list(integration_catalog.get("teamRuns", []))
     runs_by_id: Dict[str, Dict[str, Any]] = {}
 
     # Index the current run store by ID so lookups stay O(n) instead of O(n*m).
-    for run in RUN_STORE:
+    for run in team_runs:
         run_id_value = str(run.get("id") or "")
         if run_id_value:
             runs_by_id[run_id_value] = run
@@ -1803,6 +1853,7 @@ def get_approval_payload(settings: Settings, headers: Mapping[str, str]) -> Dict
     """Builds the approval inbox payload from the current run state."""
 
     integration_catalog = get_integration_catalog(settings, headers)
+    team_runs = list(integration_catalog.get("teamRuns", []))
     queue: List[Dict[str, str]] = []
     enriched_runs: List[Dict[str, Any]] = []
     review_count = 0
@@ -1810,7 +1861,7 @@ def get_approval_payload(settings: Settings, headers: Mapping[str, str]) -> Dict
     sla_risk = 0
 
     # Build the review queue and queue summary from the current run store.
-    for run in RUN_STORE:
+    for run in team_runs:
         _sync_run_progress(run, settings)
         enriched_runs.append(
             _build_run_extensions(
@@ -1919,6 +1970,7 @@ def create_task(
         )
 
     current_user = integration_catalog["currentUser"]
+    active_team_id = str(integration_catalog.get("teamId", "default-team"))
     title = str(payload.get("title", "")).strip() or str(issue["title"] if issue else "Generated task")
     ticket = str(issue["ticket"] if issue else f"ACP-{len(RUN_STORE) + 200}")
     run_id = f"{ticket.lower()}-{_slugify(title)}"
@@ -1952,6 +2004,7 @@ def create_task(
         "_issueSnapshot": deepcopy(issue) if issue else None,
         "_documentSnapshots": deepcopy(selected_documents),
         "_requestedBySnapshot": deepcopy(current_user),
+        "_teamId": active_team_id,
     }
 
     # Add the newly created run to the top of the in-memory run store.
@@ -1982,9 +2035,10 @@ def create_run(
     """Starts or restarts an AI run for an existing task."""
 
     integration_catalog = get_integration_catalog(settings, headers)
+    team_runs = list(integration_catalog.get("teamRuns", []))
 
     # Search the in-memory run store for the task being started.
-    for run in RUN_STORE:
+    for run in team_runs:
         if run["id"] == payload["taskId"]:
             issue = deepcopy(run.get("_issueSnapshot")) or {
                 "id": run["id"],
@@ -2101,8 +2155,13 @@ def record_approval(
     decision = str(payload["decision"]).lower()
     notes = str(payload.get("notes", "")).strip()
 
+    active_team_id = _resolve_team_id_from_headers(headers)
+
     # Search the in-memory run store for the run being approved or redirected.
     for run in RUN_STORE:
+        if not _run_belongs_to_team(run, active_team_id):
+            # Skip runs that are outside the active team's isolated review queue.
+            continue
         if run["id"] == payload["runId"]:
             approval_timestamp = _utc_timestamp()
             approval_entry = {

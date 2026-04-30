@@ -10,6 +10,7 @@ export type CurrentUser = {
   name: string;
   email: string;
   role: UserRole;
+  teamId: string;
   provider: string;
 };
 
@@ -27,6 +28,7 @@ export type SignInRequest = {
   name: string;
   email: string;
   role: UserRole;
+  teamId: string;
 };
 
 export type GoogleAuthExchangeRequest = {

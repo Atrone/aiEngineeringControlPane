@@ -159,10 +159,10 @@ class MainAuthRouteTests(unittest.TestCase):
         with patch("app.main.create_session", return_value={"sessionToken": "token"}) as mock_create_session:
             # Confirm guided sign-in delegates to create_session.
             sign_in_payload = main.post_sign_in(
-                SignInRequest(name="User", email="user@example.com", role="admin")
+                SignInRequest(name="User", email="user@example.com", role="admin", team_id="platform")
             )
             self.assertEqual(sign_in_payload["sessionToken"], "token")
-            mock_create_session.assert_called_once_with("User", "user@example.com", "admin")
+            mock_create_session.assert_called_once_with("User", "user@example.com", "admin", team_id="platform")
 
         with patch("app.main.is_google_sso_enabled", return_value=False):
             # Confirm the Google enablement guard raises when OAuth is not configured.

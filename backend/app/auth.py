@@ -39,6 +39,7 @@ class SessionRecord:
     name: str
     email: str
     role: str
+    team_id: str = ""
     provider: str = "guided_sign_in"
     github_owner: str = ""
     github_repositories: List[str] = field(default_factory=list)
@@ -75,6 +76,19 @@ def _normalize_role(role: str) -> str:
 
     # Return the supported admin role for all new sessions.
     return "admin"
+
+
+def _normalize_team_id(team_id: str) -> str:
+    """Normalizes a caller-provided team identifier for session scoping."""
+
+    normalized_team_id = team_id.strip().lower()
+
+    if normalized_team_id:
+        # Return the normalized team identifier when the caller provided one.
+        return normalized_team_id
+
+    # Fall back to the default single-team identifier for legacy sign-in flows.
+    return "default"
 
 
 def _parse_repositories(raw_value: str) -> List[str]:
@@ -143,7 +157,7 @@ def _decode_token_segment(encoded_value: str) -> bytes:
     return base64.urlsafe_b64decode(padded_value.encode("utf-8"))
 
 
-def _build_signed_session_token(name: str, email: str, role: str, provider: str) -> str:
+def _build_signed_session_token(name: str, email: str, role: str, team_id: str, provider: str) -> str:
     """Builds a signed stateless session token for cross-request auth restoration."""
 
     issued_at = int(time.time())
@@ -152,6 +166,7 @@ def _build_signed_session_token(name: str, email: str, role: str, provider: str)
         "name": name,
         "email": email,
         "role": role,
+        "team_id": team_id,
         "provider": provider,
         "iat": issued_at,
         "exp": issued_at + SESSION_EXPIRATION_SECONDS,
@@ -217,6 +232,7 @@ def _build_session_record_from_token(token: str, payload: Mapping[str, Any]) -> 
     email = _normalize_email(str(payload.get("email", "")))
     role = str(payload.get("role", "")).strip()
     provider = str(payload.get("provider", "guided_sign_in")).strip() or "guided_sign_in"
+    team_id = _normalize_team_id(str(payload.get("team_id", "")))
 
     if not name or not email or role not in ALLOWED_ROLES:
         # Return no session when the verified token payload is incomplete or invalid.
@@ -228,6 +244,7 @@ def _build_session_record_from_token(token: str, payload: Mapping[str, Any]) -> 
         name=name,
         email=email,
         role=role,
+        team_id=team_id,
         provider=provider,
     )
 
@@ -435,7 +452,7 @@ def consume_google_exchange_code(exchange_code: str) -> Dict[str, Any]:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The Google sign-in response is no longer valid.")
 
 
-def create_session(name: str, email: str, role: str, provider: str = "guided_sign_in") -> Dict[str, Any]:
+def create_session(name: str, email: str, role: str, team_id: str = "", provider: str = "guided_sign_in") -> Dict[str, Any]:
     """Creates a new in-memory session for either guided sign-in or Google SSO."""
 
     normalized_name = name.strip()
@@ -446,12 +463,20 @@ def create_session(name: str, email: str, role: str, provider: str = "guided_sig
         # Reject incomplete sign-in requests so audit identity remains usable.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name and email are required.")
 
-    token = _build_signed_session_token(normalized_name, normalized_email, normalized_role, provider.strip() or "guided_sign_in")
+    normalized_team_id = _normalize_team_id(team_id)
+    token = _build_signed_session_token(
+        normalized_name,
+        normalized_email,
+        normalized_role,
+        normalized_team_id,
+        provider.strip() or "guided_sign_in",
+    )
     session = SessionRecord(
         token=token,
         name=normalized_name,
         email=normalized_email,
         role=normalized_role,
+        team_id=normalized_team_id,
         provider=provider.strip() or "guided_sign_in",
     )
 
@@ -528,6 +553,7 @@ def build_current_user(session: SessionRecord) -> Dict[str, str]:
         "name": session.name,
         "email": session.email,
         "role": session.role,
+        "teamId": session.team_id,
         "provider": session.provider,
     }
 
@@ -566,6 +592,11 @@ def build_request_headers(headers: Mapping[str, str], session: SessionRecord) ->
     normalized_headers["x-demo-user-email"] = session.email
     normalized_headers["x-demo-user-name"] = session.name
     normalized_headers["x-demo-user-role"] = session.role
+    normalized_headers["x-demo-team-id"] = session.team_id
+
+    if session.team_id:
+        # Include the signed-in team identity so shared state can be scoped per team.
+        normalized_headers["x-demo-team-id"] = session.team_id
 
     # Return the normalized headers for the state and provider helpers.
     return normalized_headers

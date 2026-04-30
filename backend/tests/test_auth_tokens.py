@@ -96,6 +96,7 @@ class AuthTokenHelpersTests(unittest.TestCase):
                 "Test User",
                 "test@example.com",
                 "admin",
+                "platform",
                 "guided_sign_in",
             )
 
@@ -162,6 +163,7 @@ class AuthTokenHelpersTests(unittest.TestCase):
                 "name": "Test User",
                 "email": "test@example.com",
                 "role": "admin",
+                "teamId": "default",
                 "provider": "guided_sign_in",
             },
         )

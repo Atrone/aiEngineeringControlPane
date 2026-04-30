@@ -75,6 +75,19 @@ class AuthAndMainGapCoverageTests(unittest.TestCase):
             # Confirm get_session returns no session when reconstruction fails after parsing.
             self.assertIsNone(auth.get_session({"authorization": "Bearer session-token"}))
 
+    def test_create_session_and_current_user_include_team_id(self) -> None:
+        """Covers team id normalization in session creation and current-user payloads."""
+
+        created_session = auth.create_session(
+            "User",
+            "user@example.com",
+            "admin",
+            team_id=" Platform Team ",
+        )
+
+        # Confirm guided sign-in normalizes and persists the team identity.
+        self.assertEqual(created_session["currentUser"]["teamId"], "platform team")
+
     def test_google_identity_helpers_cover_open_access_and_missing_email_paths(self) -> None:
         """Covers Google role resolution and validation branches not hit elsewhere."""
 

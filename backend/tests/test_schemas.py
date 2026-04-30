@@ -53,10 +53,11 @@ class SchemaModelTests(unittest.TestCase):
 
         # Confirm sign-in and Google exchange schemas enforce the expected fields.
         sign_in_request = schemas.SignInRequest.model_validate(
-            {"name": "User", "email": "user@example.com", "role": "admin"}
+            {"name": "User", "email": "user@example.com", "role": "admin", "teamId": "platform"}
         )
         exchange_request = schemas.GoogleAuthExchangeRequest.model_validate({"code": "exchange-code"})
         self.assertEqual(sign_in_request.email, "user@example.com")
+        self.assertEqual(sign_in_request.team_id, "platform")
         self.assertEqual(exchange_request.code, "exchange-code")
 
     def test_connection_request_models_accept_expected_alias_shapes(self) -> None:

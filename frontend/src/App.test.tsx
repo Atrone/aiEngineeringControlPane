@@ -120,6 +120,7 @@ const currentUser: CurrentUser = {
   name: 'Maya Chen',
   email: 'maya@example.com',
   role: 'admin',
+  teamId: 'platform',
   provider: 'guided',
 };
 
@@ -305,7 +306,7 @@ describe('App pure helper functions', () => {
     expect(isIssueTrackerRun(reviewRun)).toBe(true);
     expect(buildIssueTrackerRunLabel(reviewRun)).toBe('Linear-linked issue');
     expect(buildIssueTrackerRunLabel(createRunFixture({ issue: { ...issue, provider: 'jira' } }))).toBe('Jira-linked issue');
-    expect(buildRunTeamKey(blockedRun)).toBe('fallback-repo');
+    expect(buildRunTeamKey(blockedRun)).toBe('platform');
     expect(buildTeamInitials('Platform Team')).toBe('PT');
     expect(buildTeamInitials('')).toBe('AI');
     expect(getRunChannelTone(blockedRun)).toBe('blocked');
@@ -512,7 +513,7 @@ describe('App route and page component functions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enter mission control' }));
 
     await waitFor(() => {
-      expect(api.signIn).toHaveBeenCalledWith({ name: 'Maya Chen', email: 'maya.chen@example.com', role: 'admin' });
+      expect(api.signIn).toHaveBeenCalledWith({ name: 'Maya Chen', email: 'maya.chen@example.com', role: 'admin', teamId: 'platform' });
     });
   });
 

@@ -185,8 +185,11 @@ describe('auth API functions', () => {
   });
 
   it('signs in and persists the returned session token', async () => {
-    const payload: SignInRequest = { name: 'Maya Chen', email: 'maya@example.com', role: 'admin' };
-    const session = { sessionToken: 'signed-in', currentUser: { name: 'Maya Chen', email: 'maya@example.com', role: 'admin', provider: 'guided' } };
+    const payload: SignInRequest = { name: 'Maya Chen', email: 'maya@example.com', role: 'admin', teamId: 'platform-team' };
+    const session = {
+      sessionToken: 'signed-in',
+      currentUser: { name: 'Maya Chen', email: 'maya@example.com', role: 'admin', teamId: 'platform-team', provider: 'guided' },
+    };
     const fetchMock = vi.fn().mockResolvedValue(createJsonResponse(session));
     vi.stubGlobal('fetch', fetchMock);
 
