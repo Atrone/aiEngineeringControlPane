@@ -1973,6 +1973,15 @@ def create_task(
     active_team_id = str(integration_catalog.get("teamId", "default-team"))
     title = str(payload.get("title", "")).strip() or str(issue["title"] if issue else "Generated task")
     ticket = str(issue["ticket"] if issue else f"ACP-{len(RUN_STORE) + 200}")
+    normalized_title = title.lower()
+    normalized_ticket = ticket.lower()
+
+    if not normalized_title.startswith(f"[{normalized_ticket}]") and not normalized_title.startswith(f"{normalized_ticket}:"):
+        # Prefix the task title with the ticket so reviewers can spot issue traceability in run and PR lists.
+        title = f"[{ticket}] {title}"
+
+    issue_provider = str(issue.get("provider", "manual") if issue else "manual").strip() or "manual"
+    issue_status = str(issue.get("status", "Unknown") if issue else "Unknown").strip() or "Unknown"
     run_id = f"{ticket.lower()}-{_slugify(title)}"
 
     new_run = {
@@ -1992,8 +2001,11 @@ def create_task(
         "evidence": {
             "diff": ["Waiting for the run to produce code changes."],
             "tests": ["Waiting for the run to report validation results."],
-            "commands": ["Run requested from task intake"],
-            "rationale": ["The run was created from issue, repo, and docs context selected in the intake flow."],
+            "commands": [f"Run requested from task intake for {ticket} ({issue_provider}, status: {issue_status})"],
+            "rationale": [
+                f"The run was created from issue, repo, and docs context selected in the intake flow.",
+                f"Traceability source: {issue_provider} ticket {ticket} in status {issue_status}.",
+            ],
         },
         "blockers": ["Starting run"],
         "approvalHistory": [],
