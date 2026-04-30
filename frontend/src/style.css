@@ -556,7 +556,154 @@ ul {
 }
 
 .intake-grid {
-  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
+  align-items: start;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.8fr);
+}
+
+.intake-flow {
+  display: grid;
+  gap: 1rem;
+}
+
+.intake-step-nav {
+  position: sticky;
+  top: 1rem;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(155, 179, 209, 0.12);
+  border-radius: 18px;
+  background: rgba(43, 45, 49, 0.94);
+  backdrop-filter: blur(16px);
+}
+
+.intake-step-nav a {
+  padding: 0.55rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #dbdee1;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.intake-step-nav a:hover,
+.intake-step-nav a:focus-visible {
+  background: rgba(125, 211, 252, 0.14);
+  color: #e0f2fe;
+}
+
+.intake-step-panel {
+  display: grid;
+  gap: 1rem;
+  scroll-margin-top: 5rem;
+}
+
+.intake-step-header,
+.issue-scope-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.intake-step-header h3 {
+  margin-top: 0.2rem;
+}
+
+.issue-scope-grid,
+.intake-two-column,
+.intake-card-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.issue-scope-grid,
+.intake-card-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.intake-two-column {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.7fr);
+  align-items: stretch;
+}
+
+.issue-scope-column,
+.intake-action-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid rgba(155, 179, 209, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.issue-scope-heading span {
+  min-width: 2rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(125, 211, 252, 0.12);
+  color: #bae6fd;
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.intake-card-option {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+  padding: 0.95rem;
+  border: 1px solid rgba(155, 179, 209, 0.14);
+  border-radius: 16px;
+  background: rgba(6, 14, 24, 0.44);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.intake-card-option:hover {
+  border-color: rgba(125, 211, 252, 0.28);
+  background: rgba(125, 211, 252, 0.07);
+}
+
+.intake-card-option:focus-within {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.intake-card-option input {
+  margin-top: 0.2rem;
+}
+
+.intake-card-option-selected {
+  border-color: rgba(125, 211, 252, 0.58);
+  background: linear-gradient(135deg, rgba(125, 211, 252, 0.16), rgba(88, 101, 242, 0.1));
+  transform: translateY(-1px);
+}
+
+.intake-card-option-muted {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.intake-card-option-body {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.intake-card-option-body small {
+  color: rgba(225, 238, 249, 0.6);
+  font-size: 0.78rem;
+}
+
+.intake-action-card {
+  align-content: start;
+}
+
+.intake-summary-rail {
+  position: sticky;
+  top: 1rem;
 }
 
 .panel {
@@ -1154,10 +1301,17 @@ ul {
   .task-grid,
   .evidence-grid,
   .content-grid,
+  .issue-scope-grid,
+  .intake-two-column,
+  .intake-card-grid,
   .discord-workspace,
   .approvals-grid,
   .task-grid-wide {
     grid-template-columns: 1fr;
+  }
+
+  .intake-summary-rail {
+    position: static;
   }
 
   .server-rail {

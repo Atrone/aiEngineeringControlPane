@@ -1359,9 +1359,11 @@ function WorkIntakePage() {
     return <ErrorState message={query.error ?? 'Task intake options were unavailable.'} />;
   }
 
-  const issueOptions: ReactNode[] = [];
+  const unscopedIssueCards: ReactNode[] = [];
   const wellScopedIssueOptions: ReactNode[] = [];
   const poorlyScopedIssueOptions: ReactNode[] = [];
+  const wellScopedIssueCards: ReactNode[] = [];
+  const poorlyScopedIssueCards: ReactNode[] = [];
   const repositoryOptions: ReactNode[] = [];
   const integrationCards: ReactNode[] = [];
   const issueScopeById: Map<string, 'well_scoped' | 'poorly_scoped'> = new Map();
@@ -1378,7 +1380,7 @@ function WorkIntakePage() {
     }
   }
 
-  // Build the issue selector options from the integrated issue catalog.
+  // Build the issue selector controls from the integrated issue catalog.
   for (const issue of query.data.issues) {
     const issueOption = (
       <option key={issue.id} value={issue.id}>
@@ -1386,22 +1388,67 @@ function WorkIntakePage() {
       </option>
     );
     const scopedGroup = issueScopeById.get(issue.id);
+    const issueCard = (
+      <label className={`intake-card-option${selectedIssueId === issue.id ? ' intake-card-option-selected' : ''}`} key={issue.id}>
+        <input
+          checked={selectedIssueId === issue.id}
+          name="issue"
+          onChange={() => { setSelectedIssueId(issue.id); }}
+          type="radio"
+          value={issue.id}
+        />
+        <span className="intake-card-option-body">
+          <strong>{issue.ticket}</strong>
+          <span>{issue.title}</span>
+          <small>{issue.priority} priority · {issue.status}</small>
+        </span>
+      </label>
+    );
 
     if (scopedGroup === 'well_scoped') {
       // Place highly executable issues into the well-scoped optgroup.
       wellScopedIssueOptions.push(issueOption);
+      wellScopedIssueCards.push(issueCard);
     } else if (scopedGroup === 'poorly_scoped') {
       // Place ambiguous or discovery-heavy issues into the poorly-scoped optgroup.
       poorlyScopedIssueOptions.push(issueOption);
+      poorlyScopedIssueCards.push(issueCard);
     } else {
-      // Fall back to the original flat list until OpenAI scoping data is available.
-      issueOptions.push(issueOption);
+      // Fall back to an unscoped card list until OpenAI scoping data is available.
+      unscopedIssueCards.push(issueCard);
     }
   }
 
   // Keep the repository identification action reserved for well-scoped issues only.
   const isSelectedIssueWellScoped = selectedIssueId !== ''
     && issueScopeById.get(selectedIssueId) === 'well_scoped';
+  const selectedIssue = selectedIssueId ? findIssueById(query.data.issues, selectedIssueId) : null;
+  const selectedRepository = query.data.repositories.find((repository) => repository.name === selectedRepoName) ?? null;
+  const executionModeCards: ReactNode[] = [];
+
+  // Build execution mode cards so this step can stand on its own visually.
+  for (const mode of [
+    { id: 'implement', title: 'Implement', detail: 'Ask the agent to change code and prepare review evidence.' },
+    { id: 'research', title: 'Research', detail: 'Investigate the issue and return a grounded implementation plan.' },
+    { id: 'review', title: 'Review', detail: 'Evaluate existing changes, risks, and missing tests.' },
+    { id: 'test', title: 'Test', detail: 'Focus the run on validation, reproduction, and regression coverage.' },
+  ]) {
+    executionModeCards.push(
+      <label className={`intake-card-option${executionMode === mode.id ? ' intake-card-option-selected' : ''}`} key={mode.id}>
+        <input
+          checked={executionMode === mode.id}
+          name="executionMode"
+          onChange={() => { setExecutionMode(mode.id); }}
+          type="radio"
+          value={mode.id}
+        />
+        <span className="intake-card-option-body">
+          <strong>{mode.title}</strong>
+          <span>{mode.detail}</span>
+        </span>
+      </label>,
+    );
+  }
 
   // Build the repository selector options from the integrated repo catalog.
   for (const repository of query.data.repositories) {
@@ -1622,7 +1669,7 @@ function WorkIntakePage() {
       <section className="hero-panel">
         <div>
           <p className="eyebrow">Integrated intake</p>
-          <h3>Create a new AI work item from GitHub repo context, issue-tracker issues, and repo markdown knowledge.</h3>
+          <h3>Create a new AI work item through clean, separated setup pages on a single intake surface.</h3>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
@@ -1632,186 +1679,264 @@ function WorkIntakePage() {
       </section>
 
       <section className="content-grid intake-grid">
-        <Panel
-          title="Create task"
-          body={
-            <form className="form-grid" onSubmit={(event) => { void handleSubmit(event); }}>
+        <form className="intake-flow" onSubmit={(event) => { void handleSubmit(event); }}>
+          <nav className="intake-step-nav" aria-label="New work setup pages">
+            <a href="#intake-issues">1. Issues</a>
+            <a href="#intake-repository">2. Repository</a>
+            <a href="#intake-execution">3. Mode</a>
+            <a href="#intake-documents">4. Documents</a>
+            <a href="#intake-task">5. Task</a>
+          </nav>
+
+          <section className="panel intake-step-panel" id="intake-issues">
+            <div className="intake-step-header">
+              <div>
+                <p className="eyebrow">Page 1</p>
+                <h3>Separate and select an issue</h3>
+              </div>
+              <span className="pill">{selectedIssue ? selectedIssue.ticket : 'No issue selected'}</span>
+            </div>
+            <p className="subtle-copy">
+              Pick a well-scoped issue when you want repository identification to run. Selecting an issue still auto-fills the task title, prompt, and acceptance criteria.
+            </p>
+            {query.data.issues.length > 0 && issueScopingQuery.isLoading && !issueScopingQuery.data && !issueScopingQuery.error ? (
+              <p className="muted-copy">Separating issues with OpenAI...</p>
+            ) : null}
+            {issueScopingQuery.error ? (
+              <p className="muted-copy">Issue scoping is unavailable right now, so the full list is shown without categories.</p>
+            ) : null}
+            <div className="issue-scope-grid">
+              <div className="issue-scope-column">
+                <div className="issue-scope-heading">
+                  <strong>Well scoped</strong>
+                  <span>{wellScopedIssueOptions.length}</span>
+                </div>
+                {issueScopingQuery.data
+                  ? (wellScopedIssueCards.length > 0 ? wellScopedIssueCards : <p className="muted-copy">No well-scoped issues found yet.</p>)
+                  : (unscopedIssueCards.length > 0 ? unscopedIssueCards : <p className="muted-copy">No issue-tracker issues are available.</p>)}
+              </div>
+              <div className="issue-scope-column">
+                <div className="issue-scope-heading">
+                  <strong>Poorly scoped</strong>
+                  <span>{poorlyScopedIssueOptions.length}</span>
+                </div>
+                {issueScopingQuery.data
+                  ? (poorlyScopedIssueCards.length > 0 ? poorlyScopedIssueCards : <p className="muted-copy">No poorly scoped issues found.</p>)
+                  : <p className="muted-copy">Poorly scoped issues will appear after separation completes.</p>}
+              </div>
+            </div>
+            <label className="intake-card-option intake-card-option-muted">
+              <input
+                checked={selectedIssueId === ''}
+                name="issue"
+                onChange={() => { setSelectedIssueId(''); }}
+                type="radio"
+                value=""
+              />
+              <span className="intake-card-option-body">
+                <strong>No linked issue</strong>
+                <span>Create a task without issue tracker traceability.</span>
+              </span>
+            </label>
+          </section>
+
+          <section className="panel intake-step-panel" id="intake-repository">
+            <div className="intake-step-header">
+              <div>
+                <p className="eyebrow">Page 2</p>
+                <h3>Identify and select a repository</h3>
+              </div>
+              <span className="pill">{selectedRepository?.fullName || selectedRepoName || 'No repo selected'}</span>
+            </div>
+            <div className="intake-two-column">
               <label className="field-group">
-                <span>Issue</span>
-                <select onChange={(event) => { setSelectedIssueId(event.target.value); }} value={selectedIssueId}>
-                  <option value="">No linked issue</option>
-                  {issueScopingQuery.data
-                    ? [
-                        wellScopedIssueOptions.length > 0
-                          ? (
-                              <optgroup key="well-scoped-issues" label={`Well scoped (${wellScopedIssueOptions.length})`}>
-                                {wellScopedIssueOptions}
-                              </optgroup>
-                            )
-                          : null,
-                        poorlyScopedIssueOptions.length > 0
-                          ? (
-                              <optgroup key="poorly-scoped-issues" label={`Poorly scoped (${poorlyScopedIssueOptions.length})`}>
-                                {poorlyScopedIssueOptions}
-                              </optgroup>
-                            )
-                          : null,
-                      ]
-                    : issueOptions}
-                </select>
-                {query.data.issues.length > 0 && issueScopingQuery.isLoading && !issueScopingQuery.data && !issueScopingQuery.error ? (
-                  <p className="muted-copy">
-                    Separating issues with OpenAI...
-                  </p>
-                ) : null}
-                {issueScopingQuery.error ? (
-                  <p className="muted-copy">
-                    Issue scoping is unavailable right now, so the full list is shown without categories.
-                  </p>
-                ) : null}
-                {issueScopingQuery.data ? (
-                  <p className="muted-copy">
-                    Issue groups were separated by scope quality.
-                  </p>
-                ) : null}
-              </label>
-
-              <div className="field-group field-group-wide">
-                <label className="field-group">
-                  <span>Repository</span>
-                  <select onChange={(event) => { setSelectedRepoName(event.target.value); }} value={selectedRepoName}>
-                    {repositoryOptions}
-                  </select>
-                </label>
-                <div className="enrich-row">
-                  <button
-                    className="ghost-button enrich-button"
-                    disabled={isIdentifyingRepo || enrichingField !== '' || isSubmitting || !isSelectedIssueWellScoped}
-                    onClick={() => { void handleIdentifyRepository(); }}
-                    type="button"
-                  >
-                    {isIdentifyingRepo ? 'Identifying repository...' : 'Identify'}
-                  </button>
-                </div>
-                {identifyError ? <p className="error-copy" role="alert">{identifyError}</p> : null}
-                {identifyNotice && !identifyError ? <p className="muted-copy enrich-notice">{identifyNotice}</p> : null}
-              </div>
-
-              <label className="field-group">
-                <span>Execution mode</span>
-                <select onChange={(event) => { setExecutionMode(event.target.value); }} value={executionMode}>
-                  <option value="implement">Implement</option>
-                  <option value="research">Research</option>
-                  <option value="review">Review</option>
-                  <option value="test">Test</option>
+                <span>Repository</span>
+                <select onChange={(event) => { setSelectedRepoName(event.target.value); }} value={selectedRepoName}>
+                  {repositoryOptions}
                 </select>
               </label>
-
-              <div className="field-group field-group-wide">
-                <label className="field-group">
-                  <span>Repo documents</span>
-                  <input
-                    accept=".md,.markdown,.txt,text/markdown,text/plain"
-                    multiple
-                    onChange={(event) => { void handleUploadedDocumentsChange(event); }}
-                    type="file"
-                  />
-                </label>
-                <p className="subtle-copy">
-                  Upload markdown or text documents to ground the enrich buttons and attach that repo context to the created task.
-                </p>
-                {uploadError ? <p className="error-copy">{uploadError}</p> : null}
-                {uploadedDocuments.length > 0 ? (
-                  <div className="mini-list">
-                    {uploadedDocuments.map((document) => (
-                      <div className="document-upload-row" key={document.id}>
-                        <div className="mini-row">
-                          <strong>{document.title}</strong>
-                          <span className="subtle-copy">{document.path}</span>
-                        </div>
-                        <button
-                          className="ghost-button document-upload-remove-button"
-                          onClick={() => { handleRemoveUploadedDocument(document.id); }}
-                          type="button"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="muted-copy">
-                    No uploaded repo documents yet. Enrich will use the selected repository docs until you add files here.
-                  </p>
-                )}
-              </div>
-
-              <div className="field-group field-group-wide">
-                <label className="field-group">
-                  <span>Task title</span>
-                  <input onChange={(event) => { setTitle(event.target.value); }} placeholder="Build settings workflow" type="text" value={title} />
-                </label>
-                <div className="enrich-row">
-                  <button
-                    className="ghost-button enrich-button"
-                    disabled={enrichingField !== '' || isSubmitting}
-                    onClick={() => { void handleEnrichField('title'); }}
-                    type="button"
-                  >
-                    {enrichingField === 'title' ? 'Enriching title...' : `Enrich title with ${buildEnrichmentSourceLabel(uploadedDocuments)}`}
-                  </button>
-                </div>
-              </div>
-
-              <div className="field-group field-group-wide">
-                <label className="field-group">
-                  <span>Prompt</span>
-                  <textarea onChange={(event) => { setPrompt(event.target.value); }} rows={5} value={prompt} />
-                </label>
-                <div className="enrich-row">
-                  <button
-                    className="ghost-button enrich-button"
-                    disabled={enrichingField !== '' || isSubmitting}
-                    onClick={() => { void handleEnrichField('prompt'); }}
-                    type="button"
-                  >
-                    {enrichingField === 'prompt' ? 'Enriching prompt...' : `Enrich prompt with ${buildEnrichmentSourceLabel(uploadedDocuments)}`}
-                  </button>
-                </div>
-              </div>
-
-              <div className="field-group field-group-wide">
-                <label className="field-group">
-                  <span>Acceptance criteria</span>
-                  <textarea onChange={(event) => { setAcceptanceCriteria(event.target.value); }} rows={4} value={acceptanceCriteria} />
-                </label>
-                <div className="enrich-row">
-                  <button
-                    className="ghost-button enrich-button"
-                    disabled={enrichingField !== '' || isSubmitting}
-                    onClick={() => { void handleEnrichField('acceptanceCriteria'); }}
-                    type="button"
-                  >
-                    {enrichingField === 'acceptanceCriteria' ? 'Enriching acceptance criteria...' : `Enrich acceptance criteria with ${buildEnrichmentSourceLabel(uploadedDocuments)}`}
-                  </button>
-                </div>
-              </div>
-
-              {enrichError ? <p className="error-copy">{enrichError}</p> : null}
-              {enrichNotice ? <p className="muted-copy enrich-notice">{enrichNotice}</p> : null}
-
-              {submitError ? <p className="error-copy">{submitError}</p> : null}
-
-              <div className="form-actions">
-                <button className="primary-button" disabled={isSubmitting || !selectedRepoName || !title || !prompt} type="submit">
-                  {isSubmitting ? 'Creating task and starting run...' : 'Create task and start run'}
+              <div className="intake-action-card">
+                <strong>AI repository match</strong>
+                <p className="subtle-copy">Use the selected well-scoped issue to identify the best matching GitHub repository.</p>
+                <button
+                  className="ghost-button enrich-button"
+                  disabled={isIdentifyingRepo || enrichingField !== '' || isSubmitting || !isSelectedIssueWellScoped}
+                  onClick={() => { void handleIdentifyRepository(); }}
+                  type="button"
+                >
+                  {isIdentifyingRepo ? 'Identifying repository...' : 'Identify repository'}
                 </button>
               </div>
-            </form>
-          }
-        />
+            </div>
+            {identifyError ? <p className="error-copy" role="alert">{identifyError}</p> : null}
+            {identifyNotice && !identifyError ? <p className="muted-copy enrich-notice">{identifyNotice}</p> : null}
+            {!isSelectedIssueWellScoped && selectedIssueId ? (
+              <p className="muted-copy">Repository identification unlocks after selecting an issue from the well-scoped group.</p>
+            ) : null}
+          </section>
 
-        <Panel title="Provider readiness" body={<div className="integration-grid">{integrationCards}</div>} />
+          <section className="panel intake-step-panel" id="intake-execution">
+            <div className="intake-step-header">
+              <div>
+                <p className="eyebrow">Page 3</p>
+                <h3>Choose the execution mode</h3>
+              </div>
+              <span className="pill">{executionMode}</span>
+            </div>
+            <div className="intake-card-grid">{executionModeCards}</div>
+          </section>
+
+          <section className="panel intake-step-panel" id="intake-documents">
+            <div className="intake-step-header">
+              <div>
+                <p className="eyebrow">Page 4</p>
+                <h3>Add repo documents</h3>
+              </div>
+              <span className="pill">{uploadedDocuments.length} uploaded</span>
+            </div>
+            <div className="intake-two-column">
+              <label className="field-group">
+                <span>Repo documents</span>
+                <input
+                  accept=".md,.markdown,.txt,text/markdown,text/plain"
+                  multiple
+                  onChange={(event) => { void handleUploadedDocumentsChange(event); }}
+                  type="file"
+                />
+              </label>
+              <div className="intake-action-card">
+                <strong>Available repository docs</strong>
+                <p className="subtle-copy">
+                  {query.data.documents.length > 0
+                    ? `${query.data.documents.length} connected repo docs can ground enrichment before uploads are added.`
+                    : 'No connected repo docs are available yet.'}
+                </p>
+              </div>
+            </div>
+            <p className="subtle-copy">
+              Upload markdown or text documents to ground the enrich buttons and attach that repo context to the created task.
+            </p>
+            {uploadError ? <p className="error-copy">{uploadError}</p> : null}
+            {uploadedDocuments.length > 0 ? (
+              <div className="mini-list">
+                {uploadedDocuments.map((document) => (
+                  <div className="document-upload-row" key={document.id}>
+                    <div className="mini-row">
+                      <strong>{document.title}</strong>
+                      <span className="subtle-copy">{document.path}</span>
+                    </div>
+                    <button
+                      className="ghost-button document-upload-remove-button"
+                      onClick={() => { handleRemoveUploadedDocument(document.id); }}
+                      type="button"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted-copy">No uploaded repo documents yet. Enrich will use the selected repository docs until you add files here.</p>
+            )}
+          </section>
+
+          <section className="panel intake-step-panel" id="intake-task">
+            <div className="intake-step-header">
+              <div>
+                <p className="eyebrow">Page 5</p>
+                <h3>Review the generated task brief</h3>
+              </div>
+              <span className="pill">Auto-fill retained</span>
+            </div>
+            <div className="field-group field-group-wide">
+              <label className="field-group">
+                <span>Task title</span>
+                <input onChange={(event) => { setTitle(event.target.value); }} placeholder="Build settings workflow" type="text" value={title} />
+              </label>
+              <div className="enrich-row">
+                <button
+                  className="ghost-button enrich-button"
+                  disabled={enrichingField !== '' || isSubmitting}
+                  onClick={() => { void handleEnrichField('title'); }}
+                  type="button"
+                >
+                  {enrichingField === 'title' ? 'Enriching title...' : `Enrich title with ${buildEnrichmentSourceLabel(uploadedDocuments)}`}
+                </button>
+              </div>
+            </div>
+
+            <div className="field-group field-group-wide">
+              <label className="field-group">
+                <span>Prompt</span>
+                <textarea onChange={(event) => { setPrompt(event.target.value); }} rows={5} value={prompt} />
+              </label>
+              <div className="enrich-row">
+                <button
+                  className="ghost-button enrich-button"
+                  disabled={enrichingField !== '' || isSubmitting}
+                  onClick={() => { void handleEnrichField('prompt'); }}
+                  type="button"
+                >
+                  {enrichingField === 'prompt' ? 'Enriching prompt...' : `Enrich prompt with ${buildEnrichmentSourceLabel(uploadedDocuments)}`}
+                </button>
+              </div>
+            </div>
+
+            <div className="field-group field-group-wide">
+              <label className="field-group">
+                <span>Acceptance criteria</span>
+                <textarea onChange={(event) => { setAcceptanceCriteria(event.target.value); }} rows={4} value={acceptanceCriteria} />
+              </label>
+              <div className="enrich-row">
+                <button
+                  className="ghost-button enrich-button"
+                  disabled={enrichingField !== '' || isSubmitting}
+                  onClick={() => { void handleEnrichField('acceptanceCriteria'); }}
+                  type="button"
+                >
+                  {enrichingField === 'acceptanceCriteria' ? 'Enriching acceptance criteria...' : `Enrich acceptance criteria with ${buildEnrichmentSourceLabel(uploadedDocuments)}`}
+                </button>
+              </div>
+            </div>
+
+            {enrichError ? <p className="error-copy">{enrichError}</p> : null}
+            {enrichNotice ? <p className="muted-copy enrich-notice">{enrichNotice}</p> : null}
+            {submitError ? <p className="error-copy">{submitError}</p> : null}
+
+            <div className="form-actions">
+              <button className="primary-button" disabled={isSubmitting || !selectedRepoName || !title || !prompt} type="submit">
+                {isSubmitting ? 'Creating task and starting run...' : 'Create task and start run'}
+              </button>
+            </div>
+          </section>
+        </form>
+
+        <aside className="rail-stack intake-summary-rail">
+          <Panel title="Provider readiness" body={<div className="integration-grid">{integrationCards}</div>} />
+          <Panel
+            title="Intake summary"
+            body={(
+              <div className="mini-list">
+                <div className="mini-row">
+                  <strong>Issue</strong>
+                  <span className="subtle-copy">{selectedIssue ? `${selectedIssue.ticket} · ${selectedIssue.title}` : 'No linked issue'}</span>
+                </div>
+                <div className="mini-row">
+                  <strong>Repository</strong>
+                  <span className="subtle-copy">{selectedRepository?.fullName || selectedRepoName || 'Select a repository'}</span>
+                </div>
+                <div className="mini-row">
+                  <strong>Mode</strong>
+                  <span className="subtle-copy">{executionMode}</span>
+                </div>
+                <div className="mini-row">
+                  <strong>Documents</strong>
+                  <span className="subtle-copy">{uploadedDocuments.length > 0 ? `${uploadedDocuments.length} uploaded` : `${query.data.documents.length} repo docs available`}</span>
+                </div>
+              </div>
+            )}
+          />
+        </aside>
       </section>
     </div>
   );
