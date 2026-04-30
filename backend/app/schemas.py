@@ -58,6 +58,9 @@ class SignInRequest(BaseModel):
     name: str
     email: str
     role: str
+    team_id: str = Field(default="", alias="teamId")
+
+    model_config = {"populate_by_name": True}
 
 
 class GoogleAuthExchangeRequest(BaseModel):

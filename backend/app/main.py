@@ -338,7 +338,7 @@ def post_sign_in(payload: SignInRequest) -> Dict[str, Any]:
     """Creates a guided sign-in session for the demo application."""
 
     # Create the in-memory session used by the frontend auth shell.
-    return create_session(payload.name, payload.email, payload.role)
+    return create_session(payload.name, payload.email, payload.role, team_id=payload.team_id)
 
 
 @app.get("/auth/config")

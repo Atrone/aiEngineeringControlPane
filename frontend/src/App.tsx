@@ -377,6 +377,13 @@ function buildIssueTrackerRunLabel(run: RunSummary): string {
  * Builds a stable team key from the ownership fields available on each run.
  */
 function buildRunTeamKey(run: RunSummary): string {
+  const teamId = run.requestedBy?.teamId?.trim();
+
+  if (teamId) {
+    // Prefer the backend team identity to keep run lobbies isolated by signed-in team.
+    return teamId;
+  }
+
   const ownerKey = run.owner.trim();
 
   if (ownerKey) {
@@ -709,6 +716,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
   const [authConfigError, setAuthConfigError] = useState<string>('');
   const [name, setName] = useState<string>('Maya Chen');
   const [email, setEmail] = useState<string>('maya.chen@example.com');
+  const [teamId, setTeamId] = useState<string>('platform');
   const [submitError, setSubmitError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const roleCapabilityItems = buildRoleCapabilityItems();
@@ -770,6 +778,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
       name,
       email,
       role: 'admin',
+      teamId,
     };
 
     try {
@@ -860,6 +869,11 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
               <input onChange={(event) => { setEmail(event.target.value); }} placeholder="maya.chen@example.com" type="email" value={email} />
             </label>
 
+            <label className="field-group">
+              <span>Team ID</span>
+              <input onChange={(event) => { setTeamId(event.target.value); }} placeholder="platform" type="text" value={teamId} />
+            </label>
+
             <div className="field-group field-group-wide">
               <span>What admin access unlocks</span>
               <ul className="detail-list compact-list">{roleCapabilityItems}</ul>
@@ -869,7 +883,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
             {submitError ? <p className="error-copy">{submitError}</p> : null}
 
             <div className="form-actions">
-              <button className="primary-button" disabled={isSubmitting || !name || !email} type="submit">
+              <button className="primary-button" disabled={isSubmitting || !name || !email || !teamId} type="submit">
                 {isSubmitting ? 'Signing in...' : 'Enter mission control'}
               </button>
             </div>
