@@ -706,7 +706,7 @@ function LandingPage() {
             <Link className="primary-button" to="/sign-in">
               Enter mission control
             </Link>
-            <a className="ghost-button" href="#landing-capabilities">
+            <a className="ghost-button" href="#landing-workflow">
               See how it works
             </a>
           </div>
@@ -738,6 +738,27 @@ function LandingPage() {
             <p>{highlight}</p>
           </article>
         ))}
+      </section>
+
+      <section className="landing-workflow-panel" id="landing-workflow" aria-labelledby="landing-workflow-title">
+        <div className="landing-workflow-copy">
+          <p className="eyebrow">How it works</p>
+          <h2 id="landing-workflow-title">From request to reviewed pull request in one control pane.</h2>
+        </div>
+        <ol className="landing-workflow-list">
+          <li>
+            <strong>Capture the work</strong>
+            <span>Start from an issue, repository, and attached docs so the agent has the right context.</span>
+          </li>
+          <li>
+            <strong>Track the run</strong>
+            <span>Follow status, evidence, blockers, tests, and linked pull request activity as the task moves.</span>
+          </li>
+          <li>
+            <strong>Approve with confidence</strong>
+            <span>Review the implementation package, approve the PR, or request a retry from the run room.</span>
+          </li>
+        </ol>
       </section>
     </main>
   );

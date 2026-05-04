@@ -29,6 +29,10 @@
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -91,7 +95,8 @@ ul {
 
 .landing-nav,
 .landing-hero,
-.landing-capability-grid {
+.landing-capability-grid,
+.landing-workflow-panel {
   width: min(100%, 1180px);
   margin: 0 auto;
 }
@@ -227,6 +232,53 @@ ul {
 
 .landing-capability-card p {
   color: #e5eef9;
+  line-height: 1.5;
+}
+
+.landing-workflow-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(320px, 1.15fr);
+  gap: 2rem;
+  align-items: start;
+  padding: 1.5rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 28px;
+  background: rgba(43, 45, 49, 0.78);
+  box-shadow: var(--panel-shadow);
+  scroll-margin-top: 1.5rem;
+}
+
+.landing-workflow-copy {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.landing-workflow-copy h2 {
+  max-width: 15ch;
+  font-size: clamp(2rem, 5vw, 4rem);
+  line-height: 0.98;
+  letter-spacing: -0.05em;
+}
+
+.landing-workflow-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.landing-workflow-list li {
+  display: grid;
+  gap: 0.4rem;
+  padding: 1rem;
+  border: 1px solid rgba(155, 179, 209, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.landing-workflow-list span {
+  color: var(--text-muted);
   line-height: 1.5;
 }
 
@@ -1446,6 +1498,7 @@ ul {
   .auth-role-grid,
   .landing-hero,
   .landing-capability-grid,
+  .landing-workflow-panel,
   .metric-grid,
   .task-grid,
   .evidence-grid,
