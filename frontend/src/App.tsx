@@ -3654,6 +3654,11 @@ function collectTaskDetailReferenceLinks(run: RunSummary): {
     issueLinks.push(run.issue.url);
   }
 
+  if (run.issueTraceability?.url) {
+    // Include the normalized issue-traceability URL when the dedicated payload provides one.
+    issueLinks.push(run.issueTraceability.url);
+  }
+
   if (run.pullRequest?.source === 'github' && run.pullRequest.url) {
     // Include the PR URL because updated UI screenshots and previews are commonly attached there.
     interfaceLinks.push(run.pullRequest.url);

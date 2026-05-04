@@ -1424,11 +1424,28 @@ def _build_run_extensions(
     approval_history = run.get("approvalHistory", [])
 
     public_run = {key: value for key, value in run.items() if not str(key).startswith("_")}
+    issue_traceability = {
+        "issueId": str(resolved_issue.get("id", "")).strip(),
+        "ticket": str(resolved_issue.get("ticket", "")).strip(),
+        "provider": str(resolved_issue.get("provider", "")).strip().lower() or "fallback",
+        "status": str(resolved_issue.get("status", "")).strip(),
+        "priority": str(resolved_issue.get("priority", "")).strip(),
+        "url": str(resolved_issue.get("url", "")).strip(),
+    }
+
+    if not issue_traceability["ticket"]:
+        # Fall back to the run ticket so every run keeps a stable issue-traceability anchor.
+        issue_traceability["ticket"] = str(run.get("ticket", ""))
+
+    if not issue_traceability["issueId"]:
+        # Fall back to the run id when the upstream issue id is unavailable.
+        issue_traceability["issueId"] = str(run.get("id", ""))
 
     # Return the run plus normalized integration context fields.
     return {
         **public_run,
         "issue": resolved_issue,
+        "issueTraceability": issue_traceability,
         "pullRequest": pull_request,
         "ci": ci_status,
         "documents": attached_documents,

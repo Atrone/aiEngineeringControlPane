@@ -187,6 +187,14 @@ export type RunSummary = {
   evidence: RunEvidence;
   blockers: string[];
   issue?: IssueRecord;
+  issueTraceability?: {
+    issueId: string;
+    ticket: string;
+    provider: string;
+    status: string;
+    priority: string;
+    url: string;
+  };
   pullRequest?: {
     number: string;
     title?: string;

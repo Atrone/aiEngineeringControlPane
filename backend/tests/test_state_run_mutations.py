@@ -206,6 +206,11 @@ class StateRunMutationTests(unittest.TestCase):
         self.assertEqual(public_run["requestedBy"]["name"], "User A")
         self.assertEqual(public_run["requestedBy"]["email"], "user-a@example.com")
 
+        # Confirm the public payload includes a normalized issue-traceability block.
+        self.assertEqual(public_run["issueTraceability"]["ticket"], "ACP-601")
+        self.assertEqual(public_run["issueTraceability"]["issueId"], "task-2")
+        self.assertEqual(public_run["issueTraceability"]["provider"], "fallback")
+
     def test_record_approval_covers_decision_branches_and_missing_runs(self) -> None:
         """Covers approval updates for approve, retry, re-scope, and fallback decisions."""
 

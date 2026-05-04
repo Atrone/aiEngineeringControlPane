@@ -388,6 +388,24 @@ describe('App pure helper functions', () => {
     expect(links.ciLinks).toEqual(['https://ci.example.com/build/1']);
     expect(links.evidenceLinks).toContain('https://preview.example.com');
   });
+
+  it('uses issueTraceability url for reference links when issue url is absent', () => {
+    const run = createRunFixture({
+      issue: { ...issue, url: '' },
+      issueTraceability: {
+        issueId: 'issue-1',
+        ticket: 'ACP-1',
+        provider: 'linear',
+        status: 'In Progress',
+        priority: '0',
+        url: 'https://linear.example.com/issue/ACP-1-fallback',
+      },
+    });
+
+    const links = collectTaskDetailReferenceLinks(run);
+
+    expect(links.issueLinks).toEqual(['https://linear.example.com/issue/ACP-1-fallback']);
+  });
 });
 
 describe('App presentational component functions', () => {
