@@ -1429,6 +1429,16 @@ def _build_run_extensions(
     return {
         **public_run,
         "issue": resolved_issue,
+        "issueTraceability": deepcopy(run.get("_issueTraceability"))
+        or {
+            "issueId": str(resolved_issue.get("id", "")),
+            "originIssueId": str(resolved_issue.get("id", "")),
+            "ticket": str(resolved_issue.get("ticket", run.get("ticket", ""))),
+            "provider": str(resolved_issue.get("provider", "fallback")),
+            "status": str(resolved_issue.get("status", run.get("status", ""))),
+            "sourceStatus": str(resolved_issue.get("status", run.get("status", ""))),
+            "originStatus": str(resolved_issue.get("status", run.get("status", ""))),
+        },
         "pullRequest": pull_request,
         "ci": ci_status,
         "documents": attached_documents,
@@ -1987,7 +1997,23 @@ def create_task(
     active_team_id = str(integration_catalog.get("teamId", "default-team"))
     title = str(payload.get("title", "")).strip() or str(issue["title"] if issue else "Generated task")
     ticket = str(issue["ticket"] if issue else f"ACP-{len(RUN_STORE) + 200}")
+    normalized_title = title.lower()
+    normalized_ticket = ticket.lower()
+
+    if not normalized_title.startswith(f"[{normalized_ticket}]") and not normalized_title.startswith(f"{normalized_ticket}:"):
+        # Prefix the task title with the ticket so reviewers can spot issue traceability in run and PR lists.
+        title = f"[{ticket}] {title}"
+
+    issue_provider = str(issue.get("provider", "manual") if issue else "manual").strip() or "manual"
+    issue_status = str(issue.get("status", "Unknown") if issue else "Unknown").strip() or "Unknown"
     run_id = f"{ticket.lower()}-{_slugify(title)}"
+    issue_traceability = {
+        "issueId": str(issue.get("id", "")) if issue else "",
+        "ticket": ticket,
+        "provider": str(issue.get("provider", "fallback")) if issue else "fallback",
+        "status": str(issue.get("status", "Not linked")) if issue else "Not linked",
+        "sourceStatus": str(issue.get("status", "Not linked")) if issue else "Not linked",
+    }
 
     new_run = {
         "id": run_id,
@@ -2006,8 +2032,14 @@ def create_task(
         "evidence": {
             "diff": ["Waiting for the run to produce code changes."],
             "tests": ["Waiting for the run to report validation results."],
-            "commands": ["Run requested from task intake"],
-            "rationale": ["The run was created from issue, repo, and docs context selected in the intake flow."],
+            "commands": [f"Run requested from task intake for {ticket} ({issue_provider}, status: {issue_status})"],
+            "rationale": [
+                "The run was created from issue, repo, and docs context selected in the intake flow.",
+                (
+                    f"Issue traceability preserved from {ticket}"
+                    f" ({issue_traceability['provider']} · {issue_traceability['status']})."
+                ),
+            ],
         },
         "blockers": ["Starting run"],
         "approvalHistory": [],
@@ -2016,6 +2048,7 @@ def create_task(
         "_taskPrompt": str(payload.get("prompt", "")),
         "_acceptanceCriteria": str(payload.get("acceptanceCriteria", "")),
         "_issueSnapshot": deepcopy(issue) if issue else None,
+        "_issueTraceability": issue_traceability,
         "_documentSnapshots": deepcopy(selected_documents),
         "_requestedBySnapshot": deepcopy(current_user),
         "_teamId": active_team_id,

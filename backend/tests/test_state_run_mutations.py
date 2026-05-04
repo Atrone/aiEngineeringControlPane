@@ -70,10 +70,22 @@ class StateRunMutationTests(unittest.TestCase):
             )
             self.assertEqual(created_task["executionMode"], "implement")
             self.assertEqual(state.RUN_STORE[0]["repo"], "platform-web")
+            self.assertEqual(state.RUN_STORE[0]["title"], "[ACP-500] Create new task")
             self.assertEqual(state.RUN_STORE[0]["_issueSnapshot"]["id"], "issue-1")
+            self.assertEqual(state.RUN_STORE[0]["_issueTraceability"]["ticket"], "ACP-500")
+            self.assertEqual(state.RUN_STORE[0]["_issueTraceability"]["provider"], "linear")
+            self.assertEqual(state.RUN_STORE[0]["_issueTraceability"]["sourceStatus"], "Not linked")
             self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["id"], "upload-doc-1")
             self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["path"], "uploads/architecture.md")
             self.assertEqual(state.RUN_STORE[0]["_requestedBySnapshot"]["name"], "Maya")
+            self.assertEqual(
+                state.RUN_STORE[0]["evidence"]["commands"][0],
+                "Run requested from task intake for ACP-500 (linear, status: Unknown)",
+            )
+            self.assertEqual(
+                state.RUN_STORE[0]["evidence"]["rationale"][1],
+                "Traceability source: linear ticket ACP-500 in status Unknown.",
+            )
             mock_create_run.assert_called_once()
 
     def test_create_run_covers_simulated_live_launch_and_cursor_live_launch_paths(self) -> None:

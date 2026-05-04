@@ -130,6 +130,8 @@ class StatePullRequestSyncHelperTests(unittest.TestCase):
                 settings=replace(get_settings(), github_owner="acme"),
             )
             self.assertEqual(public_run["issue"]["id"], "issue-1")
+            self.assertEqual(public_run["issueTraceability"]["ticket"], "ACP-1")
+            self.assertEqual(public_run["issueTraceability"]["provider"], "linear")
             self.assertEqual(public_run["requestedBy"]["email"], "maya@example.com")
             self.assertEqual(public_run["ci"]["workflow"], "CI")
             self.assertEqual(public_run["liveView"], {"timeline": []})

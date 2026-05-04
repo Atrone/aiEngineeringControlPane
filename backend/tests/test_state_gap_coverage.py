@@ -119,6 +119,7 @@ class StateGapCoverageTests(unittest.TestCase):
                 }
             )
         self.assertEqual(run_extensions["pullRequest"]["source"], "skipped")
+        self.assertEqual(run_extensions["issueTraceability"]["provider"], "fallback")
 
         # Confirm blank blockers are ignored in dashboard blocker summaries.
         self.assertFalse(state._is_actionable_blocker("   "))
