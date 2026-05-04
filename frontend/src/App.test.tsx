@@ -68,6 +68,7 @@ import {
   isIssueTrackerRun,
   parseRuntimeSeconds,
   resolveCurrentPullRequestUrl,
+  shouldShowRunLobbyPullRequest,
 } from './App';
 import * as api from './lib/api';
 import { useApiQuery } from './hooks/useApiQuery';
@@ -196,6 +197,8 @@ function createRunFixture(overrides: Partial<RunSummary> = {}): RunSummary {
     issue,
     pullRequest: {
       number: '42',
+      title: 'Build dashboard PR',
+      body: '## Summary\nAdds the dashboard implementation for reviewer handoff.',
       status: 'open',
       state: 'open',
       url: 'https://github.com/octo/repo/pull/42',
@@ -301,8 +304,8 @@ describe('App pure helper functions', () => {
     expect(parseRuntimeSeconds('bad')).toBe(0);
     expect(collectBlockerReasons([blockedRun, reviewRun])).toEqual(new Set(['Missing API key']));
     expect(formatReviewEffortValue(0, 0)).toBe('0 min');
-    expect(formatReviewEffortValue(2, 240)).toBe('2 min');
-    expect(deriveDashboardMetrics([reviewRun, blockedRun, mergedRun]).map((metric) => metric.value)).toEqual(['2', '1', '1', '2 min']);
+    expect(formatReviewEffortValue(2, 240)).toBe('4 min');
+    expect(deriveDashboardMetrics([reviewRun, blockedRun, mergedRun]).map((metric) => metric.value)).toEqual(['2', '1', '1', '7 min']);
     expect(isIssueTrackerProvider(' Jira ')).toBe(true);
     expect(isIssueTrackerProvider('github')).toBe(false);
     expect(isIssueTrackerRun(reviewRun)).toBe(true);
@@ -314,6 +317,8 @@ describe('App pure helper functions', () => {
     expect(getRunChannelTone(blockedRun)).toBe('blocked');
     expect(getRunChannelTone(mergedRun)).toBe('merged');
     expect(buildReviewEffortLabel(blockedRun)).toContain('1 actionable blocker');
+    expect(shouldShowRunLobbyPullRequest(reviewRun)).toBe(true);
+    expect(shouldShowRunLobbyPullRequest(blockedRun)).toBe(false);
     expect(resolveCurrentPullRequestUrl(reviewRun)).toBe('https://github.com/octo/repo/pull/42');
     expect(resolveCurrentPullRequestUrl(createRunFixture({ pullRequest: undefined }))).toBe('https://github.com/octo/repo/pull/42');
 
@@ -573,11 +578,45 @@ describe('App route and page component functions', () => {
     const suggestionsTitle = await screen.findByText('Suggested next actions');
     const teamWorkspace = screen.getByRole('region', { name: 'Team run workspace' });
     const openRunRoomLink = screen.getByRole('link', { name: 'Open run room' });
+    const pullRequestContent = screen.getByRole('region', { name: 'Open pull request content' });
 
     expect(screen.queryByText(/Model:/i)).not.toBeInTheDocument();
     expect(suggestionsTitle.compareDocumentPosition(teamWorkspace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText('Artifact results')).not.toBeInTheDocument();
+    expect(screen.getByText('Build dashboard PR')).toBeInTheDocument();
+    expect(screen.getByText(/Adds the dashboard implementation/)).toBeInTheDocument();
+    expect(pullRequestContent.compareDocumentPosition(openRunRoomLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(openRunRoomLink).toBeInTheDocument();
+  });
+
+  it('totals review effort from runs in the selected lobby only', async () => {
+    const platformReviewRun = createRunFixture({ runtime: '02:30' });
+    const platformBlockedRun = createRunFixture({
+      id: 'run-2',
+      status: 'Blocked',
+      blockers: ['Missing API key'],
+      runtime: '03:00',
+    });
+    const opsRun = createRunFixture({
+      id: 'run-3',
+      runtime: '10:00',
+      requestedBy: { ...currentUser, teamId: 'ops' },
+    });
+    const dashboard: DashboardPayload = {
+      metrics: [],
+      runs: [platformReviewRun, platformBlockedRun, opsRun],
+      blockedReasons: [],
+      suggestedActions: [],
+      integrationStatuses: [integrationStatus],
+      currentUser,
+    };
+    mockedUseApiQuery().mockReturnValue({ data: dashboard, error: null, isLoading: false });
+
+    renderWithRouter(<DashboardPage />, '/dashboard');
+
+    expect(await screen.findByText('6 min')).toBeInTheDocument();
+    expect(screen.getByText('Total runtime across 2 runs in this lobby')).toBeInTheDocument();
+    expect(screen.queryByText('16 min')).not.toBeInTheDocument();
   });
 
   it('renders loading states for data-backed page components', () => {

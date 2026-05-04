@@ -84,11 +84,11 @@ class DashboardPayloadTests(unittest.TestCase):
             "1 run reached the merged state in the current session",
         )
 
-        # Confirm the review-effort card is derived from the review-ready runtimes.
-        self.assertEqual(metrics_by_label["Review effort"]["value"], "11 min")
+        # Confirm the review-effort card is derived from the summed lobby runtimes.
+        self.assertEqual(metrics_by_label["Review effort"]["value"], "59 min")
         self.assertEqual(
             metrics_by_label["Review effort"]["hint"],
-            "Average runtime across 3 runs that reached review or merge",
+            "Total runtime across 5 runs in this lobby",
         )
 
         # Confirm the blocked-reasons panel is built from the current blocked and retry runs.

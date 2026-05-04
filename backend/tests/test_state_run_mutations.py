@@ -175,6 +175,49 @@ class StateRunMutationTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             state.create_run(settings, {}, {"taskId": "missing-task", "agentName": "impl-agent"})
 
+    def test_build_run_extensions_preserves_original_requester_for_other_team_members(self) -> None:
+        """Verifies run attribution stays pinned to the user who started the work."""
+
+        run = {
+            "id": "task-2",
+            "ticket": "ACP-601",
+            "title": "Started by user A",
+            "repo": "platform-web",
+            "branch": "ai/acp-601-started-by-user-a",
+            "owner": "User A",
+            "agent": "impl-agent",
+            "runtime": "00:00",
+            "cost": "$0.24",
+            "status": "Running",
+            "risk": "Medium",
+            "currentStep": "Loading task context",
+            "summary": "Existing task summary",
+            "evidence": {"diff": [], "tests": [], "commands": [], "rationale": []},
+            "blockers": ["Streaming execution in progress"],
+            "approvalHistory": [],
+            "_requestedBySnapshot": {
+                "name": "User A",
+                "email": "user-a@example.com",
+                "role": "admin",
+                "teamId": "team-a",
+                "provider": "guided",
+            },
+        }
+        current_viewer = {
+            "name": "User B",
+            "email": "user-b@example.com",
+            "role": "admin",
+            "teamId": "team-a",
+            "provider": "guided",
+        }
+
+        # Build the public run payload as another member of the same team viewing the work.
+        public_run = state._build_run_extensions(run, current_user=current_viewer)
+
+        # Confirm the public attribution uses the original starter instead of the current viewer.
+        self.assertEqual(public_run["requestedBy"]["name"], "User A")
+        self.assertEqual(public_run["requestedBy"]["email"], "user-a@example.com")
+
     def test_record_approval_covers_decision_branches_and_missing_runs(self) -> None:
         """Covers approval updates for approve, retry, re-scope, and fallback decisions."""
 

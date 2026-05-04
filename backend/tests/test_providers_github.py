@@ -57,7 +57,13 @@ class ProviderGitHubTests(unittest.TestCase):
 
         with patch(
             "app.providers._fetch_github_pull_request_payload",
-            return_value={"state": "open", "merged": False, "html_url": "https://github.com/acme/platform-web/pull/42"},
+            return_value={
+                "state": "open",
+                "merged": False,
+                "title": "Review dashboard lobby",
+                "body": "Shows PR content in the lobby.",
+                "html_url": "https://github.com/acme/platform-web/pull/42",
+            },
         ), patch(
             "app.providers._fetch_github_pull_request_reviews",
             return_value=[{"state": "APPROVED", "submitted_at": "2026-04-24T12:00:00Z", "user": {"login": "reviewer"}}],
@@ -69,6 +75,8 @@ class ProviderGitHubTests(unittest.TestCase):
             )
             self.assertEqual(pr_status["state"], "approved")
             self.assertEqual(pr_status["approvedBy"], "reviewer")
+            self.assertEqual(pr_status["title"], "Review dashboard lobby")
+            self.assertEqual(pr_status["body"], "Shows PR content in the lobby.")
 
         # Confirm invalid PR URLs or missing GitHub config return None so simulation can take over.
         self.assertIsNone(providers.fetch_github_pull_request_status(settings, "https://example.com/not-a-pr"))
