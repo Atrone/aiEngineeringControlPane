@@ -500,6 +500,13 @@ describe('App route and page component functions', () => {
     expect(screen.getByRole('link', { name: 'See how it works' })).toHaveAttribute('href', '#landing-workflow');
     expect(screen.getByRole('heading', { name: 'From request to reviewed pull request in one control plane.' })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Run Channels lobby showing team servers, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enlarge Run lobby screenshot' }));
+    expect(screen.getByRole('dialog', { name: 'Run lobby screenshot preview' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Expanded Run Channels lobby showing team servers, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Run lobby screenshot preview' })).not.toBeInTheDocument();
   });
 
   it('renders App signed-out flow and SignInPage submit behavior', async () => {
