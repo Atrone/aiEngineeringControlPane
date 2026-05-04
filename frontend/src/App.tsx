@@ -676,6 +676,63 @@ function LandingPage() {
     'Watch agent runs move through evidence, blockers, approval, and merge.',
     'Give reviewers a Discord-inspired workspace for every automation handoff.',
   ];
+  const workflowScreenshots = [
+    {
+      alt: 'Run Channels lobby showing team servers, run metrics, and suggested next actions.',
+      caption: 'Run lobby',
+      src: '/landing-run-channels.png',
+    },
+    {
+      alt: 'New Work intake page with issue, repository, mode, documents, and task setup steps.',
+      caption: 'Integrated intake',
+      src: '/landing-new-work.png',
+    },
+    {
+      alt: 'Issue selection step separating well scoped and poorly scoped work items.',
+      caption: 'Issue triage',
+      src: '/landing-issue-selection.png',
+    },
+    {
+      alt: 'Repository and execution mode selection for a linked engineering issue.',
+      caption: 'Repository and mode',
+      src: '/landing-repository-mode.png',
+    },
+    {
+      alt: 'Document upload and generated task brief review before launching agent work.',
+      caption: 'Grounded task brief',
+      src: '/landing-docs-task-brief.png',
+    },
+    {
+      alt: 'Run lobby showing an active agent run for a selected team server.',
+      caption: 'Live run tracking',
+      src: '/landing-run-lobby-active.png',
+    },
+    {
+      alt: 'Run room showing a creating Cursor Cloud Agent state and live run stream.',
+      caption: 'Agent launch',
+      src: '/landing-run-room-creating.png',
+    },
+    {
+      alt: 'Cursor Cloud Agent handoff page summarizing implementation, validation, and changed files.',
+      caption: 'Agent handoff',
+      src: '/landing-agent-handoff.png',
+    },
+    {
+      alt: 'Run room with pull request status, evidence tabs, and reference links.',
+      caption: 'Evidence room',
+      src: '/landing-run-room-links.png',
+    },
+    {
+      alt: 'Run room showing a finished Cursor Cloud Agent and approval controls.',
+      caption: 'Reviewer controls',
+      src: '/landing-run-room-finished.png',
+    },
+    {
+      alt: 'GitHub pull request with summary, validation, and issue traceability details.',
+      caption: 'Linked pull request',
+      src: '/landing-github-pr.png',
+    },
+  ];
 
   // Keep the landing page static so it stays available before any auth config loads.
   return (
@@ -759,6 +816,14 @@ function LandingPage() {
             <span>Review the implementation package, approve the PR, or request a retry from the run room.</span>
           </li>
         </ol>
+        <div className="landing-workflow-showcase" aria-label="Product workflow screenshots">
+          {workflowScreenshots.map((screenshot) => (
+            <figure className="landing-workflow-shot" key={screenshot.src}>
+              <img alt={screenshot.alt} loading="lazy" src={screenshot.src} />
+              <figcaption>{screenshot.caption}</figcaption>
+            </figure>
+          ))}
+        </div>
       </section>
     </main>
   );
