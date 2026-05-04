@@ -15,6 +15,7 @@ import {
   GoogleOAuthReturnPage,
   IntegrationStatusCard,
   IntegrationsPage,
+  LandingPage,
   LoadingState,
   LogStream,
   MetricCard,
@@ -473,8 +474,18 @@ describe('App route and page component functions', () => {
     mockedUseApiQuery().mockReturnValue({ data: null, error: null, isLoading: true });
   });
 
+  it('renders the public landing page before sign-in', () => {
+    renderWithRouter(<LandingPage />, '/');
+
+    expect(screen.getByText('Coordinate AI work from intake to approval.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Enter mission control' })).toHaveAttribute('href', '/sign-in');
+  });
+
   it('renders App signed-out flow and SignInPage submit behavior', async () => {
     renderWithRouter(<App />, '/');
+
+    expect(screen.getByText('Coordinate AI work from intake to approval.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'Enter mission control' }));
 
     await waitFor(() => {
       expect(screen.getByText('Sign in to enter mission control.')).toBeInTheDocument();

@@ -617,9 +617,13 @@ function App() {
     return <StandaloneStatePanel eyebrow="Restoring session" title="Checking your sign-in..." body="Loading your role and workspace access." />;
   }
 
-  // Route the user into the auth screen or the signed-in product shell.
+  // Route the user into the public landing page, auth screen, or signed-in product shell.
   return (
     <Routes>
+      <Route
+        element={currentUser ? <Navigate replace to="/dashboard" /> : <LandingPage />}
+        path="/"
+      />
       <Route
         element={currentUser ? <Navigate replace to="/dashboard" /> : <SignInPage onSignedIn={handleSignedIn} />}
         path="/sign-in"
@@ -657,9 +661,85 @@ function App() {
           <Route element={<Navigate replace to="/dashboard" />} path="*" />
         </Route>
       ) : (
-        <Route element={<Navigate replace to="/sign-in" />} path="*" />
+        <Route element={<Navigate replace to="/" />} path="*" />
       )}
     </Routes>
+  );
+}
+
+/**
+ * Renders the public product landing page before visitors reach sign-in.
+ */
+function LandingPage() {
+  const highlights = [
+    'Route intake from GitHub, Linear, Jira, and docs into one review lane.',
+    'Watch agent runs move through evidence, blockers, approval, and merge.',
+    'Give reviewers a Discord-inspired workspace for every automation handoff.',
+  ];
+
+  // Keep the landing page static so it stays available before any auth config loads.
+  return (
+    <main className="landing-shell">
+      <nav aria-label="Landing page" className="landing-nav">
+        <Link className="landing-brand" to="/">
+          <span className="discord-home-mark landing-brand-mark" aria-hidden="true">
+            AI
+          </span>
+          <span>
+            <span className="eyebrow">AI Control Pane</span>
+            <strong>Engineering Mission Control</strong>
+          </span>
+        </Link>
+        <Link className="ghost-button" to="/sign-in">
+          Sign in
+        </Link>
+      </nav>
+
+      <section className="landing-hero" aria-labelledby="landing-title">
+        <div className="landing-hero-copy">
+          <p className="eyebrow">Agentic engineering operations</p>
+          <h1 id="landing-title">Coordinate AI work from intake to approval.</h1>
+          <p className="muted-copy">
+            AI Control Pane gives product engineering teams one place to request work, monitor agent execution, inspect evidence, and approve the next step.
+          </p>
+          <div className="landing-actions">
+            <Link className="primary-button" to="/sign-in">
+              Enter mission control
+            </Link>
+            <a className="ghost-button" href="#landing-capabilities">
+              See how it works
+            </a>
+          </div>
+        </div>
+
+        <div className="landing-preview-card" aria-label="Run room preview">
+          <div className="landing-preview-header">
+            <span className="status-badge status-running">Live run</span>
+            <span className="subtle-copy">platform / checkout-flow</span>
+          </div>
+          <div className="landing-preview-room">
+            <p className="eyebrow">Run room</p>
+            <h2>Ship payment retry copy</h2>
+            <p className="muted-copy">Evidence is ready, CI passed, and one reviewer decision is waiting.</p>
+            <div className="landing-preview-grid">
+              <span>Diff captured</span>
+              <span>Tests passed</span>
+              <span>PR linked</span>
+              <span>Approval queued</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-capability-grid" id="landing-capabilities" aria-label="Product capabilities">
+        {highlights.map((highlight, index) => (
+          <article className="landing-capability-card" key={highlight}>
+            <span>{String(index + 1).padStart(2, '0')}</span>
+            <p>{highlight}</p>
+          </article>
+        ))}
+      </section>
+    </main>
   );
 }
 
@@ -3686,6 +3766,7 @@ export {
   GoogleOAuthReturnPage,
   IntegrationStatusCard,
   IntegrationsPage,
+  LandingPage,
   LoadingState,
   LogStream,
   MetricCard,
