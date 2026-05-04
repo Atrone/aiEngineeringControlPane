@@ -686,7 +686,7 @@ function LandingPage() {
             AI
           </span>
           <span>
-            <span className="eyebrow">AI Control Pane</span>
+            <span className="eyebrow">AI Control Plane</span>
             <strong>Engineering Mission Control</strong>
           </span>
         </Link>
@@ -700,7 +700,7 @@ function LandingPage() {
           <p className="eyebrow">Agentic engineering operations</p>
           <h1 id="landing-title">Coordinate AI work from intake to approval.</h1>
           <p className="muted-copy">
-            AI Control Pane gives product engineering teams one place to request work, monitor agent execution, inspect evidence, and approve the next step.
+            AI Control Plane gives product engineering teams one place to request work, monitor agent execution, inspect evidence, and approve the next step.
           </p>
           <div className="landing-actions">
             <Link className="primary-button" to="/sign-in">
@@ -743,7 +743,7 @@ function LandingPage() {
       <section className="landing-workflow-panel" id="landing-workflow" aria-labelledby="landing-workflow-title">
         <div className="landing-workflow-copy">
           <p className="eyebrow">How it works</p>
-          <h2 id="landing-workflow-title">From request to reviewed pull request in one control pane.</h2>
+          <h2 id="landing-workflow-title">From request to reviewed pull request in one control plane.</h2>
         </div>
         <ol className="landing-workflow-list">
           <li>
@@ -990,7 +990,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
           <div className="form-grid">
             <div className="field-group field-group-wide">
               <span>Google sign-in</span>
-              <p className="muted-copy">Continue with Google to create the same app session used by the rest of the control pane.</p>
+              <p className="muted-copy">Continue with Google to create the same app session used by the rest of the control plane.</p>
             </div>
 
             <label className="field-group">
@@ -2901,7 +2901,7 @@ function buildRoleLabel(role: UserRole): string {
  */
 function buildRoleCapabilityItems(): ReactNode[] {
   const capabilities: string[] = [
-    'Access every route in the control pane.',
+    'Access every route in the control plane.',
     'Launch work, review approval-ready runs, and resolve decisions.',
     'Manage integrations, sign-in flows, and control-pane governance.',
   ];
