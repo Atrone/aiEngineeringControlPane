@@ -671,6 +671,7 @@ function App() {
  * Renders the public product landing page before visitors reach sign-in.
  */
 function LandingPage() {
+  const [selectedWorkflowScreenshotSrc, setSelectedWorkflowScreenshotSrc] = useState<string | null>(null);
   const highlights = [
     'Route intake from GitHub, Linear, Jira, and docs into one review lane.',
     'Watch agent runs move through evidence, blockers, approval, and merge.',
@@ -733,6 +734,31 @@ function LandingPage() {
       src: '/landing-github-pr.png',
     },
   ];
+  let selectedWorkflowScreenshot: (typeof workflowScreenshots)[number] | null = null;
+
+  for (const screenshot of workflowScreenshots) {
+    if (screenshot.src === selectedWorkflowScreenshotSrc) {
+      // Store the matched screenshot so the modal renders the same caption and alt copy.
+      selectedWorkflowScreenshot = screenshot;
+      break;
+    }
+  }
+
+  /**
+   * Opens the clicked workflow screenshot in the enlarged preview overlay.
+   */
+  function handleWorkflowScreenshotOpen(event: MouseEvent<HTMLButtonElement>): void {
+    // Read the selected screenshot path from the button value to avoid allocating per-card handlers.
+    setSelectedWorkflowScreenshotSrc(event.currentTarget.value);
+  }
+
+  /**
+   * Closes the enlarged workflow screenshot preview.
+   */
+  function handleWorkflowScreenshotClose(): void {
+    // Clear the selected screenshot so the modal is removed from the DOM.
+    setSelectedWorkflowScreenshotSrc(null);
+  }
 
   // Keep the landing page static so it stays available before any auth config loads.
   return (
@@ -819,12 +845,34 @@ function LandingPage() {
         <div className="landing-workflow-showcase" aria-label="Product workflow screenshots">
           {workflowScreenshots.map((screenshot) => (
             <figure className="landing-workflow-shot" key={screenshot.src}>
-              <img alt={screenshot.alt} loading="lazy" src={screenshot.src} />
+              <button
+                aria-label={`Enlarge ${screenshot.caption} screenshot`}
+                className="landing-workflow-shot-button"
+                onClick={handleWorkflowScreenshotOpen}
+                type="button"
+                value={screenshot.src}
+              >
+                <img alt={screenshot.alt} loading="lazy" src={screenshot.src} />
+              </button>
               <figcaption>{screenshot.caption}</figcaption>
             </figure>
           ))}
         </div>
       </section>
+      {selectedWorkflowScreenshot ? (
+        <div className="landing-image-modal" role="dialog" aria-label={`${selectedWorkflowScreenshot.caption} screenshot preview`} aria-modal="true">
+          <button className="landing-image-modal-backdrop" onClick={handleWorkflowScreenshotClose} type="button">
+            <span className="sr-only">Close screenshot preview</span>
+          </button>
+          <figure className="landing-image-modal-content">
+            <button className="ghost-button landing-image-modal-close" onClick={handleWorkflowScreenshotClose} type="button">
+              Close
+            </button>
+            <img alt={`Expanded ${selectedWorkflowScreenshot.alt}`} src={selectedWorkflowScreenshot.src} />
+            <figcaption>{selectedWorkflowScreenshot.caption}</figcaption>
+          </figure>
+        </div>
+      ) : null}
     </main>
   );
 }
