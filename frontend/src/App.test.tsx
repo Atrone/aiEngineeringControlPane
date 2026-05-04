@@ -6,7 +6,6 @@ import {
   AccessDeniedState,
   App,
   ApprovalHistoryList,
-  ArtifactResultsPanelBody,
   DashboardPage,
   DetailList,
   DocumentList,
@@ -57,10 +56,8 @@ import {
   deriveDashboardMetrics,
   exchangeGoogleAuthCodeOnce,
   extractUrlsFromText,
-  extractCursorAgentIdFromRun,
   findIntegrationStatus,
   findIssueById,
-  formatArtifactSize,
   formatEventTime,
   formatReviewEffortValue,
   getConnectionValue,
@@ -102,7 +99,6 @@ vi.mock('./lib/api', () => ({
   fetchCurrentUser: vi.fn(),
   fetchDashboard: vi.fn(),
   fetchDashboardSuggestedActions: vi.fn(),
-  fetchCursorAgentArtifactResults: vi.fn(),
   fetchIntegrations: vi.fn(),
   fetchIntakeOptions: vi.fn(),
   fetchRunDetail: vi.fn(),
@@ -320,16 +316,6 @@ describe('App pure helper functions', () => {
     expect(buildReviewEffortLabel(blockedRun)).toContain('1 actionable blocker');
     expect(resolveCurrentPullRequestUrl(reviewRun)).toBe('https://github.com/octo/repo/pull/42');
     expect(resolveCurrentPullRequestUrl(createRunFixture({ pullRequest: undefined }))).toBe('https://github.com/octo/repo/pull/42');
-    expect(formatArtifactSize(null)).toBe('Size unavailable');
-    expect(formatArtifactSize(512)).toBe('512 B');
-    expect(formatArtifactSize(2048)).toBe('2.0 KiB');
-    expect(extractCursorAgentIdFromRun(createRunFixture({
-      cloudAgent: {
-        id: 'fallback-agent',
-        status: 'completed',
-        target: { url: 'https://cursor.com/agents?id=bc-cloud-agent-1' },
-      },
-    }))).toBe('bc-cloud-agent-1');
 
     const groups = buildRunTeamGroups([reviewRun, blockedRun, mergedRun]);
     expect(groups).toHaveLength(2);
@@ -394,7 +380,7 @@ describe('App pure helper functions', () => {
     expect(links.issueLinks).toEqual(['https://linear.example.com/issue/ACP-1']);
     expect(links.interfaceLinks).toContain('https://github.com/octo/repo/pull/42');
     expect(links.ciLinks).toEqual(['https://ci.example.com/build/1']);
-    expect(links.artifactLinks).toContain('https://preview.example.com');
+    expect(links.evidenceLinks).toContain('https://preview.example.com');
   });
 });
 
@@ -449,33 +435,6 @@ describe('App presentational component functions', () => {
     expect(screen.getByText('Reviewer approved')).toBeInTheDocument();
     expect(screen.getByText('Pull request:')).toBeInTheDocument();
     expect(screen.getByText('Issue traceability')).toBeInTheDocument();
-  });
-
-  it('renders Cursor artifact result contents', () => {
-    const run = createRunFixture();
-    mockedUseApiQuery().mockReturnValue({
-      data: {
-        agentId: 'agent-1',
-        items: [{
-          path: 'artifacts/result.txt',
-          sizeBytes: 12,
-          updatedAt: '2026-04-28T10:08:00.000Z',
-          downloadUrl: 'https://cursor-artifacts.example.com/result.txt',
-          expiresAt: '2026-04-28T10:23:00.000Z',
-          contentType: 'text/plain',
-          encoding: 'utf-8',
-          content: 'artifact body',
-        }],
-      },
-      error: null,
-      isLoading: false,
-    });
-
-    render(<ArtifactResultsPanelBody run={run} />);
-
-    expect(screen.getByText('artifacts/result.txt')).toBeInTheDocument();
-    expect(screen.getByText('artifact body')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open temporary download' })).toHaveAttribute('href', 'https://cursor-artifacts.example.com/result.txt');
   });
 
   it('renders empty states for list-oriented components', () => {
@@ -602,31 +561,7 @@ describe('App route and page component functions', () => {
       integrationStatuses: [integrationStatus],
       currentUser,
     };
-    mockedUseApiQuery().mockImplementation((loader) => {
-      if (loader === api.fetchDashboard) {
-        // Return dashboard data to the route-level query across rerenders.
-        return { data: dashboard, error: null, isLoading: false };
-      }
-
-      // Return Cursor artifact contents for the run-room preview query.
-      return {
-        data: {
-          agentId: 'agent-1',
-          items: [{
-            path: 'artifacts/result.txt',
-            sizeBytes: 12,
-            updatedAt: '2026-04-28T10:08:00.000Z',
-            downloadUrl: 'https://cursor-artifacts.example.com/result.txt',
-            expiresAt: '2026-04-28T10:23:00.000Z',
-            contentType: 'text/plain',
-            encoding: 'utf-8',
-            content: 'artifact body',
-          }],
-        },
-        error: null,
-        isLoading: false,
-      };
-    });
+    mockedUseApiQuery().mockReturnValue({ data: dashboard, error: null, isLoading: false });
 
     renderWithRouter(<DashboardPage />, '/dashboard');
 
@@ -637,13 +572,12 @@ describe('App route and page component functions', () => {
 
     const suggestionsTitle = await screen.findByText('Suggested next actions');
     const teamWorkspace = screen.getByRole('region', { name: 'Team run workspace' });
-    const artifactResultsTitle = screen.getByText('Artifact results');
     const openRunRoomLink = screen.getByRole('link', { name: 'Open run room' });
 
     expect(screen.queryByText(/Model:/i)).not.toBeInTheDocument();
     expect(suggestionsTitle.compareDocumentPosition(teamWorkspace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText('artifact body')).toBeInTheDocument();
-    expect(artifactResultsTitle.compareDocumentPosition(openRunRoomLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText('Artifact results')).not.toBeInTheDocument();
+    expect(openRunRoomLink).toBeInTheDocument();
   });
 
   it('renders loading states for data-backed page components', () => {

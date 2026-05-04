@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from app.config import Settings
@@ -69,26 +69,6 @@ def _request_json(
     with urlopen(request, timeout=12) as response:
         # Decode the provider response body into a Python dictionary.
         return json.loads(response.read().decode("utf-8"))
-
-
-def _request_bytes(
-    url: str,
-    *,
-    headers: Optional[Mapping[str, str]] = None,
-) -> Tuple[bytes, str]:
-    """Executes a binary HTTP request and returns the body with its content type."""
-
-    request_headers = {"Accept": "*/*"}
-
-    if headers:
-        # Merge caller-provided headers into the binary request headers.
-        request_headers.update(headers)
-
-    request = Request(url, headers=request_headers, method="GET")
-
-    with urlopen(request, timeout=12) as response:
-        # Return the raw payload and content type so callers can decide how to display it.
-        return response.read(), response.headers.get("Content-Type", "application/octet-stream")
 
 
 def normalize_linear_api_key(api_key: str) -> str:
@@ -409,86 +389,6 @@ def get_cursor_agent(settings: Settings, agent_id: str) -> Dict[str, Any]:
 
     # Return the latest agent payload so callers can map it into app state.
     return response
-
-
-def list_cursor_artifacts(settings: Settings, agent_id: str) -> Dict[str, Any]:
-    """Lists artifacts produced by a Cursor Cloud Agent."""
-
-    normalized_api_key = normalize_cursor_api_key(settings.cursor_api_key)
-    normalized_agent_id = agent_id.strip()
-
-    if not normalized_api_key:
-        # Reject artifact lookups when the Cursor API key has not been configured.
-        raise CursorAgentError("Connect Cursor Cloud Agents before reading artifact results.")
-
-    if not normalized_agent_id:
-        # Reject empty agent identifiers before constructing the upstream request URL.
-        raise CursorAgentError("Cursor artifact lookup failed because the agent id was missing.")
-
-    try:
-        response = _request_json(
-            f"https://api.cursor.com/v0/agents/{normalized_agent_id}/artifacts",
-            headers=_build_cursor_headers(normalized_api_key),
-        )
-    except HTTPError as error:
-        # Surface the upstream Cursor API error message with a product-specific prefix.
-        raise CursorAgentError(f"Cursor artifact listing failed: {_extract_provider_error_message(error)}") from error
-    except (URLError, json.JSONDecodeError) as error:
-        # Surface transport and parsing failures with a stable product-specific message.
-        raise CursorAgentError("Cursor artifact listing failed because the API response could not be read.") from error
-
-    # Return the provider payload so callers can preserve the listed artifact metadata.
-    return response
-
-
-def download_cursor_artifact(settings: Settings, agent_id: str, artifact_path: str) -> Dict[str, Any]:
-    """Retrieves a temporary Cursor download URL for a single artifact path."""
-
-    normalized_api_key = normalize_cursor_api_key(settings.cursor_api_key)
-    normalized_agent_id = agent_id.strip()
-    normalized_artifact_path = artifact_path.strip()
-
-    if not normalized_api_key:
-        # Reject artifact downloads when the Cursor API key has not been configured.
-        raise CursorAgentError("Connect Cursor Cloud Agents before downloading artifact results.")
-
-    if not normalized_agent_id or not normalized_artifact_path:
-        # Reject incomplete inputs before constructing the upstream request URL.
-        raise CursorAgentError("Cursor artifact download failed because the agent id or artifact path was missing.")
-
-    encoded_artifact_path = quote(normalized_artifact_path, safe="")
-
-    try:
-        response = _request_json(
-            f"https://api.cursor.com/v0/agents/{normalized_agent_id}/artifacts/download?path={encoded_artifact_path}",
-            headers=_build_cursor_headers(normalized_api_key),
-        )
-    except HTTPError as error:
-        # Surface the upstream Cursor API error message with a product-specific prefix.
-        raise CursorAgentError(f"Cursor artifact download failed: {_extract_provider_error_message(error)}") from error
-    except (URLError, json.JSONDecodeError) as error:
-        # Surface transport and parsing failures with a stable product-specific message.
-        raise CursorAgentError("Cursor artifact download failed because the API response could not be read.") from error
-
-    # Return the presigned URL payload for the requested artifact.
-    return response
-
-
-def read_cursor_artifact_content(download_url: str) -> Tuple[bytes, str]:
-    """Downloads the artifact bytes from Cursor's presigned artifact URL."""
-
-    normalized_download_url = download_url.strip()
-
-    if not normalized_download_url:
-        # Reject empty download URLs before making a network request.
-        raise CursorAgentError("Cursor artifact content could not be read because the download URL was missing.")
-
-    try:
-        # Read the presigned artifact URL returned by Cursor's Download An Artifact API.
-        return _request_bytes(normalized_download_url)
-    except (HTTPError, URLError) as error:
-        # Surface transport failures with a stable product-specific message.
-        raise CursorAgentError("Cursor artifact content could not be read from the temporary download URL.") from error
 
 
 def _build_linear_issue_query(team_field: Optional[str] = None) -> str:

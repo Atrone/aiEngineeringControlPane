@@ -958,15 +958,7 @@ def _build_cursor_prompt(
         "- Keep the branch and pull request aligned with the issue ticket.",
         "- Run the most relevant validation before handing off the work.",
         "- Summarize the changes and any follow-up reviewer notes in the final response.",
-        "Afterwards, produce a review artifact.\n\n"
-        "After coding and testing, create a Cursor Cloud Agent artifact (so it is available through the artifact listing/download API) called artifacts/evidence.md that includes:\n\n"
-        "1. A grouped diff of all modified files\n"
-        "2. A summary of what changed and why\n"
-        "3. Risk areas to review manually\n"
-        "4. Test evidence, including commands run and results\n"
-        "5. Any screenshots/videos/logs if relevant\n"
-        "6. A checklist for reviewer acceptance\n\n"
-        "Also include a raw git diff in the final message using:\n"
+        "Include a raw git diff in the final message using:\n"
         "git diff origin/main...HEAD",
     ]
 

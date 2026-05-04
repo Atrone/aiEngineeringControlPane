@@ -42,26 +42,6 @@ class ProviderCursorTests(unittest.TestCase):
             agent_payload = providers.get_cursor_agent(connected_settings, "agent-1")
             self.assertEqual(agent_payload["userEmail"], "developer@example.com")
 
-        with patch(
-            "app.providers._request_json",
-            side_effect=[
-                {"items": [{"path": "artifacts/result.txt", "sizeBytes": 12}]},
-                {"url": "https://artifact.example.com/result.txt", "expiresAt": "2026-04-28T19:00:00Z"},
-            ],
-        ), patch("app.providers._request_bytes", return_value=(b"artifact body", "text/plain")):
-            # Confirm Cursor artifact helpers list, download, and read artifact results.
-            artifact_listing = providers.list_cursor_artifacts(connected_settings, "agent-1")
-            artifact_download = providers.download_cursor_artifact(
-                connected_settings,
-                "agent-1",
-                "artifacts/result.txt",
-            )
-            artifact_body, artifact_content_type = providers.read_cursor_artifact_content(artifact_download["url"])
-            self.assertEqual(artifact_listing["items"][0]["path"], "artifacts/result.txt")
-            self.assertEqual(artifact_download["url"], "https://artifact.example.com/result.txt")
-            self.assertEqual(artifact_body, b"artifact body")
-            self.assertEqual(artifact_content_type, "text/plain")
-
         with self.assertRaises(providers.CursorAgentError):
             # Confirm live launch is rejected when Cursor is not configured.
             providers.launch_cursor_agent(

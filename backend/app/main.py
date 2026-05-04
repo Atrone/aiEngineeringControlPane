@@ -1,13 +1,10 @@
 """FastAPI entrypoint for the AI Control Pane demo backend."""
 
-import base64
 import json
 from typing import Any, Dict, Optional, Sequence, Tuple
 from urllib.error import HTTPError
 from urllib.error import URLError
-from urllib.parse import parse_qs
 from urllib.parse import urlencode
-from urllib.parse import urlparse
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
@@ -52,13 +49,9 @@ from app.schemas import RunCreateRequest
 from app.schemas import SignInRequest
 from app.schemas import TaskCreateRequest
 from app.providers import classify_intake_issues_by_scope
-from app.providers import CursorAgentError
-from app.providers import download_cursor_artifact
 from app.providers import OpenAIEnrichmentError
 from app.providers import enrich_intake_field
 from app.providers import identify_repository_for_issue
-from app.providers import list_cursor_artifacts
-from app.providers import read_cursor_artifact_content
 from app.providers import suggest_next_actions_for_runs
 from app.state import create_run
 from app.state import create_task
@@ -246,84 +239,6 @@ def _build_auth_config_payload() -> Dict[str, bool]:
     }
 
 
-def _encode_artifact_content(content: bytes) -> Tuple[str, str]:
-    """Encodes artifact bytes into a display-safe string payload."""
-
-    try:
-        # Prefer readable UTF-8 text so artifact files can be reviewed inline.
-        return content.decode("utf-8"), "utf-8"
-    except UnicodeDecodeError:
-        # Fall back to base64 for binary artifacts such as screenshots.
-        return base64.b64encode(content).decode("ascii"), "base64"
-
-
-def _build_cursor_artifact_results(effective_settings: Any, agent_id: str) -> Dict[str, Any]:
-    """Builds run-room artifact results from Cursor's artifact APIs."""
-
-    artifact_listing = list_cursor_artifacts(effective_settings, agent_id)
-    listed_items = artifact_listing.get("artifacts", artifact_listing.get("items", []))
-    artifact_results = []
-
-    if not isinstance(listed_items, list):
-        # Treat malformed provider payloads as empty instead of breaking the run room.
-        listed_items = []
-
-    for listed_item in listed_items:
-        if not isinstance(listed_item, dict):
-            # Skip malformed artifact rows without affecting the remaining results.
-            continue
-
-        artifact_path = str(listed_item.get("absolutePath", listed_item.get("path", ""))).strip()
-
-        if not artifact_path:
-            # Skip rows without the artifact path required by Cursor's download endpoint.
-            continue
-
-        download_payload = download_cursor_artifact(effective_settings, agent_id, artifact_path)
-        download_url = str(download_payload.get("url", "")).strip()
-        artifact_bytes, content_type = read_cursor_artifact_content(download_url)
-        encoded_content, encoding = _encode_artifact_content(artifact_bytes)
-
-        # Preserve Cursor metadata and attach the downloaded artifact body for the UI.
-        artifact_results.append(
-            {
-                "path": artifact_path,
-                "sizeBytes": listed_item.get("sizeBytes"),
-                "updatedAt": listed_item.get("updatedAt", ""),
-                "downloadUrl": download_url,
-                "expiresAt": download_payload.get("expiresAt", ""),
-                "contentType": content_type,
-                "encoding": encoding,
-                "content": encoded_content,
-            }
-        )
-
-    # Return a stable panel payload even when the agent has not produced artifacts yet.
-    return {"agentId": agent_id, "items": artifact_results}
-
-
-def _extract_cursor_agent_id(cloud_agent: Dict[str, Any]) -> str:
-    """Extracts the Cursor agent id from the stored Cloud Agent URL."""
-
-    target_payload = cloud_agent.get("target", {})
-    cloud_agent_url = ""
-
-    if isinstance(target_payload, dict):
-        # Cursor Cloud Agent URLs expose the real provider id as the id query parameter.
-        cloud_agent_url = str(target_payload.get("url", "") or "").strip()
-
-    if cloud_agent_url:
-        parsed_query = parse_qs(urlparse(cloud_agent_url).query)
-        url_agent_id = str((parsed_query.get("id") or [""])[0]).strip()
-
-        if url_agent_id:
-            # Prefer the provider id from the URL over any control-pane task or PR slug.
-            return url_agent_id
-
-    # Fall back to the provider payload id for older stored runs that lack a URL.
-    return str(cloud_agent.get("id", "") or "").strip()
-
-
 @app.get("/health")
 def health_check() -> Dict[str, str]:
     """Creates a lightweight health response for local development checks."""
@@ -479,66 +394,6 @@ def read_run_detail(
     except KeyError as error:
         # Translate a missing run into an HTTP-friendly not found response.
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' was not found.") from error
-
-
-@app.get("/runs/{run_id}/artifacts")
-@app.get("/api/runs/{run_id}/artifacts")
-def read_run_artifacts(
-    run_id: str,
-    request: Request,
-) -> Dict[str, Any]:
-    """Returns downloaded Cursor artifact contents for a specific run."""
-
-    effective_settings, request_headers, _ = _authorized_request(request)
-
-    try:
-        # Reuse the run detail resolver so Cursor-backed runs are synced before artifacts load.
-        run_detail = get_run_detail(run_id, effective_settings, request_headers)
-    except KeyError as error:
-        # Translate a missing run into an HTTP-friendly not found response.
-        raise HTTPException(status_code=404, detail=f"Run '{run_id}' was not found.") from error
-
-    cloud_agent = run_detail.get("cloudAgent")
-
-    if not isinstance(cloud_agent, dict):
-        # Return an empty artifact payload for simulated runs without a Cursor agent.
-        return {"agentId": "", "items": []}
-
-    agent_id = _extract_cursor_agent_id(cloud_agent)
-
-    if not agent_id:
-        # Return an empty artifact payload when the Cursor payload is missing its id.
-        return {"agentId": "", "items": []}
-
-    try:
-        # List, download, and read each artifact produced for the Cursor agent.
-        return _build_cursor_artifact_results(effective_settings, agent_id)
-    except CursorAgentError as cursor_error:
-        # Translate Cursor-side failures into a readable upstream error response.
-        raise HTTPException(status_code=502, detail=str(cursor_error)) from cursor_error
-
-
-@app.get("/cursor/agents/{agent_id}/artifacts")
-@app.get("/api/cursor/agents/{agent_id}/artifacts")
-def read_cursor_agent_artifacts(
-    agent_id: str,
-    request: Request,
-) -> Dict[str, Any]:
-    """Returns downloaded Cursor artifact contents for a Cursor Cloud Agent."""
-
-    effective_settings, _, _ = _authorized_request(request)
-    normalized_agent_id = agent_id.strip()
-
-    if not normalized_agent_id:
-        # Reject empty provider ids before trying to call Cursor.
-        raise HTTPException(status_code=400, detail="Cursor Cloud Agent id is required.")
-
-    try:
-        # List, download, and read each artifact produced for the Cursor agent id.
-        return _build_cursor_artifact_results(effective_settings, normalized_agent_id)
-    except CursorAgentError as cursor_error:
-        # Translate Cursor-side failures into a readable upstream error response.
-        raise HTTPException(status_code=502, detail=str(cursor_error)) from cursor_error
 
 
 @app.get("/approvals")

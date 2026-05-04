@@ -70,7 +70,7 @@ class StateCursorPromptTests(unittest.TestCase):
         self.assertIn("Second issue", prompt_text)
         self.assertIn("docs/testing.md", prompt_text)
         self.assertTrue(prompt_text.endswith("git diff origin/main...HEAD"))
-        self.assertIn("create a Cursor artifact called artifacts/evidence.md", prompt_text)
+        self.assertNotIn("artifacts/evidence.md", prompt_text)
 
         run_with_sync_markers = {"_linearSyncedStatusName": "Done", "_jiraSyncedStatusName": "Done"}
 
