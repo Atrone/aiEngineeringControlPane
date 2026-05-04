@@ -480,7 +480,8 @@ describe('App route and page component functions', () => {
     expect(screen.getByText('Coordinate AI work from intake to approval.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Enter mission control' })).toHaveAttribute('href', '/sign-in');
     expect(screen.getByRole('link', { name: 'See how it works' })).toHaveAttribute('href', '#landing-workflow');
-    expect(screen.getByText('From request to reviewed pull request in one control pane.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'From request to reviewed pull request in one control plane.' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Run Channels lobby showing team servers, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
   });
 
   it('renders App signed-out flow and SignInPage submit behavior', async () => {
