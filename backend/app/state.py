@@ -1432,10 +1432,12 @@ def _build_run_extensions(
         "issueTraceability": deepcopy(run.get("_issueTraceability"))
         or {
             "issueId": str(resolved_issue.get("id", "")),
+            "originIssueId": str(resolved_issue.get("id", "")),
             "ticket": str(resolved_issue.get("ticket", run.get("ticket", ""))),
             "provider": str(resolved_issue.get("provider", "fallback")),
             "status": str(resolved_issue.get("status", run.get("status", ""))),
             "sourceStatus": str(resolved_issue.get("status", run.get("status", ""))),
+            "originStatus": str(resolved_issue.get("status", run.get("status", ""))),
         },
         "pullRequest": pull_request,
         "ci": ci_status,
