@@ -26,6 +26,7 @@ ALLOWED_ROLES: Sequence[str] = ("admin",)
 SESSION_STORE: Dict[str, "SessionRecord"] = {}
 SESSION_EXPIRATION_SECONDS = 60 * 60 * 12
 GOOGLE_STATE_STORE: Dict[str, float] = {}
+GOOGLE_CONSUMED_STATE_STORE: Dict[str, float] = {}
 GOOGLE_EXCHANGE_CODE_STORE: Dict[str, "GoogleExchangeRecord"] = {}
 GOOGLE_STATE_TTL_SECONDS = 600
 GOOGLE_EXCHANGE_CODE_TTL_SECONDS = 300
@@ -225,6 +226,69 @@ def _read_signed_session_token(token: str) -> Optional[Dict[str, Any]]:
     return payload
 
 
+def _build_signed_google_state_token(nonce: str, expires_at: float) -> str:
+    """Builds a signed Google OAuth state token for serverless callback validation."""
+
+    payload = {
+        "version": 1,
+        "nonce": nonce,
+        "exp": int(expires_at),
+    }
+    payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload_segment = _encode_token_segment(payload_json)
+    signature = hmac.new(
+        _get_session_signing_secret().encode("utf-8"),
+        payload_segment.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    signature_segment = _encode_token_segment(signature)
+
+    # Return the signed state token so a later callback can be validated without shared memory.
+    return f"{payload_segment}.{signature_segment}"
+
+
+def _read_signed_google_state_token(state_token: str) -> Optional[Dict[str, Any]]:
+    """Validates and parses a signed Google OAuth state token."""
+
+    token_parts = state_token.split(".", 1)
+
+    if len(token_parts) != 2:
+        # Return no payload when the state token is not in the signed two-part format.
+        return None
+
+    payload_segment, signature_segment = token_parts
+    expected_signature = hmac.new(
+        _get_session_signing_secret().encode("utf-8"),
+        payload_segment.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    expected_signature_segment = _encode_token_segment(expected_signature)
+
+    if not compare_digest(signature_segment, expected_signature_segment):
+        # Return no payload when the state token signature does not verify.
+        return None
+
+    try:
+        payload = json.loads(_decode_token_segment(payload_segment).decode("utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        # Return no payload when the state body cannot be decoded safely.
+        return None
+
+    if not isinstance(payload, dict):
+        # Return no payload when the state body is not a JSON object.
+        return None
+
+    expires_at = int(payload.get("exp", 0))
+    nonce = str(payload.get("nonce", "")).strip()
+
+    if not nonce or expires_at <= int(time.time()):
+        # Return no payload when the state token is incomplete or expired.
+        return None
+
+    # Return the verified state payload for callback validation.
+    return payload
+
+
 def _build_session_record_from_token(token: str, payload: Mapping[str, Any]) -> Optional["SessionRecord"]:
     """Reconstructs a session record from a verified stateless token payload."""
 
@@ -297,6 +361,12 @@ def _prune_expired_google_records() -> None:
             # Drop the expired state token from the in-memory store.
             GOOGLE_STATE_STORE.pop(state_token, None)
 
+    # Remove consumed state markers after their replay window has elapsed.
+    for state_token, expires_at in list(GOOGLE_CONSUMED_STATE_STORE.items()):
+        if expires_at <= current_time:
+            # Drop the expired consumed marker so the memory store stays bounded.
+            GOOGLE_CONSUMED_STATE_STORE.pop(state_token, None)
+
     # Remove expired exchange codes before they can be reused.
     for exchange_code, record in list(GOOGLE_EXCHANGE_CODE_STORE.items()):
         if record.expires_at <= current_time:
@@ -315,10 +385,11 @@ def create_google_oauth_state() -> str:
     """Creates a short-lived OAuth state token for the Google redirect flow."""
 
     _prune_expired_google_records()
-    state_token = token_urlsafe(24)
+    expires_at = time.time() + GOOGLE_STATE_TTL_SECONDS
+    state_token = _build_signed_google_state_token(token_urlsafe(24), expires_at)
 
     # Persist the state token with a short expiration to block CSRF replay.
-    GOOGLE_STATE_STORE[state_token] = time.time() + GOOGLE_STATE_TTL_SECONDS
+    GOOGLE_STATE_STORE[state_token] = expires_at
     return state_token
 
 
@@ -327,13 +398,30 @@ def consume_google_oauth_state(state_token: str) -> None:
 
     _prune_expired_google_records()
     normalized_state_token = state_token.strip()
+    current_time = time.time()
+    consumed_expires_at = GOOGLE_CONSUMED_STATE_STORE.get(normalized_state_token)
+
+    if consumed_expires_at and consumed_expires_at > current_time:
+        # Reject a replay when this function instance already consumed the state token.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The Google sign-in request is no longer valid.")
+
     expires_at = GOOGLE_STATE_STORE.pop(normalized_state_token, None)
 
-    if expires_at and expires_at > time.time():
+    if expires_at and expires_at > current_time:
+        # Remember the consumed token locally so warm instances keep single-use semantics.
+        GOOGLE_CONSUMED_STATE_STORE[normalized_state_token] = expires_at
+
         # Accept the state token once and only once when it is still valid.
         return
 
-    # Reject missing, reused, or expired state tokens to protect the callback flow.
+    signed_state_payload = _read_signed_google_state_token(normalized_state_token)
+
+    if signed_state_payload:
+        # Mark the self-verifying token consumed on this instance after serverless fallback validation.
+        GOOGLE_CONSUMED_STATE_STORE[normalized_state_token] = int(signed_state_payload["exp"])
+        return
+
+    # Reject missing, tampered, reused, or expired state tokens to protect the callback flow.
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The Google sign-in request is no longer valid.")
 
 
