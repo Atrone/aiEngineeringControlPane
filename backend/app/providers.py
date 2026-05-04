@@ -2941,6 +2941,8 @@ def fetch_github_pull_request_status(
     return {
         "source": "github",
         "state": resolved_state,
+        "title": str(pull_request_payload.get("title", "") or "").strip(),
+        "body": str(pull_request_payload.get("body", "") or "").strip(),
         "merged": merged_flag,
         "mergedAt": merged_at_value,
         "approved": approved_flag,

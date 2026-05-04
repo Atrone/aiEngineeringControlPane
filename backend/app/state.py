@@ -744,13 +744,14 @@ def _fallback_issues() -> List[Dict[str, Any]]:
     return issues
 
 
-def _fallback_repositories(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _fallback_repositories(runs: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """Builds a fallback repository catalog from the seeded run summaries."""
 
+    source_runs = RUN_STORE if runs is None else runs
     unique_names: List[str] = []
 
     # Preserve the first-seen order of repository names from the seeded data.
-    for run in runs:
+    for run in source_runs:
         repo_name = str(run.get("repo", ""))
 
         if repo_name and repo_name not in unique_names:
@@ -1032,6 +1033,8 @@ def _simulated_pull_request_state(run: Dict[str, Any]) -> Dict[str, Any]:
     simulated_state: Dict[str, Any] = {
         "source": "simulated",
         "state": "open",
+        "title": f"{run.get('ticket', 'Run')}: {run.get('title', 'Generated task')}",
+        "body": str(run.get("summary", "") or "").strip(),
         "merged": False,
         "mergedAt": None,
         "approved": False,
@@ -1337,6 +1340,8 @@ def _build_pull_request_view(
     """Builds the public pull-request payload shown in the task detail UI."""
 
     run_status = str(run.get("status", ""))
+    run_ticket = str(run.get("ticket") or run.get("id") or "")
+    run_title = str(run.get("title") or "Untitled task")
     # Resolve the displayed PR URL with the effective settings when they are available.
     pull_request_url = _resolve_pull_request_url(run, settings=settings)
     resolved_state = str(pr_state.get("state", "open"))
@@ -1355,7 +1360,9 @@ def _build_pull_request_view(
 
     # Return the extended pull-request payload used by the frontend.
     return {
-        "number": pr_state.get("number") or run["ticket"],
+        "number": pr_state.get("number") or run_ticket,
+        "title": pr_state.get("title") or f"{run_ticket}: {run_title}",
+        "body": pr_state.get("body") or run.get("summary", ""),
         "status": display_status,
         "state": resolved_state if pr_state.get("source") != "skipped" else display_status,
         "url": pr_state.get("htmlUrl") or pull_request_url,
@@ -1387,7 +1394,7 @@ def _build_run_extensions(
         "provider": "fallback",
         "url": "",
     }
-    resolved_user = current_user or deepcopy(run.get("_requestedBySnapshot")) or {
+    resolved_user = deepcopy(run.get("_requestedBySnapshot")) or current_user or {
         "name": run["owner"],
         "email": f"{run['owner'].lower()}@example.com",
         "role": "admin",
@@ -1511,34 +1518,35 @@ def _build_dashboard_blocked_reasons() -> List[str]:
     return blocked_reasons
 
 
-def _build_review_effort_value(review_candidate_count: int, total_review_runtime_seconds: int) -> str:
-    """Formats the review-effort metric from review-ready and merged run runtimes."""
+def _build_review_effort_value(review_run_count: int, total_review_runtime_seconds: int) -> str:
+    """Formats the review-effort metric from the total lobby runtime."""
 
-    if review_candidate_count == 0:
-        # Return a stable zero state when no runs have reached review yet.
+    if review_run_count == 0:
+        # Return a stable zero state when no lobby runs are visible.
         return "0 min"
 
-    average_runtime_seconds = round(total_review_runtime_seconds / review_candidate_count)
+    total_review_minutes = round(total_review_runtime_seconds / 60)
 
-    # Return the average runtime in minutes for the dashboard metric value.
-    return f"{max(1, round(average_runtime_seconds / 60))} min"
+    # Return the summed runtime in minutes for the dashboard metric value.
+    return f"{max(0, total_review_minutes)} min"
 
 
-def _compute_metrics(runs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+def _compute_metrics(runs: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, str]]:
     """Computes dashboard metrics from the in-memory run state."""
 
+    metric_runs = RUN_STORE if runs is None else runs
     active_runs = 0
     running_runs = 0
     blocked_runs = 0
     merged_runs = 0
     approved_runs = 0
     review_ready = 0
-    review_candidate_count = 0
+    review_effort_run_count = 0
     total_review_runtime_seconds = 0
     blocker_counts = _collect_blocker_counts()
 
     # Aggregate the run counts needed by the dashboard cards.
-    for run in runs:
+    for run in metric_runs:
         status = str(run.get("status", ""))
 
         if status in {"Running", "Review", "Approved", "Blocked", "Retry"}:
@@ -1565,12 +1573,12 @@ def _compute_metrics(runs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
             # Count review-ready runs for reviewer load visibility.
             review_ready += 1
 
-        if status in {"Review", "Approved", "Merged"}:
-            # Include review-ready, approved, and merged runs in the review-effort estimate.
-            review_candidate_count += 1
+        if str(run.get("runtime", "")).strip():
+            # Sum the per-run effort shown in the lobby channel list.
+            review_effort_run_count += 1
             total_review_runtime_seconds += _parse_runtime_seconds(str(run.get("runtime", "00:00")))
 
-    review_effort_value = _build_review_effort_value(review_candidate_count, total_review_runtime_seconds)
+    review_effort_value = _build_review_effort_value(review_effort_run_count, total_review_runtime_seconds)
     active_runs_hint_parts: List[str] = []
 
     # Call out live runs first since they directly reflect current agent activity.
@@ -1600,9 +1608,9 @@ def _compute_metrics(runs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
         else "No merged runs are recorded in the current session"
     )
     review_effort_hint = (
-        f"Average runtime across {review_candidate_count} run{'s' if review_candidate_count != 1 else ''} that reached review or merge"
-        if review_candidate_count
-        else "No review-ready or merged runs are available to estimate review effort"
+        f"Total runtime across {review_effort_run_count} run{'s' if review_effort_run_count != 1 else ''} in this lobby"
+        if review_effort_run_count
+        else "No runs are available to estimate review effort"
     )
 
     # Return the derived dashboard metrics.
@@ -1629,14 +1637,15 @@ def _find_integration_status(statuses: List[Dict[str, Any]], integration_id: str
 
 def _build_dashboard_suggested_actions(
     *,
-    runs: List[Dict[str, Any]],
+    runs: Optional[List[Dict[str, Any]]] = None,
     repository_names: List[str],
     integration_statuses: List[Dict[str, Any]],
 ) -> List[str]:
     """Builds dashboard suggestions from current run and integration state."""
 
-    review_ready_count = len([run for run in runs if run.get("status") == "Review"])
-    stalled_runs = len([run for run in runs if run.get("status") in {"Blocked", "Retry"}])
+    suggestion_runs = RUN_STORE if runs is None else runs
+    review_ready_count = len([run for run in suggestion_runs if run.get("status") == "Review"])
+    stalled_runs = len([run for run in suggestion_runs if run.get("status") in {"Blocked", "Retry"}])
     blocker_counts = _collect_blocker_counts()
     suggested_actions: List[str] = []
     top_blocker = next(iter(blocker_counts), "")
@@ -1726,11 +1735,24 @@ def get_integration_catalog(settings: Settings, headers: Mapping[str, str]) -> D
     }
 
 
+def _catalog_team_runs(integration_catalog: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """Returns team-scoped runs from an integration catalog."""
+
+    catalog_runs = integration_catalog.get("teamRuns")
+
+    if catalog_runs is None:
+        # Preserve compatibility with older mocked catalogs that predate team scoping.
+        return list(RUN_STORE)
+
+    # Materialize the catalog runs so downstream payload builders can iterate safely.
+    return list(catalog_runs)
+
+
 def get_dashboard_payload(settings: Settings, headers: Mapping[str, str]) -> Dict[str, Any]:
     """Builds the dashboard payload from the live-or-fallback run state."""
 
     integration_catalog = get_integration_catalog(settings, headers)
-    team_runs = list(integration_catalog.get("teamRuns", []))
+    team_runs = _catalog_team_runs(integration_catalog)
     repository_names = summarize_repository_names(integration_catalog["repositories"])
     runs: List[Dict[str, Any]] = []
 
@@ -1769,7 +1791,7 @@ def get_run_detail(run_id: str, settings: Settings, headers: Mapping[str, str]) 
     """Returns the enriched run detail payload for a specific run."""
 
     integration_catalog = get_integration_catalog(settings, headers)
-    team_runs = list(integration_catalog.get("teamRuns", []))
+    team_runs = _catalog_team_runs(integration_catalog)
 
     # Search the in-memory run store for the requested record.
     for run in team_runs:
@@ -1807,7 +1829,7 @@ def get_runs_by_ids(
         return []
 
     integration_catalog = get_integration_catalog(settings, headers)
-    team_runs = list(integration_catalog.get("teamRuns", []))
+    team_runs = _catalog_team_runs(integration_catalog)
     runs_by_id: Dict[str, Dict[str, Any]] = {}
 
     # Index the current run store by ID so lookups stay O(n) instead of O(n*m).
@@ -1845,7 +1867,7 @@ def get_approval_payload(settings: Settings, headers: Mapping[str, str]) -> Dict
     """Builds the approval inbox payload from the current run state."""
 
     integration_catalog = get_integration_catalog(settings, headers)
-    team_runs = list(integration_catalog.get("teamRuns", []))
+    team_runs = _catalog_team_runs(integration_catalog)
     queue: List[Dict[str, str]] = []
     enriched_runs: List[Dict[str, Any]] = []
     review_count = 0
@@ -2027,7 +2049,7 @@ def create_run(
     """Starts or restarts an AI run for an existing task."""
 
     integration_catalog = get_integration_catalog(settings, headers)
-    team_runs = list(integration_catalog.get("teamRuns", []))
+    team_runs = _catalog_team_runs(integration_catalog)
 
     # Search the in-memory run store for the task being started.
     for run in team_runs:

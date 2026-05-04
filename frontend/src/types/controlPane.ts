@@ -189,6 +189,8 @@ export type RunSummary = {
   issue?: IssueRecord;
   pullRequest?: {
     number: string;
+    title?: string;
+    body?: string;
     status: string;
     state?: PullRequestState;
     url: string;

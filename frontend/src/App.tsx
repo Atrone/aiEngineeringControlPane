@@ -221,23 +221,22 @@ function collectBlockerReasons(runs: RunSummary[]): Set<string> {
 }
 
 /**
- * Formats the review-effort metric value from review candidate runtimes.
+ * Formats the review-effort metric value from the total lobby runtime.
  */
-function formatReviewEffortValue(candidateCount: number, totalRuntimeSeconds: number): string {
-  if (candidateCount === 0) {
-    // Return a stable zero state when no visible runs have reached review yet.
+function formatReviewEffortValue(runCount: number, totalRuntimeSeconds: number): string {
+  if (runCount === 0) {
+    // Return a stable zero state when no lobby runs are visible.
     return '0 min';
   }
 
-  const averageSeconds = Math.round(totalRuntimeSeconds / candidateCount);
-  const averageMinutes = Math.max(1, Math.round(averageSeconds / 60));
+  const totalMinutes = Math.round(totalRuntimeSeconds / 60);
 
-  // Return the average runtime in minutes for the dashboard metric value.
-  return `${averageMinutes} min`;
+  // Return the summed runtime in minutes for the dashboard metric value.
+  return `${Math.max(0, totalMinutes)} min`;
 }
 
 /**
- * Derives the four dashboard metric cards from the runs shown in the dashboard feed.
+ * Derives the four dashboard metric cards from the runs shown in the selected lobby.
  */
 function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
   let activeRuns = 0;
@@ -246,7 +245,7 @@ function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
   let approvedRuns = 0;
   let blockedRuns = 0;
   let mergedRuns = 0;
-  let reviewCandidateCount = 0;
+  let reviewEffortRunCount = 0;
   let totalReviewRuntimeSeconds = 0;
 
   // Aggregate the run counts needed by the dashboard cards.
@@ -283,9 +282,9 @@ function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
       mergedRuns += 1;
     }
 
-    if (status === 'Review' || status === 'Approved' || status === 'Merged') {
-      // Include review-ready, approved, and merged runs in the review-effort estimate.
-      reviewCandidateCount += 1;
+    if (run.runtime.trim()) {
+      // Sum the per-run effort shown in the lobby channel list.
+      reviewEffortRunCount += 1;
       totalReviewRuntimeSeconds += parseRuntimeSeconds(run.runtime);
     }
   }
@@ -319,16 +318,16 @@ function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
     ? `${mergedRuns} run${mergedRuns === 1 ? '' : 's'} reached the merged state in the current session`
     : 'No merged runs are recorded in the current session';
 
-  const reviewEffortHint = reviewCandidateCount > 0
-    ? `Average runtime across ${reviewCandidateCount} run${reviewCandidateCount === 1 ? '' : 's'} that reached review or merge`
-    : 'No review-ready or merged runs are available to estimate review effort';
+  const reviewEffortHint = reviewEffortRunCount > 0
+    ? `Total runtime across ${reviewEffortRunCount} run${reviewEffortRunCount === 1 ? '' : 's'} in this lobby`
+    : 'No runs are available to estimate review effort';
 
   // Return the derived dashboard metrics in the same order as the backend payload.
   return [
     { label: 'Active runs', value: String(activeRuns), hint: activeRunsHint },
     { label: 'Blocked tasks', value: String(blockedRuns), hint: blockedRunsHint },
     { label: 'Merged today', value: String(mergedRuns), hint: mergedRunsHint },
-    { label: 'Review effort', value: formatReviewEffortValue(reviewCandidateCount, totalReviewRuntimeSeconds), hint: reviewEffortHint },
+    { label: 'Review effort', value: formatReviewEffortValue(reviewEffortRunCount, totalReviewRuntimeSeconds), hint: reviewEffortHint },
   ];
 }
 
@@ -442,6 +441,23 @@ function buildReviewEffortLabel(run: RunSummary): string {
 }
 
 /**
+ * Reports whether the run lobby should show open pull-request content.
+ */
+function shouldShowRunLobbyPullRequest(run: RunSummary): boolean {
+  const pullRequest = run.pullRequest;
+
+  if (run.status !== 'Review' || !pullRequest) {
+    // Keep the lobby preview focused on review-ready runs with attached PR metadata.
+    return false;
+  }
+
+  const normalizedState = (pullRequest.state ?? pullRequest.status ?? '').toLowerCase();
+
+  // Show only open review handoffs so approved, merged, closed, or draft PRs do not linger.
+  return !pullRequest.merged && (normalizedState === 'open' || normalizedState === 'ready_for_review');
+}
+
+/**
  * Groups runs into Discord-style teams and counts channel state by team.
  */
 function buildRunTeamGroups(runs: RunSummary[]): RunTeamGroup[] {
@@ -492,6 +508,37 @@ function buildTeamHoverLabel(group: RunTeamGroup): string {
 
   // Summarize the channel state mix so the server hover carries operational signal.
   return `${group.label}: ${runCount} run${runCount === 1 ? '' : 's'} · ${group.activeCount} active · ${group.blockedCount} blocked · ${group.mergedCount} merged`;
+}
+
+/**
+ * Renders open pull-request content inside the run lobby preview card.
+ */
+function RunLobbyPullRequestPreview(props: { run: RunSummary }) {
+  const pullRequest = props.run.pullRequest;
+
+  if (!shouldShowRunLobbyPullRequest(props.run) || !pullRequest) {
+    // Render nothing unless the selected run is waiting for review on an open PR.
+    return null;
+  }
+
+  const pullRequestTitle = (pullRequest.title ?? '').trim() || `PR #${pullRequest.number}`;
+  const pullRequestBody = (pullRequest.body ?? '').trim() || 'No pull request description was provided.';
+
+  // Return a compact PR content card that sits directly above the run-room action.
+  return (
+    <section className="run-lobby-pr-content" aria-label="Open pull request content">
+      <div className="run-lobby-pr-header">
+        <p className="eyebrow">Open PR content</p>
+        {pullRequest.url ? (
+          <a className="external-link" href={pullRequest.url} rel="noreferrer" target="_blank">
+            #{pullRequest.number}
+          </a>
+        ) : null}
+      </div>
+      <strong>{pullRequestTitle}</strong>
+      <p className="run-lobby-pr-body">{pullRequestBody}</p>
+    </section>
+  );
 }
 
 /**
@@ -1113,10 +1160,10 @@ function DashboardPage() {
 
   // Limit the dashboard run feed to runs backed by real issue-tracker records.
   const issueTrackerLinkedRuns = query.data.runs.filter((run) => isIssueTrackerRun(run));
-  const derivedMetrics = deriveDashboardMetrics(issueTrackerLinkedRuns);
   const teamGroups = buildRunTeamGroups(issueTrackerLinkedRuns);
   const selectedTeam = teamGroups.find((group) => group.key === selectedTeamKey) ?? teamGroups[0] ?? null;
   const selectedTeamRuns = selectedTeam?.runs ?? [];
+  const derivedMetrics = deriveDashboardMetrics(selectedTeamRuns);
   const selectedPreviewRun = selectedTeamRuns[0] ?? null;
   const metricCards: ReactNode[] = [];
   const teamServerButtons: ReactNode[] = [];
@@ -1262,6 +1309,8 @@ function DashboardPage() {
               </div>
 
               <p className="subtle-copy">{buildReviewEffortLabel(selectedPreviewRun)}</p>
+
+              <RunLobbyPullRequestPreview run={selectedPreviewRun} />
 
               <Link className="primary-button link-button" to={`/tasks/${selectedPreviewRun.id}`}>
                 Open run room
@@ -3690,6 +3739,7 @@ export {
   isIssueTrackerRun,
   parseRuntimeSeconds,
   resolveCurrentPullRequestUrl,
+  shouldShowRunLobbyPullRequest,
 };
 
 export default App;

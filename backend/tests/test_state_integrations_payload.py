@@ -58,9 +58,9 @@ class StateIntegrationPayloadTests(unittest.TestCase):
         self.assertGreaterEqual(len(blocker_counts), 1)
         self.assertGreaterEqual(len(blocked_reasons), 1)
 
-        # Confirm review-effort formatting covers empty and non-empty review sets.
+        # Confirm review-effort formatting covers empty and non-empty lobby run sets.
         self.assertEqual(state._build_review_effort_value(0, 0), "0 min")
-        self.assertEqual(state._build_review_effort_value(2, 720), "6 min")
+        self.assertEqual(state._build_review_effort_value(2, 720), "12 min")
 
         # Confirm dashboard metrics expose the expected summary cards.
         metrics = state._compute_metrics()
