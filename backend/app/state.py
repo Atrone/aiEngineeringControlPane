@@ -1422,6 +1422,14 @@ def _build_run_extensions(
     return {
         **public_run,
         "issue": resolved_issue,
+        "issueTraceability": deepcopy(run.get("_issueTraceability"))
+        or {
+            "issueId": str(resolved_issue.get("id", "")),
+            "ticket": str(resolved_issue.get("ticket", run.get("ticket", ""))),
+            "provider": str(resolved_issue.get("provider", "fallback")),
+            "status": str(resolved_issue.get("status", run.get("status", ""))),
+            "sourceStatus": str(resolved_issue.get("status", run.get("status", ""))),
+        },
         "pullRequest": pull_request,
         "ci": ci_status,
         "documents": attached_documents,
@@ -1975,6 +1983,13 @@ def create_task(
     issue_provider = str(issue.get("provider", "manual") if issue else "manual").strip() or "manual"
     issue_status = str(issue.get("status", "Unknown") if issue else "Unknown").strip() or "Unknown"
     run_id = f"{ticket.lower()}-{_slugify(title)}"
+    issue_traceability = {
+        "issueId": str(issue.get("id", "")) if issue else "",
+        "ticket": ticket,
+        "provider": str(issue.get("provider", "fallback")) if issue else "fallback",
+        "status": str(issue.get("status", "Not linked")) if issue else "Not linked",
+        "sourceStatus": str(issue.get("status", "Not linked")) if issue else "Not linked",
+    }
 
     new_run = {
         "id": run_id,
@@ -1995,8 +2010,11 @@ def create_task(
             "tests": ["Waiting for the run to report validation results."],
             "commands": [f"Run requested from task intake for {ticket} ({issue_provider}, status: {issue_status})"],
             "rationale": [
-                f"The run was created from issue, repo, and docs context selected in the intake flow.",
-                f"Traceability source: {issue_provider} ticket {ticket} in status {issue_status}.",
+                "The run was created from issue, repo, and docs context selected in the intake flow.",
+                (
+                    f"Issue traceability preserved from {ticket}"
+                    f" ({issue_traceability['provider']} · {issue_traceability['status']})."
+                ),
             ],
         },
         "blockers": ["Starting run"],
@@ -2006,6 +2024,7 @@ def create_task(
         "_taskPrompt": str(payload.get("prompt", "")),
         "_acceptanceCriteria": str(payload.get("acceptanceCriteria", "")),
         "_issueSnapshot": deepcopy(issue) if issue else None,
+        "_issueTraceability": issue_traceability,
         "_documentSnapshots": deepcopy(selected_documents),
         "_requestedBySnapshot": deepcopy(current_user),
         "_teamId": active_team_id,
