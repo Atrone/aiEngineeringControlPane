@@ -62,49 +62,6 @@ class MainRunRouteTests(unittest.TestCase):
                 main.post_run(run_payload, request)
             self.assertEqual(run_error.exception.status_code, 404)
 
-    def test_run_artifacts_route_downloads_cursor_artifact_contents(self) -> None:
-        """Covers the run artifacts route for Cursor-backed and missing runs."""
-
-        request = SimpleNamespace(headers={"authorization": "Bearer session"})
-
-        with patch("app.main._authorized_request", return_value=("settings", {"x": "y"}, "session")), patch(
-            "app.main.get_run_detail",
-            return_value={"cloudAgent": {"id": "pr-name", "target": {"url": "https://cursor.com/agents?id=agent-1"}}},
-        ), patch(
-            "app.main._build_cursor_artifact_results",
-            return_value={"agentId": "agent-1", "items": [{"path": "artifacts/result.txt"}]},
-        ) as mock_build_cursor_artifact_results:
-            # Confirm the route resolves the run and delegates artifact assembly to the Cursor helper.
-            artifact_response = main.read_run_artifacts("run-1", request)
-            self.assertEqual(artifact_response["agentId"], "agent-1")
-            self.assertEqual(mock_build_cursor_artifact_results.call_args.args[1], "agent-1")
-
-        with patch("app.main._authorized_request", return_value=("settings", {"x": "y"}, "session")), patch(
-            "app.main._build_cursor_artifact_results",
-            return_value={"agentId": "agent-1", "items": [{"path": "artifacts/result.txt"}]},
-        ) as mock_build_cursor_artifact_results:
-            # Confirm the direct Cursor agent route avoids resolving a control-pane task id.
-            artifact_response = main.read_cursor_agent_artifacts("agent-1", request)
-            self.assertEqual(artifact_response["agentId"], "agent-1")
-            self.assertEqual(mock_build_cursor_artifact_results.call_args.args[1], "agent-1")
-
-        with patch("app.main._authorized_request", return_value=("settings", {"x": "y"}, "session")), patch(
-            "app.main.get_run_detail",
-            return_value={"cloudAgent": None},
-        ):
-            # Confirm non-Cursor runs return a stable empty artifact payload.
-            artifact_response = main.read_run_artifacts("run-1", request)
-            self.assertEqual(artifact_response, {"agentId": "", "items": []})
-
-        with patch("app.main._authorized_request", return_value=("settings", {"x": "y"}, "session")), patch(
-            "app.main.get_run_detail",
-            side_effect=KeyError("missing-run"),
-        ):
-            # Confirm missing runs become 404 responses from the artifact route.
-            with self.assertRaises(HTTPException) as artifact_error:
-                main.read_run_artifacts("missing-run", request)
-            self.assertEqual(artifact_error.exception.status_code, 404)
-
     def test_approval_route_delegates_and_translates_missing_runs(self) -> None:
         """Covers approval submission success and missing-run translation behavior."""
 

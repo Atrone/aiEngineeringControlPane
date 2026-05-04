@@ -162,22 +162,6 @@ export type RunLiveView = {
   evidenceTabs: RunEvidenceTabs;
 };
 
-export type CursorArtifactResult = {
-  path: string;
-  sizeBytes?: number | null;
-  updatedAt: string;
-  downloadUrl: string;
-  expiresAt: string;
-  contentType: string;
-  encoding: 'utf-8' | 'base64';
-  content: string;
-};
-
-export type CursorArtifactResultsPayload = {
-  agentId: string;
-  items: CursorArtifactResult[];
-};
-
 export type ApprovalHistoryEntry = {
   decision: string;
   source?: ApprovalHistorySource;

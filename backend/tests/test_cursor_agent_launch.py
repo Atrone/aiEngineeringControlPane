@@ -214,7 +214,7 @@ class CursorAgentLaunchTests(unittest.TestCase):
         self.assertIn("ENG-42", launch_payload["prompt"]["text"])
         self.assertIn("Wire Cursor Cloud Agents into run launch", launch_payload["prompt"]["text"])
         self.assertIn("Launch against GitHub and preserve the Linear issue ticket context.", launch_payload["prompt"]["text"])
-        self.assertIn("artifacts/evidence.md", launch_payload["prompt"]["text"])
+        self.assertNotIn("artifacts/evidence.md", launch_payload["prompt"]["text"])
         self.assertTrue(launch_payload["prompt"]["text"].endswith("git diff origin/main...HEAD"))
 
 

@@ -21,7 +21,6 @@ import {
   fetchDashboardSuggestedActions,
   fetchIntegrations,
   fetchIntakeOptions,
-  fetchCursorAgentArtifactResults,
   fetchRunDetail,
   hasSessionToken,
   signIn,
@@ -31,8 +30,6 @@ import type {
   AuthSession,
   AuthConfig,
   CurrentUser,
-  CursorArtifactResult,
-  CursorArtifactResultsPayload,
   CursorConnectRequest,
   DashboardMetric,
   DocumentRecord,
@@ -1266,11 +1263,6 @@ function DashboardPage() {
 
               <p className="subtle-copy">{buildReviewEffortLabel(selectedPreviewRun)}</p>
 
-              <div className="run-room-artifact-preview">
-                <p className="eyebrow">Artifact results</p>
-                <ArtifactResultsPanelBody run={selectedPreviewRun} />
-              </div>
-
               <Link className="primary-button link-button" to={`/tasks/${selectedPreviewRun.id}`}>
                 Open run room
               </Link>
@@ -2091,11 +2083,6 @@ function TaskDetailPage() {
       />
 
       <Panel
-        body={<ArtifactResultsPanelBody run={activeRun} />}
-        title="Artifact results"
-      />
-
-      <Panel
         body={<TaskImplementationPackagePanelBody run={activeRun} />}
         title="Reference links"
       />
@@ -2136,56 +2123,6 @@ function TaskDetailPage() {
 }
 
 /**
- * Formats a byte count for compact artifact metadata.
- */
-function formatArtifactSize(sizeBytes?: number | null): string {
-  if (sizeBytes === null || sizeBytes === undefined || !Number.isFinite(sizeBytes)) {
-    // Return a neutral placeholder when Cursor did not include a size.
-    return 'Size unavailable';
-  }
-
-  if (sizeBytes < 1024) {
-    // Keep tiny artifacts in exact bytes so logs and text files remain precise.
-    return `${sizeBytes} B`;
-  }
-
-  const kibibytes = sizeBytes / 1024;
-
-  if (kibibytes < 1024) {
-    // Use KiB for normal screenshots, logs, and small generated files.
-    return `${kibibytes.toFixed(1)} KiB`;
-  }
-
-  // Use MiB for larger binary artifacts.
-  return `${(kibibytes / 1024).toFixed(1)} MiB`;
-}
-
-/**
- * Extracts the Cursor agent id from the Cloud Agent URL stored on a run.
- */
-function extractCursorAgentIdFromRun(run: RunSummary): string {
-  const cloudAgentUrl = run.cloudAgent?.target?.url ?? '';
-
-  if (cloudAgentUrl) {
-    try {
-      // Cursor Cloud Agent URLs carry the provider agent id in the id query parameter.
-      const parsedUrl = new URL(cloudAgentUrl);
-      const urlAgentId = parsedUrl.searchParams.get('id')?.trim() ?? '';
-
-      if (urlAgentId) {
-        // Prefer the provider id from the URL over the control-pane task or PR slug.
-        return urlAgentId;
-      }
-    } catch {
-      // Fall through to the direct cloudAgent id if the stored URL is not parseable.
-    }
-  }
-
-  // Fall back to the provider payload id for older stored runs that lack a URL.
-  return run.cloudAgent?.id?.trim() ?? '';
-}
-
-/**
  * Resolves the best current pull-request URL available for a run room.
  */
 function resolveCurrentPullRequestUrl(run: RunSummary): string {
@@ -2200,100 +2137,6 @@ function resolveCurrentPullRequestUrl(run: RunSummary): string {
 
   // Fall back to the Cursor target PR URL while the canonical run payload catches up.
   return run.cloudAgent?.target?.prUrl?.trim() ?? '';
-}
-
-/**
- * Renders one downloaded artifact body in a review-friendly format.
- */
-function ArtifactResultBody(props: { artifact: CursorArtifactResult }) {
-  const isImageArtifact = props.artifact.encoding === 'base64' && props.artifact.contentType.toLowerCase().startsWith('image/');
-
-  if (isImageArtifact) {
-    // Render binary image artifacts inline using the backend-provided base64 payload.
-    return (
-      <img
-        alt={`Artifact ${props.artifact.path}`}
-        className="artifact-result-image"
-        src={`data:${props.artifact.contentType};base64,${props.artifact.content}`}
-      />
-    );
-  }
-
-  if (props.artifact.encoding === 'base64') {
-    // Show non-image binary artifacts as base64 so reviewers can still inspect or copy the bytes.
-    return <pre className="artifact-result-content">{props.artifact.content}</pre>;
-  }
-
-  // Render text-like artifacts exactly as downloaded from Cursor.
-  return <pre className="artifact-result-content">{props.artifact.content}</pre>;
-}
-
-/**
- * Shows the downloaded Cursor artifact contents for the selected run room.
- */
-function ArtifactResultsPanelBody(props: { run: RunSummary }) {
-  const agentId = extractCursorAgentIdFromRun(props.run);
-  const query = useApiQuery<CursorArtifactResultsPayload>(
-    () => {
-      if (!agentId) {
-        // Resolve an empty artifact payload without touching the backend for simulated runs.
-        return Promise.resolve({ agentId: '', items: [] });
-      }
-
-      // Fetch artifacts by Cursor agent id, not the run-room URL slug or PR branch name.
-      return fetchCursorAgentArtifactResults(agentId);
-    },
-    [agentId],
-    { pollIntervalMs: agentId ? 15000 : undefined },
-  );
-
-  if (!agentId) {
-    // Simulated or offline runs do not have Cursor artifact storage to query.
-    return <p className="muted-copy">No Cursor Cloud Agent is linked to this run, so artifact results are unavailable.</p>;
-  }
-
-  if (query.isLoading && !query.data) {
-    // Keep the panel stable while the backend lists and downloads Cursor artifacts.
-    return <p className="muted-copy">Loading Cursor artifact results...</p>;
-  }
-
-  if (query.error) {
-    // Surface Cursor download failures without hiding the rest of the run room.
-    return <p className="error-copy">{query.error}</p>;
-  }
-
-  const artifacts = query.data?.items ?? [];
-
-  if (artifacts.length === 0) {
-    // Cursor agents may finish without writing files under artifacts/.
-    return <p className="muted-copy">No downloaded artifact results are available for this run yet.</p>;
-  }
-
-  // Render every downloaded artifact with metadata and its inline content.
-  return (
-    <div className="artifact-results-list">
-      {artifacts.map((artifact) => (
-        <article className="artifact-result-card" key={artifact.path}>
-          <div className="artifact-result-header">
-            <div>
-              <strong>{artifact.path}</strong>
-              <p className="subtle-copy">
-                {formatArtifactSize(artifact.sizeBytes)} · {artifact.contentType || 'Unknown content type'}
-                {artifact.updatedAt ? ` · Updated ${formatEventTime(artifact.updatedAt)}` : ''}
-              </p>
-            </div>
-            {artifact.downloadUrl ? (
-              <a className="external-link" href={artifact.downloadUrl} rel="noreferrer" target="_blank">
-                Open temporary download
-              </a>
-            ) : null}
-          </div>
-          {artifact.expiresAt ? <p className="subtle-copy">Download URL expires {formatEventTime(artifact.expiresAt)}.</p> : null}
-          <ArtifactResultBody artifact={artifact} />
-        </article>
-      ))}
-    </div>
-  );
 }
 
 /**
@@ -3649,12 +3492,12 @@ function collectTaskDetailReferenceLinks(run: RunSummary): {
   issueLinks: string[];
   interfaceLinks: string[];
   ciLinks: string[];
-  artifactLinks: string[];
+  evidenceLinks: string[];
 } {
   const issueLinks: string[] = [];
   const interfaceLinks: string[] = [];
   const ciLinks: string[] = [];
-  const artifactLinks: string[] = [];
+  const evidenceLinks: string[] = [];
 
   if (run.issue?.url) {
     // Preserve issue-provider traceability by linking directly back to the originating ticket.
@@ -3689,7 +3532,7 @@ function collectTaskDetailReferenceLinks(run: RunSummary): {
   ];
 
   // Include proof links captured in run evidence (screenshots, recordings, logs, or docs).
-  artifactLinks.push(...evidenceUrls);
+  evidenceLinks.push(...evidenceUrls);
 
   const dedupe = (items: string[]): string[] => Array.from(new Set(items));
 
@@ -3698,7 +3541,7 @@ function collectTaskDetailReferenceLinks(run: RunSummary): {
     issueLinks: dedupe(issueLinks),
     interfaceLinks: dedupe(interfaceLinks),
     ciLinks: dedupe(ciLinks),
-    artifactLinks: dedupe(artifactLinks),
+    evidenceLinks: dedupe(evidenceLinks),
   };
 }
 
@@ -3711,7 +3554,7 @@ function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
     links.issueLinks.length > 0
     || links.interfaceLinks.length > 0
     || links.ciLinks.length > 0
-    || links.artifactLinks.length > 0
+    || links.evidenceLinks.length > 0
   );
 
   /**
@@ -3761,7 +3604,7 @@ function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
       {links.issueLinks.length > 0 ? renderLinkGroup('Issue traceability', links.issueLinks, '') : null}
       {links.interfaceLinks.length > 0 ? renderLinkGroup('Updated interface', links.interfaceLinks, '') : null}
       {links.ciLinks.length > 0 ? renderLinkGroup('CI results', links.ciLinks, '') : null}
-      {links.artifactLinks.length > 0 ? renderLinkGroup('Screenshots or artifacts', links.artifactLinks, '') : null}
+      {links.evidenceLinks.length > 0 ? renderLinkGroup('Evidence links', links.evidenceLinks, '') : null}
     </div>
   );
 }
@@ -3785,8 +3628,6 @@ export {
   AccessDeniedState,
   App,
   ApprovalHistoryList,
-  ArtifactResultBody,
-  ArtifactResultsPanelBody,
   DashboardPage,
   DetailList,
   DocumentList,
@@ -3839,8 +3680,6 @@ export {
   extractUrlsFromText,
   findIntegrationStatus,
   findIssueById,
-  extractCursorAgentIdFromRun,
-  formatArtifactSize,
   formatEventTime,
   formatReviewEffortValue,
   getConnectionValue,

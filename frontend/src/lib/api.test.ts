@@ -19,7 +19,6 @@ import {
   fetchCurrentUser,
   fetchDashboard,
   fetchDashboardSuggestedActions,
-  fetchCursorAgentArtifactResults,
   fetchIntakeOptions,
   fetchIntegrations,
   fetchRunDetail,
@@ -260,7 +259,6 @@ describe('resource API functions', () => {
   it.each([
     ['fetchDashboard', () => fetchDashboard(), '/api/dashboard'],
     ['fetchRunDetail', () => fetchRunDetail('run-1'), '/api/runs/run-1'],
-    ['fetchCursorAgentArtifactResults', () => fetchCursorAgentArtifactResults('agent 1/slash'), '/api/cursor/agents/agent%201%2Fslash/artifacts'],
     ['fetchApprovals', () => fetchApprovals(), '/api/approvals'],
     ['fetchCurrentUser', () => fetchCurrentUser(), '/api/me'],
     ['fetchIntakeOptions', () => fetchIntakeOptions(), '/api/intake'],

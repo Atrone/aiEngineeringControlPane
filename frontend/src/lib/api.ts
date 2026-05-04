@@ -4,7 +4,6 @@ import type {
   AuthConfig,
   AuthSession,
   CurrentUser,
-  CursorArtifactResultsPayload,
   CursorConnectRequest,
   DashboardPayload,
   DashboardSuggestedActionsRequest,
@@ -256,14 +255,6 @@ export async function fetchDashboardSuggestedActions(
 export async function fetchRunDetail(runId: string): Promise<RunSummary> {
   // Load the selected run by ID so the detail page can render evidence.
   return getJson<RunSummary>(`/api/runs/${runId}`);
-}
-
-/**
- * Fetches downloaded Cursor artifact contents for a specific Cursor Cloud Agent.
- */
-export async function fetchCursorAgentArtifactResults(agentId: string): Promise<CursorArtifactResultsPayload> {
-  // Load artifact contents by Cursor agent ID instead of the control-pane task slug.
-  return getJson<CursorArtifactResultsPayload>(`/api/cursor/agents/${encodeURIComponent(agentId)}/artifacts`);
 }
 
 /**
