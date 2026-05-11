@@ -2444,8 +2444,6 @@ function TaskDetailPage() {
         <Panel
           body={
             <div className="stacked-copy">
-              <p>Attached docs</p>
-              <DocumentList documents={activeRun.documents ?? []} />
               <p>Approval history</p>
               <ApprovalHistoryList entries={activeRun.approvalHistory ?? []} />
             </div>
