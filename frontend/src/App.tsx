@@ -478,8 +478,8 @@ function buildIssueTrackerRunLabel(run: RunSummary): string {
     return 'Linear-linked issue';
   }
 
-  // Fall back to a generic issue-tracker label when the provider is unexpected.
-  return 'Issue-tracker-linked issue';
+  // Fall back to generic task context so non-tracker delegated work still reads accurately in the lobby.
+  return 'Delegated task context';
 }
 
 /**
@@ -1420,10 +1420,10 @@ function DashboardPage() {
   const [missionOwnerToken, setMissionOwnerToken] = useState<string>('');
   const [missionRisk, setMissionRisk] = useState<'' | RiskLevel>('');
   const missionFilterFormId = useId();
-  const issueTrackerLinkedRuns = query.data
-    ? query.data.runs.filter((run) => isIssueTrackerRun(run))
+  const lobbyRuns = query.data
+    ? query.data.runs
     : [];
-  const teamGroups = buildRunTeamGroups(issueTrackerLinkedRuns);
+  const teamGroups = buildRunTeamGroups(lobbyRuns);
   const selectedTeam = teamGroups.find((group) => group.key === selectedTeamKey) ?? teamGroups[0] ?? null;
   const selectedTeamRuns = selectedTeam?.runs ?? [];
 
@@ -1692,9 +1692,9 @@ function DashboardPage() {
   // Choose the suggestions rail body so loading, error, and empty states all read clearly.
   let suggestionsBody: ReactNode;
 
-  if (issueTrackerLinkedRuns.length === 0) {
+  if (lobbyRuns.length === 0) {
     // Tell the operator that AI suggestions need visible runs first.
-    suggestionsBody = <p className="muted-copy">No live issue-tracker-linked runs are available to generate suggestions from.</p>;
+    suggestionsBody = <p className="muted-copy">No run channels are available to generate suggestions from.</p>;
   } else if (isSuggestionsLoading) {
     // Surface the OpenAI call in flight so the panel does not look empty while we wait.
     suggestionsBody = <p className="muted-copy">Generating suggestions from the runs above...</p>;
@@ -1936,8 +1936,8 @@ function DashboardPage() {
           ) : (
             <div className="run-room-card">
               <p className="eyebrow">No channels</p>
-              <h3>No live issue-tracker-linked runs are available yet.</h3>
-              <p className="muted-copy">New Linear or Jira-backed runs will appear here as channels.</p>
+              <h3>No run channels are available yet.</h3>
+              <p className="muted-copy">New delegated runs will appear here as channels.</p>
             </div>
           )}
         </div>

@@ -285,6 +285,72 @@ class PullRequestJiraSyncTests(unittest.TestCase):
         # Confirm the cached sync marker prevented a redundant Jira transition.
         mock_update_jira_issue_status.assert_not_called()
 
+    def test_cursor_progress_preserves_pr_target_when_status_payload_omits_target(self) -> None:
+        """Keeps the previously known PR URL when Cursor status polling omits target metadata."""
+
+        run = {
+            "id": "run-cursor",
+            "ticket": "ACP-101",
+            "title": "Cursor task",
+            "repo": "platform-web",
+            "branch": "ai/acp-101-cursor-task",
+            "status": "Running",
+            "runtime": "00:00",
+            "currentStep": "Cursor Cloud Agent status: RUNNING",
+            "blockers": [],
+            "_cursorAgent": {
+                "id": "agent-1",
+                "status": "RUNNING",
+                "createdAt": "2026-04-17T12:00:00+00:00",
+                "target": {
+                    "branchName": "ai/acp-101-cursor-task",
+                    "prUrl": "https://github.com/acme/platform-web/pull/42",
+                },
+            },
+        }
+
+        with patch(
+            "app.state.get_cursor_agent",
+            return_value={
+                "id": "agent-1",
+                "status": "FINISHED",
+                "createdAt": "2026-04-17T12:00:00+00:00",
+                "summary": "The PR is ready for review.",
+            },
+        ):
+            # Poll a completion payload that does not repeat the target object.
+            state._sync_run_progress(run, self.settings)
+
+        # Confirm the run moved into review without losing the PR link used by detail and lobby views.
+        self.assertEqual(run["status"], "Review")
+        self.assertEqual(
+            run["_cursorAgent"]["target"]["prUrl"],
+            "https://github.com/acme/platform-web/pull/42",
+        )
+        self.assertEqual(
+            state._resolve_pull_request_url(run, settings=self.settings),
+            "https://github.com/acme/platform-web/pull/42",
+        )
+
+    def test_pull_request_url_resolution_tolerates_null_cloud_agent_target(self) -> None:
+        """Falls back to a deterministic PR URL when provider target metadata is null."""
+
+        run = {
+            "id": "run-null-target",
+            "ticket": "ACP-102",
+            "repo": "platform-web",
+            "_cursorAgent": {
+                "id": "agent-2",
+                "target": None,
+            },
+        }
+
+        # Resolve the PR URL from a malformed provider target without raising an exception.
+        pull_request_url = state._resolve_pull_request_url(run, settings=self.settings)
+
+        # Confirm the fallback URL still points at the run's connected repository context.
+        self.assertIn("/platform-web/pull/acp-102", pull_request_url)
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

@@ -522,7 +522,7 @@ def _build_cursor_cloud_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
     """Builds the task detail live view for a run backed by Cursor Cloud Agents."""
 
     cloud_agent = run.get("_cursorAgent", {}) or {}
-    target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
+    target_payload = _extract_cloud_agent_target(cloud_agent if isinstance(cloud_agent, Mapping) else {})
     created_at = str(cloud_agent.get("createdAt", "")).strip() or _utc_timestamp()
     cursor_status = str(cloud_agent.get("status", "CREATING"))
     timeline_status = "complete" if run["status"] != "Running" else "active"
@@ -607,7 +607,7 @@ def _build_github_copilot_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
     """Builds the task detail live view for a run backed by GitHub Copilot cloud agent."""
 
     cloud_agent = run.get("_githubCopilotAgent", {}) or {}
-    target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
+    target_payload = _extract_cloud_agent_target(cloud_agent if isinstance(cloud_agent, Mapping) else {})
     created_at = str(cloud_agent.get("createdAt", "")).strip() or _utc_timestamp()
     copilot_status = str(cloud_agent.get("status", "ASSIGNED"))
     timeline_status = "complete" if run["status"] != "Running" else "active"
@@ -757,10 +757,9 @@ def _sync_run_progress(run: Dict[str, Any], settings: Settings) -> None:
         previous_agent = dict(run["_cursorAgent"])
         cursor_status = str(latest_agent.get("status", "CREATING"))
         mapped_status = _map_cursor_agent_status(cursor_status)
-        target_payload = latest_agent.get("target", {}) if isinstance(latest_agent, dict) else {}
-        agent_runtime_payload = dict(previous_agent)
-        agent_runtime_payload.update(latest_agent)
-        run["_cursorAgent"] = latest_agent
+        agent_runtime_payload = _merge_cloud_agent_update(previous_agent, latest_agent)
+        target_payload = _extract_cloud_agent_target(agent_runtime_payload)
+        run["_cursorAgent"] = agent_runtime_payload
         run["status"] = mapped_status
         run["branch"] = str(target_payload.get("branchName", "")).strip() or run["branch"]
         run["runtime"] = _format_cursor_agent_runtime(agent_runtime_payload, require_nonzero=cursor_status == "FINISHED")
@@ -1093,6 +1092,44 @@ def _clear_issue_tracker_sync_state(run: Dict[str, Any]) -> None:
     run.pop("_jiraSyncedStatusName", None)
 
 
+def _extract_cloud_agent_target(cloud_agent: Mapping[str, Any]) -> Dict[str, Any]:
+    """Returns a normalized target payload from a cloud-agent record."""
+
+    target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, Mapping) else {}
+
+    if isinstance(target_payload, Mapping):
+        # Copy the target so callers can read it without mutating provider payloads.
+        return dict(target_payload)
+
+    # Treat null or malformed target values as missing metadata instead of crashing polling.
+    return {}
+
+
+def _merge_cloud_agent_update(previous_agent: Mapping[str, Any], latest_agent: Mapping[str, Any]) -> Dict[str, Any]:
+    """Merges a provider status update without dropping previously known PR target data."""
+
+    merged_agent = dict(previous_agent)
+    latest_agent_payload = dict(latest_agent)
+    previous_target = _extract_cloud_agent_target(previous_agent)
+    latest_target = _extract_cloud_agent_target(latest_agent_payload)
+
+    # Apply the latest provider fields while keeping a mutable copy for normalization.
+    merged_agent.update(latest_agent_payload)
+
+    if latest_target:
+        # Prefer fresh PR metadata when the provider includes a structured target payload.
+        merged_agent["target"] = latest_target
+    elif previous_target:
+        # Preserve the launch-time PR target when later status polls omit or null it.
+        merged_agent["target"] = previous_target
+    else:
+        # Remove malformed target metadata so downstream URL resolution can use its fallback.
+        merged_agent.pop("target", None)
+
+    # Return the normalized cloud-agent record stored with the run.
+    return merged_agent
+
+
 def _map_cursor_agent_status(cursor_status: str) -> str:
     """Maps a Cursor Cloud Agent status into the control pane's run-status model."""
 
@@ -1112,7 +1149,7 @@ def _resolve_pull_request_url(run: Dict[str, Any], settings: Optional[Settings] 
     """Resolves the pull-request URL recorded for the given run."""
 
     cloud_agent = run.get("_cursorAgent") or run.get("_githubCopilotAgent") or {}
-    target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
+    target_payload = _extract_cloud_agent_target(cloud_agent if isinstance(cloud_agent, Mapping) else {})
     pull_request_url = str(target_payload.get("prUrl", "") or "").strip()
 
     if pull_request_url:
@@ -2350,7 +2387,7 @@ def create_run(
                     # Translate provider launch failures into a clear API response.
                     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 
-                target_payload = launched_agent.get("target", {}) if isinstance(launched_agent, dict) else {}
+                target_payload = _extract_cloud_agent_target(launched_agent if isinstance(launched_agent, Mapping) else {})
                 run["status"] = "Running"
                 run["agent"] = "cursor-cloud-agent"
                 run["currentStep"] = "Cursor Cloud Agent launched against the connected GitHub repository"
@@ -2416,7 +2453,7 @@ def create_run(
                     # Translate provider launch failures into a clear API response.
                     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 
-                target_payload = launched_agent.get("target", {}) if isinstance(launched_agent, dict) else {}
+                target_payload = _extract_cloud_agent_target(launched_agent if isinstance(launched_agent, Mapping) else {})
                 run["status"] = "Running"
                 run["agent"] = "github-copilot-cloud-agent"
                 run["currentStep"] = "GitHub Copilot cloud agent assigned through the connected GitHub repository"

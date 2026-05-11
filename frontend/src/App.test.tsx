@@ -347,6 +347,7 @@ describe('App pure helper functions', () => {
     expect(isIssueTrackerRun(reviewRun)).toBe(true);
     expect(buildIssueTrackerRunLabel(reviewRun)).toBe('Linear-linked issue');
     expect(buildIssueTrackerRunLabel(createRunFixture({ issue: { ...issue, provider: 'jira' } }))).toBe('Jira-linked issue');
+    expect(buildIssueTrackerRunLabel(createRunFixture({ issue: { ...issue, provider: 'fallback' } }))).toBe('Delegated task context');
     expect(buildRunTeamKey(blockedRun)).toBe('platform');
     expect(buildTeamInitials('Platform Team')).toBe('PT');
     expect(buildTeamInitials('')).toBe('AI');
@@ -361,6 +362,15 @@ describe('App pure helper functions', () => {
     const groups = buildRunTeamGroups([reviewRun, blockedRun, mergedRun]);
     expect(groups).toHaveLength(2);
     expect(buildTeamHoverLabel(groups[0])).toContain('platform: 2 runs');
+
+    const fallbackRun = createRunFixture({
+      id: 'run-fallback',
+      issue: { ...issue, provider: 'fallback' },
+      requestedBy: { ...currentUser, teamId: 'platform' },
+    });
+
+    expect(isIssueTrackerRun(fallbackRun)).toBe(false);
+    expect(buildRunTeamGroups([fallbackRun])[0].runs).toEqual([fallbackRun]);
   });
 
   it('covers route, role, lookup, class, and label helpers', () => {
