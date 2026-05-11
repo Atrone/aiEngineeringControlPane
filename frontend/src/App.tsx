@@ -2773,14 +2773,14 @@ function TaskAgentDelegationBriefPanelBody(props: { run: RunSummary }) {
           )}
         </div>
 
-        <div className="delegation-brief-block delegation-brief-block-wide">
+        <div className="delegation-brief-block delegation-brief-block-wide" id="delegation-acceptance-criteria">
           <p className="eyebrow">Acceptance criteria</p>
           {acceptanceCriteria ? (
-            <pre className="delegation-criteria" id="delegation-acceptance-criteria">
+            <pre className="delegation-criteria">
               {acceptanceCriteria}
             </pre>
           ) : (
-            <p className="muted-copy" id="delegation-acceptance-criteria">
+            <p className="muted-copy">
               No explicit acceptance criteria were stored for this run. Use the linked issue and repository context, or
               re-scope the task from intake.
             </p>
