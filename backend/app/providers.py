@@ -1959,8 +1959,11 @@ def _collect_doc_context(
         if candidate_path.is_file():
             markdown_paths.append(candidate_path)
 
+    # De-duplicate while preserving README-first ordering for consistent grounding.
+    unique_markdown_paths = list(dict.fromkeys(markdown_paths))
+
     # Keep the document set bounded so prompts remain within OpenAI context limits.
-    markdown_paths = sorted(set(markdown_paths))[:max_docs]
+    markdown_paths = unique_markdown_paths[:max_docs]
 
     for markdown_path in markdown_paths:
         excerpt = _read_doc_excerpt(markdown_path, per_doc_chars)
