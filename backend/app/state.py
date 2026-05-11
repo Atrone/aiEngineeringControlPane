@@ -1539,6 +1539,48 @@ def _build_traceability_snapshot(
     }
 
 
+def _normalize_repository_context_for_api(repository: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Maps an internal repository record into the public task-detail repository context shape.
+
+    The frontend expects camelCase keys so the control pane can deep-link GitHub metadata
+    without re-querying the intake catalog on every poll.
+    """
+
+    # Return nothing when the repository payload is missing or not a mapping.
+    if not repository or not isinstance(repository, dict):
+        return None
+
+    # Read the stable repository identifier used across intake and dashboard views.
+    repo_id = str(repository.get("id", "")).strip()
+    # Read the short repository name that matches task creation payloads.
+    repo_name = str(repository.get("name", "")).strip()
+    # Prefer the fully qualified owner/name value when GitHub supplies it.
+    full_name = str(repository.get("fullName", "") or repo_name).strip()
+    # Read the default branch hint so reviewers know which trunk the agent branched from.
+    default_branch = str(repository.get("defaultBranch", "")).strip()
+    # Read the browsable remote URL when the integration layer captured it.
+    repo_url = str(repository.get("url", "")).strip()
+    # Read the provider id so the UI can label GitHub versus future hosts consistently.
+    provider = str(repository.get("provider", "")).strip()
+    # Mirror the privacy flag when the catalog includes it for reviewer context.
+    is_private = bool(repository.get("private", False))
+
+    # Avoid returning an empty shell when every meaningful field was blank.
+    if not full_name and not repo_name and not repo_url:
+        return None
+
+    # Return the normalized repository context object for JSON responses.
+    return {
+        "id": repo_id,
+        "name": repo_name,
+        "fullName": full_name,
+        "defaultBranch": default_branch,
+        "url": repo_url,
+        "provider": provider,
+        "private": is_private,
+    }
+
+
 def _build_run_extensions(
     run: Dict[str, Any],
     *,
@@ -1546,6 +1588,7 @@ def _build_run_extensions(
     documents: Optional[List[Dict[str, Any]]] = None,
     current_user: Optional[Dict[str, str]] = None,
     settings: Optional[Settings] = None,
+    repositories: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Adds integration context fields to a run record."""
 
@@ -1596,6 +1639,25 @@ def _build_run_extensions(
         approval_history=approval_history,
     )
 
+    # Prefer the repository snapshot captured at intake so delegation context stays stable.
+    repository_snapshot = run.get("_repositorySnapshot")
+    repository_context = None
+    if isinstance(repository_snapshot, dict) and repository_snapshot:
+        # Normalize the snapshot captured when the tech lead delegated the task.
+        repository_context = _normalize_repository_context_for_api(repository_snapshot)
+    elif repositories:
+        # Fall back to the live integration catalog when legacy runs lack a snapshot.
+        matched_repository = _find_repository(repositories, str(run.get("repo", "")))
+        # Normalize the matched catalog entry for the same public shape.
+        repository_context = _normalize_repository_context_for_api(matched_repository)
+
+    # Surface intake fields so task detail can show the delegated scope without hidden underscore keys.
+    acceptance_criteria = str(run.get("_acceptanceCriteria", "")).strip()
+    # Surface the original agent instructions separate from the short summary line.
+    task_prompt = str(run.get("_taskPrompt", "")).strip()
+    # Surface the execution mode chosen during intake or run restart.
+    execution_mode = str(run.get("_executionMode", "implement")).strip()
+
     # Return the run plus normalized integration context fields.
     return {
         **public_run,
@@ -1607,6 +1669,10 @@ def _build_run_extensions(
         "approvalHistory": approval_history,
         "cloudAgent": cloud_agent,
         "traceability": traceability,
+        "acceptanceCriteria": acceptance_criteria,
+        "taskPrompt": task_prompt,
+        "executionMode": execution_mode,
+        "repositoryContext": repository_context,
     }
 
 
@@ -1941,6 +2007,7 @@ def get_dashboard_payload(settings: Settings, headers: Mapping[str, str]) -> Dic
                 documents=documents,
                 current_user=integration_catalog["currentUser"],
                 settings=settings,
+                repositories=integration_catalog["repositories"],
             )
         )
 
@@ -1980,6 +2047,7 @@ def get_run_detail(run_id: str, settings: Settings, headers: Mapping[str, str]) 
                 documents=documents,
                 current_user=integration_catalog["currentUser"],
                 settings=settings,
+                repositories=integration_catalog["repositories"],
             )
 
     # Raise a key error when the requested run does not exist.
@@ -2031,6 +2099,7 @@ def get_runs_by_ids(
                 documents=documents,
                 current_user=integration_catalog["currentUser"],
                 settings=settings,
+                repositories=integration_catalog["repositories"],
             )
         )
 
@@ -2058,6 +2127,7 @@ def get_approval_payload(settings: Settings, headers: Mapping[str, str]) -> Dict
                 documents=integration_catalog["documents"][:2],
                 current_user=integration_catalog["currentUser"],
                 settings=settings,
+                repositories=integration_catalog["repositories"],
             )
         )
 
@@ -2167,6 +2237,10 @@ def create_task(
     title = str(payload.get("title", "")).strip() or str(issue["title"] if issue else "Generated task")
     ticket = str(issue["ticket"] if issue else f"ACP-{len(RUN_STORE) + 200}")
     run_id = f"{ticket.lower()}-{_slugify(title)}"
+    # Resolve the repository record so delegation briefs can show full GitHub context on task detail.
+    repository_record = _find_repository(integration_catalog["repositories"], str(payload.get("repoName", "")))
+    # Snapshot the repository metadata at creation time for stable audit comparisons.
+    repository_snapshot = deepcopy(repository_record) if repository_record else None
 
     new_run = {
         "id": run_id,
@@ -2198,6 +2272,7 @@ def create_task(
         "_documentSnapshots": deepcopy(selected_documents),
         "_requestedBySnapshot": deepcopy(current_user),
         "_teamId": active_team_id,
+        "_repositorySnapshot": repository_snapshot,
     }
 
     # Add the newly created run to the top of the in-memory run store.
@@ -2308,6 +2383,7 @@ def create_run(
                     documents=documents,
                     current_user=current_user,
                     settings=settings,
+                    repositories=integration_catalog["repositories"],
                 )
 
             if settings.github_copilot_token:
@@ -2372,6 +2448,7 @@ def create_run(
                     documents=documents,
                     current_user=current_user,
                     settings=settings,
+                    repositories=integration_catalog["repositories"],
                 )
 
             run["status"] = "Running"
@@ -2399,6 +2476,7 @@ def create_run(
                 documents=documents,
                 current_user=current_user,
                 settings=settings,
+                repositories=integration_catalog["repositories"],
             )
 
     # Raise a key error when the task ID cannot be found.
@@ -2417,6 +2495,10 @@ def record_approval(
     notes = str(payload.get("notes", "")).strip()
 
     active_team_id = _resolve_team_id_from_headers(headers)
+    # Load the integration catalog so repository context can enrich the returned run payload.
+    integration_catalog = get_integration_catalog(settings, headers)
+    # Read the repository list once for every approval response builder.
+    repository_catalog = integration_catalog["repositories"]
 
     # Search the in-memory run store for the run being approved or redirected.
     for run in RUN_STORE:
@@ -2474,7 +2556,12 @@ def record_approval(
                 _clear_issue_tracker_sync_state(run)
 
             # Return the updated run with the new approval history.
-            return _build_run_extensions(run, current_user=current_user, settings=settings)
+            return _build_run_extensions(
+                run,
+                current_user=current_user,
+                settings=settings,
+                repositories=repository_catalog,
+            )
 
     # Raise a key error when the run ID cannot be found.
     raise KeyError(payload["runId"])

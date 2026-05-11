@@ -44,6 +44,9 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
             "No active blockers",
             "Uses existing auth middleware for protected settings routes",
         ],
+        "_acceptanceCriteria": "- [ ] Settings UI lists model routing targets with policy-aware labels\n- [ ] Budget caps cannot be saved without reviewer-visible validation\n- [ ] Automated tests and lint stay green on the agent branch",
+        "_taskPrompt": "Implement the settings experience described in the linked issue using existing auth middleware and repo coding standards.",
+        "_executionMode": "implement",
     },
     {
         "id": "acp-155",
@@ -75,6 +78,9 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
             ],
         },
         "blockers": ["None"],
+        "_acceptanceCriteria": "- [ ] Invalid callback payloads return structured errors\n- [ ] External provider retries remain safe for operators\n- [ ] Contract tests cover the tightened parsing paths",
+        "_taskPrompt": "Harden API validation for external callbacks and improve failure messaging without widening scope beyond the ticket.",
+        "_executionMode": "implement",
     },
     {
         "id": "acp-161",
