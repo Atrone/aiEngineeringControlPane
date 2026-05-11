@@ -667,6 +667,41 @@ ul {
   padding: 1.5rem;
 }
 
+.mission-control-filter-bar {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: 22px;
+  border: 1px solid var(--panel-border);
+  background: linear-gradient(135deg, rgba(43, 45, 49, 0.95) 0%, rgba(49, 51, 56, 0.88) 100%);
+  box-shadow: var(--panel-shadow);
+}
+
+.mission-control-filter-bar-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.mission-control-filter-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.mission-control-filter-toolbar .field-group {
+  flex: 1 1 160px;
+  min-width: 140px;
+}
+
+.mission-control-filter-toolbar .field-group-wide {
+  flex: 2 1 280px;
+  min-width: 220px;
+}
+
 .hero-panel,
 .task-header {
   display: flex;

@@ -1,7 +1,13 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useApiQuery } from './hooks/useApiQuery';
+import {
+  buildMissionControlOwnerOptions,
+  buildMissionControlRepoOptions,
+  filterMissionControlRuns,
+} from './lib/dashboardMissionControlFilters';
+import type { MissionControlFilterCriteria } from './lib/dashboardMissionControlFilters';
 import {
   beginGoogleSignIn,
   classifyIntakeIssuesByScope,
@@ -82,6 +88,12 @@ type RunTraceabilityNode = {
   hrefLabel?: string;
 };
 const googleAuthCallbackExchanges = new Map<string, Promise<AuthSession>>();
+/** Status values surfaced by the mission control dashboard filter dropdown. */
+const missionControlDashboardStatuses: RunStatus[] = ['Running', 'Review', 'Approved', 'Blocked', 'Retry', 'Merged'];
+
+/** Risk values surfaced by the mission control dashboard filter dropdown. */
+const missionControlDashboardRisks: RiskLevel[] = ['Low', 'Medium', 'High'];
+
 const ignoredBlockerReasons: Set<string> = new Set([
   'none',
   'no active blockers',
@@ -271,6 +283,51 @@ function collectBlockerReasons(runs: RunSummary[]): Set<string> {
 
   // Return the distinct blocker reasons surfaced by the visible runs.
   return reasons;
+}
+
+/**
+ * Merges backend-blocked reason strings with actionable reasons collected from runs.
+ */
+function mergeDashboardBlockedReasonLists(backendReasons: string[], runs: RunSummary[]): string[] {
+  const ordered: string[] = [];
+  const seenLower = new Set<string>();
+
+  // Prefer backend ordering first so the API payload stays primary for operators.
+  for (const raw of backendReasons) {
+    const text = raw.trim();
+
+    if (!text) {
+      // Skip blank backend rows so the rail stays compact.
+      continue;
+    }
+
+    const key = text.toLowerCase();
+
+    if (seenLower.has(key)) {
+      // Skip duplicates that already appeared earlier in the merged list.
+      continue;
+    }
+
+    seenLower.add(key);
+    ordered.push(text);
+  }
+
+  // Append run-derived reasons without duplicating backend lines.
+  for (const text of collectBlockerReasons(runs)) {
+    const trimmed = text.trim();
+    const key = trimmed.toLowerCase();
+
+    if (!trimmed || seenLower.has(key)) {
+      // Skip empty strings and duplicates when folding in run-level reasons.
+      continue;
+    }
+
+    seenLower.add(key);
+    ordered.push(trimmed);
+  }
+
+  // Return the ordered, de-duplicated list for the blocked-reasons rail.
+  return ordered;
 }
 
 /**
@@ -1357,6 +1414,12 @@ function DashboardPage() {
   const [reviewEffortsError, setReviewEffortsError] = useState<string>('');
   const [isReviewEffortsLoading, setIsReviewEffortsLoading] = useState<boolean>(false);
   const [selectedTeamKey, setSelectedTeamKey] = useState<string>('');
+  const [missionSearch, setMissionSearch] = useState<string>('');
+  const [missionStatus, setMissionStatus] = useState<'' | RunStatus>('');
+  const [missionRepo, setMissionRepo] = useState<string>('');
+  const [missionOwnerToken, setMissionOwnerToken] = useState<string>('');
+  const [missionRisk, setMissionRisk] = useState<'' | RiskLevel>('');
+  const missionFilterFormId = useId();
   const issueTrackerLinkedRuns = query.data
     ? query.data.runs.filter((run) => isIssueTrackerRun(run))
     : [];
@@ -1364,8 +1427,24 @@ function DashboardPage() {
   const selectedTeam = teamGroups.find((group) => group.key === selectedTeamKey) ?? teamGroups[0] ?? null;
   const selectedTeamRuns = selectedTeam?.runs ?? [];
 
-  // Build a stable, comma-joined key so the effect reruns only when the visible run IDs change.
-  const visibleRunIdsKey = selectedTeamRuns.map((run) => run.id).join(',');
+  const missionControlFilterCriteria = useMemo<MissionControlFilterCriteria>(
+    () => ({
+      searchText: missionSearch,
+      status: missionStatus,
+      repo: missionRepo,
+      ownerToken: missionOwnerToken,
+      risk: missionRisk,
+    }),
+    [missionSearch, missionStatus, missionRepo, missionOwnerToken, missionRisk],
+  );
+
+  const filteredTeamRuns = useMemo(
+    () => filterMissionControlRuns(selectedTeamRuns, missionControlFilterCriteria),
+    [missionControlFilterCriteria, selectedTeamRuns],
+  );
+
+  // Build a stable, comma-joined key so the effect reruns only when the filtered run IDs change.
+  const visibleRunIdsKey = filteredTeamRuns.map((run) => run.id).join(',');
 
   useEffect(() => {
     if (!visibleRunIdsKey) {
@@ -1485,8 +1564,64 @@ function DashboardPage() {
     setSelectedTeamKey(teamKey);
   }
 
-  const derivedMetrics = deriveDashboardMetrics(selectedTeamRuns, reviewEffortsByRunId);
-  const selectedPreviewRun = selectedTeamRuns[0] ?? null;
+  /**
+   * Updates the mission control keyword filter as the operator types in the search field.
+   */
+  function handleMissionSearchChange(event: ChangeEvent<HTMLInputElement>): void {
+    // Keep the controlled search field aligned with the latest input value.
+    setMissionSearch(event.currentTarget.value);
+  }
+
+  /**
+   * Updates the mission control status filter when the operator changes the dropdown.
+   */
+  function handleMissionStatusFilterChange(event: ChangeEvent<HTMLSelectElement>): void {
+    const nextValue = event.currentTarget.value as '' | RunStatus;
+
+    // Persist the selected status token, including the empty all-statuses option.
+    setMissionStatus(nextValue);
+  }
+
+  /**
+   * Updates the mission control repository filter when the operator changes the dropdown.
+   */
+  function handleMissionRepoFilterChange(event: ChangeEvent<HTMLSelectElement>): void {
+    // Persist the selected repository name, including the empty all-repositories option.
+    setMissionRepo(event.currentTarget.value);
+  }
+
+  /**
+   * Updates the mission control owner filter when the operator changes the dropdown.
+   */
+  function handleMissionOwnerFilterChange(event: ChangeEvent<HTMLSelectElement>): void {
+    // Persist the owner token, including the dedicated unassigned sentinel when chosen.
+    setMissionOwnerToken(event.currentTarget.value);
+  }
+
+  /**
+   * Updates the mission control risk filter when the operator changes the dropdown.
+   */
+  function handleMissionRiskFilterChange(event: ChangeEvent<HTMLSelectElement>): void {
+    const nextValue = event.currentTarget.value as '' | RiskLevel;
+
+    // Persist the selected risk token, including the empty all-risk-levels option.
+    setMissionRisk(nextValue);
+  }
+
+  /**
+   * Clears every mission control filter so the full team lobby is visible again.
+   */
+  function handleClearMissionFilters(): void {
+    // Reset the full filter stack to restore the default unfiltered lobby view.
+    setMissionSearch('');
+    setMissionStatus('');
+    setMissionRepo('');
+    setMissionOwnerToken('');
+    setMissionRisk('');
+  }
+
+  const derivedMetrics = deriveDashboardMetrics(filteredTeamRuns, reviewEffortsByRunId);
+  const selectedPreviewRun = filteredTeamRuns[0] ?? null;
   const metricCards: ReactNode[] = [];
   const teamServerButtons: ReactNode[] = [];
   const runChannels: ReactNode[] = [];
@@ -1516,8 +1651,8 @@ function DashboardPage() {
     );
   }
 
-  // Build the run channel list for the selected team.
-  for (const run of selectedTeamRuns) {
+  // Build the run channel list for the selected team after mission control filters apply.
+  for (const run of filteredTeamRuns) {
     const channelTone = getRunChannelTone(run);
     const reviewEffort = buildReviewEffortLabel(run, reviewEffortsByRunId[run.id]);
 
@@ -1584,25 +1719,153 @@ function DashboardPage() {
       ? 'Estimating review effort from PR summaries with OpenAI...'
       : 'Hover a run channel to see OpenAI-estimated review effort.';
 
+  const missionRepoOptions = buildMissionControlRepoOptions(selectedTeamRuns);
+  const missionOwnerOptions = buildMissionControlOwnerOptions(selectedTeamRuns);
+  const mergedBlockedReasons = mergeDashboardBlockedReasonLists(query.data.blockedReasons, filteredTeamRuns);
+  const hasActiveMissionFilters = Boolean(
+    missionSearch.trim() || missionStatus || missionRepo.trim() || missionOwnerToken.trim() || missionRisk,
+  );
+  const missionStatusFilterOptions: ReactNode[] = [
+    <option key="mission-status-all" value="">All statuses</option>,
+  ];
+
+  for (const status of missionControlDashboardStatuses) {
+    missionStatusFilterOptions.push(
+      <option key={`mission-status-${status}`} value={status}>
+        {status}
+      </option>,
+    );
+  }
+
+  const missionRepoFilterOptions: ReactNode[] = [
+    <option key="mission-repo-all" value="">All repositories</option>,
+  ];
+
+  for (const repo of missionRepoOptions) {
+    missionRepoFilterOptions.push(
+      <option key={`mission-repo-${repo}`} value={repo}>
+        {repo}
+      </option>,
+    );
+  }
+
+  const missionOwnerFilterOptions: ReactNode[] = [
+    <option key="mission-owner-all" value="">All owners</option>,
+  ];
+
+  for (const option of missionOwnerOptions) {
+    missionOwnerFilterOptions.push(
+      <option key={`mission-owner-${option.value}`} value={option.value}>
+        {option.label}
+      </option>,
+    );
+  }
+
+  const missionRiskFilterOptions: ReactNode[] = [
+    <option key="mission-risk-all" value="">All risk levels</option>,
+  ];
+
+  for (const risk of missionControlDashboardRisks) {
+    missionRiskFilterOptions.push(
+      <option key={`mission-risk-${risk}`} value={risk}>
+        {risk}
+      </option>,
+    );
+  }
+
+  const blockedReasonListItems: ReactNode[] = [];
+
+  for (const reason of mergedBlockedReasons) {
+    blockedReasonListItems.push(
+      <li className="rail-item" key={reason}>
+        {reason}
+      </li>,
+    );
+  }
+
+  let blockedReasonsBody: ReactNode;
+
+  if (blockedReasonListItems.length === 0) {
+    blockedReasonsBody = <p className="muted-copy">No blocked reasons are on file for the current filters.</p>;
+  } else {
+    blockedReasonsBody = <ul className="compact-list rail-list">{blockedReasonListItems}</ul>;
+  }
+
+  const channelListEmptyCopy = selectedTeamRuns.length > 0 && filteredTeamRuns.length === 0
+    ? 'No runs match the current mission control filters. Clear or adjust filters to see channels again.'
+    : 'No run channels are available for this team.';
+
   // Surface the operational view as a Discord-style server, channel, and run room.
   return (
     <div className="page-grid">
       <section className="hero-panel discord-hero-panel">
         <div>
           <p className="eyebrow">Live operations</p>
-          <h3>Pick a team server, scan run channels, then open the run room for evidence and review.</h3>
+          <h3>Pick a team server, use mission control filters to narrow channels, then open the run room for evidence and review.</h3>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
           <span className="pill">{teamGroups.length} teams</span>
           <span className="pill">{query.data.integrationStatuses.length} provider categories</span>
+          {hasActiveMissionFilters ? <span className="pill">Filters active</span> : null}
         </div>
+      </section>
+
+      <section aria-labelledby={`${missionFilterFormId}-legend`} className="mission-control-filter-bar">
+        <div className="mission-control-filter-bar-header">
+          <p className="eyebrow" id={`${missionFilterFormId}-legend`}>
+            Mission control filters
+          </p>
+          {hasActiveMissionFilters ? (
+            <button className="ghost-button" onClick={handleClearMissionFilters} type="button">
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+        <form className="mission-control-filter-toolbar" role="search" onSubmit={(event) => { event.preventDefault(); }}>
+          <div className="field-group field-group-wide mission-control-search-field">
+            <label htmlFor={`${missionFilterFormId}-search`}>Search tasks</label>
+            <input
+              autoComplete="off"
+              id={`${missionFilterFormId}-search`}
+              onChange={handleMissionSearchChange}
+              placeholder="Ticket, title, repo, agent, or owner"
+              type="search"
+              value={missionSearch}
+            />
+          </div>
+          <div className="field-group">
+            <label htmlFor={`${missionFilterFormId}-status`}>Status</label>
+            <select id={`${missionFilterFormId}-status`} onChange={handleMissionStatusFilterChange} value={missionStatus}>
+              {missionStatusFilterOptions}
+            </select>
+          </div>
+          <div className="field-group">
+            <label htmlFor={`${missionFilterFormId}-repo`}>Repository</label>
+            <select id={`${missionFilterFormId}-repo`} onChange={handleMissionRepoFilterChange} value={missionRepo}>
+              {missionRepoFilterOptions}
+            </select>
+          </div>
+          <div className="field-group">
+            <label htmlFor={`${missionFilterFormId}-owner`}>Owner</label>
+            <select id={`${missionFilterFormId}-owner`} onChange={handleMissionOwnerFilterChange} value={missionOwnerToken}>
+              {missionOwnerFilterOptions}
+            </select>
+          </div>
+          <div className="field-group">
+            <label htmlFor={`${missionFilterFormId}-risk`}>Risk</label>
+            <select id={`${missionFilterFormId}-risk`} onChange={handleMissionRiskFilterChange} value={missionRisk}>
+              {missionRiskFilterOptions}
+            </select>
+          </div>
+        </form>
       </section>
 
       <section className="metric-grid">{metricCards}</section>
 
       <section className="content-grid discord-support-grid">
         <div className="rail-stack">
+          <Panel body={blockedReasonsBody} title="Blocked reasons" />
           <Panel body={suggestionsBody} title="Suggested next actions" />
         </div>
       </section>
@@ -1616,10 +1879,14 @@ function DashboardPage() {
           <div className="channel-panel-header">
             <p className="eyebrow">Team server</p>
             <h3>{selectedTeam?.label ?? 'No team selected'}</h3>
+            <p className="subtle-copy" role="status">
+              Showing {filteredTeamRuns.length} of {selectedTeamRuns.length} run channels
+              {hasActiveMissionFilters ? ' with filters applied' : ''}.
+            </p>
             <p className="subtle-copy">{reviewEffortStatusCopy}</p>
           </div>
           <div className="run-channel-list">
-            {runChannels.length > 0 ? runChannels : <p className="muted-copy">No run channels are available for this team.</p>}
+            {runChannels.length > 0 ? runChannels : <p className="muted-copy">{channelListEmptyCopy}</p>}
           </div>
         </div>
 
@@ -1649,6 +1916,17 @@ function DashboardPage() {
               <Link className="primary-button link-button" to={`/tasks/${selectedPreviewRun.id}`}>
                 Open run room
               </Link>
+            </div>
+          ) : selectedTeamRuns.length > 0 ? (
+            <div className="run-room-card">
+              <p className="eyebrow">No match</p>
+              <h3>No runs match the current mission control filters.</h3>
+              <p className="muted-copy">Clear filters or pick another team server to restore the preview card.</p>
+              {hasActiveMissionFilters ? (
+                <button className="primary-button" onClick={handleClearMissionFilters} type="button">
+                  Clear filters
+                </button>
+              ) : null}
             </div>
           ) : (
             <div className="run-room-card">
@@ -4507,6 +4785,7 @@ export {
   canAccessRole,
   collectBlockerReasons,
   collectTaskDetailReferenceLinks,
+  mergeDashboardBlockedReasonLists,
   deriveDashboardMetrics,
   exchangeGoogleAuthCodeOnce,
   extractUrlsFromText,

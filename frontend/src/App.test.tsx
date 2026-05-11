@@ -60,6 +60,7 @@ import {
   collectTaskDetailReferenceLinks,
   deriveDashboardMetrics,
   exchangeGoogleAuthCodeOnce,
+  mergeDashboardBlockedReasonLists,
   extractUrlsFromText,
   findIntegrationStatus,
   findIssueById,
@@ -662,7 +663,7 @@ describe('App route and page component functions', () => {
     const dashboard: DashboardPayload = {
       metrics: [],
       runs: [run],
-      blockedReasons: [],
+      blockedReasons: ['Failing integration test'],
       suggestedActions: [],
       integrationStatuses: [integrationStatus],
       currentUser,
@@ -671,7 +672,9 @@ describe('App route and page component functions', () => {
 
     renderWithRouter(<DashboardPage />, '/dashboard');
 
-    expect(screen.getByText('Pick a team server, scan run channels, then open the run room for evidence and review.')).toBeInTheDocument();
+    expect(screen.getByText('Pick a team server, use mission control filters to narrow channels, then open the run room for evidence and review.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Search tasks')).toBeInTheDocument();
+    expect(screen.getByText('Failing integration test')).toBeInTheDocument();
     await waitFor(() => {
       expect(api.fetchDashboardSuggestedActions).toHaveBeenCalledWith({ runIds: ['run-1'] });
     });
@@ -741,6 +744,67 @@ describe('App route and page component functions', () => {
     expect(screen.getByRole('list', { name: 'Run traceability graph for ACP-2' })).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Run traceability graph for OPS-1' })).not.toBeInTheDocument();
     expect(api.fetchDashboardReviewEfforts).not.toHaveBeenCalledWith({ runIds: ['run-1', 'run-2', 'run-3'] });
+  });
+
+  it('narrows mission control channels when the operator types in the search field', async () => {
+    const platformReviewRun = createRunFixture({ runtime: '02:30' });
+    const platformBlockedRun = createRunFixture({
+      id: 'run-2',
+      ticket: 'ACP-2',
+      title: 'OAuth callback',
+      status: 'Blocked',
+      blockers: ['Missing API key'],
+      issue: { ...issue, id: 'issue-2', ticket: 'ACP-2', url: 'https://linear.example.com/issue/ACP-2' },
+      runtime: '03:00',
+    });
+    const dashboard: DashboardPayload = {
+      metrics: [],
+      runs: [platformReviewRun, platformBlockedRun],
+      blockedReasons: [],
+      suggestedActions: [],
+      integrationStatuses: [integrationStatus],
+      currentUser,
+    };
+    mockedUseApiQuery().mockReturnValue({ data: dashboard, error: null, isLoading: false });
+    vi.mocked(api.fetchDashboardReviewEfforts).mockResolvedValue({
+      reviewEfforts: [
+        { runId: 'run-1', effortMinutes: 12, label: 'Moderate review', confidence: 0.7, rationale: 'Small scoped PR.', source: 'openai' },
+        { runId: 'run-2', effortMinutes: 25, label: 'Moderate review', confidence: 0.6, rationale: 'Needs blocker follow-up.', source: 'openai' },
+      ],
+      model: 'test-model',
+      runCount: 2,
+    });
+
+    renderWithRouter(<DashboardPage />, '/dashboard');
+
+    await waitFor(() => {
+      expect(api.fetchDashboardReviewEfforts).toHaveBeenCalledWith({ runIds: ['run-1', 'run-2'] });
+    });
+
+    fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'ACP-2' } });
+
+    await waitFor(() => {
+      expect(api.fetchDashboardReviewEfforts).toHaveBeenCalledWith({ runIds: ['run-2'] });
+    });
+
+    expect(screen.queryByRole('link', { name: /ACP-1:/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /ACP-2:/ })).toBeInTheDocument();
+  });
+
+  it('merges dashboard blocked reason lists without duplicates', () => {
+    const runs = [
+      createRunFixture({
+        id: 'blocked-run',
+        status: 'Blocked',
+        blockers: ['Missing API key', 'none'],
+        currentStep: 'Waiting for reviewer decision',
+      }),
+    ];
+
+    // Prefer backend ordering while folding in actionable run-derived reasons once.
+    expect(
+      mergeDashboardBlockedReasonLists(['Failing integration test', 'failing integration test'], runs),
+    ).toEqual(['Failing integration test', 'Missing API key']);
   });
 
   it('renders loading states for data-backed page components', () => {
