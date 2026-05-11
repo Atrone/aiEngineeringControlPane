@@ -815,22 +815,111 @@ def _read_markdown_title(path: Path) -> str:
     return path.stem.replace("-", " ").replace("_", " ").title()
 
 
-def _to_document_record(path: Path, docs_root: Path) -> Dict[str, Any]:
+def _normalize_repo_doc_key(value: str) -> str:
+    """Normalizes a repository or docs-folder name for matching."""
+
+    # Collapse punctuation differences so GitHub names and local folder names match.
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def _repo_doc_name_candidates(repo_name: str) -> List[str]:
+    """Builds possible local docs-folder names for a repository selection."""
+
+    normalized_repo_name = str(repo_name or "").strip()
+    candidates: List[str] = []
+
+    if normalized_repo_name:
+        # Match the raw repo name first because local docs folders usually mirror it.
+        candidates.append(normalized_repo_name)
+
+        if "/" in normalized_repo_name:
+            # Also match the slug from owner/repo names used by GitHub fullName fields.
+            candidates.append(normalized_repo_name.rsplit("/", 1)[-1])
+
+    normalized_candidates: List[str] = []
+
+    # Deduplicate candidates after applying the same normalization used for folder matching.
+    for candidate in candidates:
+        normalized_candidate = _normalize_repo_doc_key(candidate)
+
+        if normalized_candidate and normalized_candidate not in normalized_candidates:
+            normalized_candidates.append(normalized_candidate)
+
+    # Return the normalized folder names the docs resolver should look for.
+    return normalized_candidates
+
+
+def _resolve_repo_docs_root(docs_root: Path, repo_name: str) -> Optional[Path]:
+    """Finds the docs subfolder that belongs to a selected repository."""
+
+    repo_candidates = _repo_doc_name_candidates(repo_name)
+
+    if not repo_candidates:
+        # Return no repo-specific root when the caller did not select a repository.
+        return None
+
+    if _normalize_repo_doc_key(docs_root.name) in repo_candidates:
+        # Support configurations that already point directly at one repo's docs folder.
+        return docs_root
+
+    if not docs_root.exists():
+        # Avoid scanning a missing docs root.
+        return None
+
+    # Search one level under the configured docs directory for a repo-named folder.
+    for child_path in docs_root.iterdir():
+        if child_path.is_dir() and _normalize_repo_doc_key(child_path.name) in repo_candidates:
+            # Return the selected repository docs folder.
+            return child_path
+
+    # Return no match when the selected repo has no local docs folder.
+    return None
+
+
+def _infer_document_repo_name(path: Path, docs_root: Path, explicit_repo_name: str = "") -> str:
+    """Infers the repository name attached to a local docs record."""
+
+    if explicit_repo_name:
+        # Prefer the repository name that was already resolved by the caller.
+        return explicit_repo_name
+
+    try:
+        # Look for docs stored under docs/<repo-name>/...
+        relative_to_docs_root = path.relative_to(docs_root)
+    except ValueError:
+        # Root README files are shared docs and should not be tied to one repo.
+        return ""
+
+    if len(relative_to_docs_root.parts) > 1:
+        # Treat the first docs-folder segment as the repository key.
+        return relative_to_docs_root.parts[0]
+
+    # Direct children of the docs root are shared docs.
+    return ""
+
+
+def _to_document_record(path: Path, docs_root: Path, repo_name: str = "") -> Dict[str, Any]:
     """Converts a markdown file into a document metadata record."""
 
     relative_path = path.relative_to(docs_root.parent).as_posix()
-
-    # Return the normalized document metadata used by the intake and task detail views.
-    return {
+    document_record = {
         "id": relative_path.replace("/", "__"),
         "title": _read_markdown_title(path),
         "path": relative_path,
         "source": "repo_markdown",
         "updatedAt": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat(),
     }
+    inferred_repo_name = _infer_document_repo_name(path, docs_root, repo_name)
+
+    if inferred_repo_name:
+        # Attach the repo key so the work intake page can filter docs by selection.
+        document_record["repoName"] = inferred_repo_name
+
+    # Return the normalized document metadata used by the intake and task detail views.
+    return document_record
 
 
-def list_repo_documents(settings: Settings) -> List[Dict[str, Any]]:
+def list_repo_documents(settings: Settings, repo_name: str = "") -> List[Dict[str, Any]]:
     """Lists repo markdown documents used by the knowledge integration."""
 
     docs_root = Path(settings.docs_directory)
@@ -840,24 +929,31 @@ def list_repo_documents(settings: Settings) -> List[Dict[str, Any]]:
         # Return no repo documents if the configured docs directory does not exist.
         return documents
 
+    selected_docs_root = _resolve_repo_docs_root(docs_root, repo_name) if repo_name else None
+    search_root = selected_docs_root or docs_root
+
+    if repo_name and selected_docs_root is None:
+        # Do not attach shared or unrelated docs when a specific repo was requested.
+        return documents
+
     markdown_paths: List[Path] = []
 
-    # Include the repo README when it exists because it often contains important context.
-    repo_readme = docs_root.parent / "README.md"
+    # Include the selected repo README or the root README for the shared catalog.
+    repo_readme = search_root / "README.md" if selected_docs_root else docs_root.parent / "README.md"
 
     if repo_readme.exists():
-        # Capture the repo root README as part of the knowledge source list.
+        # Capture the README as part of the knowledge source list.
         markdown_paths.append(repo_readme)
 
-    # Include all markdown files from the configured docs directory.
-    for path in docs_root.rglob("*.md"):
+    # Include all markdown files from the selected docs directory.
+    for path in search_root.rglob("*.md"):
         if path.is_file():
             # Keep each markdown file for later normalization.
             markdown_paths.append(path)
 
     # Normalize and sort the markdown documents for consistent UI output.
-    for path in sorted(markdown_paths):
-        documents.append(_to_document_record(path, docs_root))
+    for path in sorted(set(markdown_paths)):
+        documents.append(_to_document_record(path, docs_root, repo_name if selected_docs_root else ""))
 
     # Return the list of repo knowledge sources.
     return documents
@@ -1825,7 +1921,13 @@ def _fetch_remote_repo_doc_context(
     return "\n\n".join(collected_sections)
 
 
-def _collect_doc_context(settings: Settings, *, per_doc_chars: int = 4000, max_docs: int = 8) -> str:
+def _collect_doc_context(
+    settings: Settings,
+    *,
+    repo_name: str = "",
+    per_doc_chars: int = 4000,
+    max_docs: int = 8,
+) -> str:
     """Builds a combined markdown context blob from repo docs."""
 
     docs_root = Path(settings.docs_directory)
@@ -1836,19 +1938,26 @@ def _collect_doc_context(settings: Settings, *, per_doc_chars: int = 4000, max_d
         return ""
 
     markdown_paths: List[Path] = []
-    repo_readme = docs_root.parent / "README.md"
+    selected_docs_root = _resolve_repo_docs_root(docs_root, repo_name) if repo_name else None
+    search_root = selected_docs_root or docs_root
+
+    if repo_name and selected_docs_root is None:
+        # Avoid grounding a selected repo on shared or unrelated docs.
+        return ""
+
+    repo_readme = search_root / "README.md" if selected_docs_root else docs_root.parent / "README.md"
 
     if repo_readme.exists():
         # Always anchor enrichment context on the repo README when available.
         markdown_paths.append(repo_readme)
 
-    # Pull every markdown file from the configured docs directory for grounding.
-    for candidate_path in sorted(docs_root.rglob("*.md")):
+    # Pull every markdown file from the selected docs directory for grounding.
+    for candidate_path in sorted(search_root.rglob("*.md")):
         if candidate_path.is_file():
             markdown_paths.append(candidate_path)
 
     # Keep the document set bounded so prompts remain within OpenAI context limits.
-    markdown_paths = markdown_paths[:max_docs]
+    markdown_paths = sorted(set(markdown_paths))[:max_docs]
 
     for markdown_path in markdown_paths:
         excerpt = _read_doc_excerpt(markdown_path, per_doc_chars)
@@ -2043,7 +2152,11 @@ def enrich_intake_field(
     docs_context = _build_uploaded_doc_context(list(uploaded_documents or []))
 
     if not docs_context:
-        # Fall back to the selected remote repository docs when no uploads were provided.
+        # Fall back to the selected local repo docs folder when no uploads were provided.
+        docs_context = _collect_doc_context(settings, repo_name=repo_name)
+
+    if not docs_context:
+        # Fall back to the selected remote repository docs when no local docs were found.
         docs_context = _fetch_remote_repo_doc_context(settings, repo_name=repo_name)
 
     messages = _build_enrichment_messages(

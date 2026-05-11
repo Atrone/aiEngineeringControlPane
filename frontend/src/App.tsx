@@ -148,6 +148,29 @@ function buildEnrichmentSourceLabel(uploadedDocuments: UploadedDocumentRecord[])
 }
 
 /**
+ * Normalizes repository and docs-folder names for client-side matching.
+ */
+function normalizeRepoDocKey(value: string): string {
+  // Collapse punctuation differences so repo names and docs folder names compare cleanly.
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Returns the repo document records that belong to the selected repository.
+ */
+function getDocumentsForRepository(documents: DocumentRecord[], repoName: string): DocumentRecord[] {
+  const selectedRepoKey = normalizeRepoDocKey(repoName);
+
+  if (!selectedRepoKey) {
+    // Return no repo-specific docs when the intake form has no selected repository.
+    return [];
+  }
+
+  // Keep only document records tagged by the backend for this repository's docs folder.
+  return documents.filter((document) => normalizeRepoDocKey(document.repoName ?? '') === selectedRepoKey);
+}
+
+/**
  * Reports whether a blocker string should contribute to the dashboard summaries.
  */
 function isActionableBlocker(blocker: string): boolean {
@@ -1707,6 +1730,7 @@ function WorkIntakePage() {
     && issueScopeById.get(selectedIssueId) === 'well_scoped';
   const selectedIssue = selectedIssueId ? findIssueById(query.data.issues, selectedIssueId) : null;
   const selectedRepository = query.data.repositories.find((repository) => repository.name === selectedRepoName) ?? null;
+  const selectedRepositoryDocuments = getDocumentsForRepository(query.data.documents, selectedRepoName);
   const executionModeCards: ReactNode[] = [];
 
   // Build execution mode cards so this step can stand on its own visually.
@@ -1762,7 +1786,7 @@ function WorkIntakePage() {
       title,
       prompt,
       acceptanceCriteria,
-      documentIds: [],
+      documentIds: uploadedDocuments.length > 0 ? [] : selectedRepositoryDocuments.map((document) => document.id),
       uploadedDocuments,
       executionMode,
     };
@@ -1981,7 +2005,7 @@ function WorkIntakePage() {
                 </div>
                 <div className="mini-row">
                   <strong>Documents</strong>
-                  <span className="subtle-copy">{uploadedDocuments.length > 0 ? `${uploadedDocuments.length} uploaded` : `${query.data.documents.length} repo docs available`}</span>
+                  <span className="subtle-copy">{uploadedDocuments.length > 0 ? `${uploadedDocuments.length} uploaded` : `${selectedRepositoryDocuments.length} selected repo docs`}</span>
                 </div>
               </div>
             )}
@@ -2116,9 +2140,9 @@ function WorkIntakePage() {
               <div className="intake-action-card">
                 <strong>Available repository docs</strong>
                 <p className="subtle-copy">
-                  {query.data.documents.length > 0
-                    ? `${query.data.documents.length} connected repo docs can ground enrichment before uploads are added.`
-                    : 'No connected repo docs are available yet.'}
+                  {selectedRepositoryDocuments.length > 0
+                    ? `${selectedRepositoryDocuments.length} docs from ${selectedRepository?.fullName || selectedRepoName}'s docs folder will be attached before uploads are added.`
+                    : 'No docs folder documents are available for the selected repository yet.'}
                 </p>
               </div>
             </div>
@@ -2144,8 +2168,20 @@ function WorkIntakePage() {
                   </div>
                 ))}
               </div>
+            ) : selectedRepositoryDocuments.length > 0 ? (
+              <div className="mini-list">
+                {selectedRepositoryDocuments.map((document) => (
+                  <div className="document-upload-row" key={document.id}>
+                    <div className="mini-row">
+                      <strong>{document.title}</strong>
+                      <span className="subtle-copy">{document.path}</span>
+                    </div>
+                    <span className="pill">Selected repo doc</span>
+                  </div>
+                ))}
+              </div>
             ) : (
-              <p className="muted-copy">No uploaded repo documents yet. Enrich will use the selected repository docs until you add files here.</p>
+              <p className="muted-copy">No uploaded repo documents yet. Add markdown files under the selected repository's docs folder or upload files here.</p>
             )}
           </section>
 
@@ -4152,6 +4188,7 @@ export {
   formatEventTime,
   formatReviewEffortValue,
   getConnectionValue,
+  getDocumentsForRepository,
   getNavLinkClassName,
   getRunChannelTone,
   isActionableBlocker,

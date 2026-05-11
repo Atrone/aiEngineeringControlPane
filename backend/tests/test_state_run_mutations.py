@@ -76,6 +76,31 @@ class StateRunMutationTests(unittest.TestCase):
             self.assertEqual(state.RUN_STORE[0]["_requestedBySnapshot"]["name"], "Maya")
             mock_create_run.assert_called_once()
 
+        with patch("app.state.get_integration_catalog", return_value=integration_catalog), patch(
+            "app.state.list_repo_documents",
+            return_value=[{"id": "repo-doc-1", "path": "docs/platform-web/guide.md", "repoName": "platform-web"}],
+        ) as mock_list_repo_documents, patch(
+            "app.state.create_run",
+            side_effect=lambda settings_arg, headers_arg, payload_arg: {"id": payload_arg["taskId"]},
+        ):
+            # Confirm the selected repository docs folder is attached when no uploads or explicit IDs are present.
+            state.create_task(
+                settings,
+                {},
+                {
+                    "issueId": "issue-1",
+                    "repoName": "platform-web",
+                    "title": "Create repo-doc task",
+                    "prompt": "Implement with repo docs.",
+                    "acceptanceCriteria": "- [ ] Add tests",
+                    "documentIds": [],
+                    "uploadedDocuments": [],
+                    "executionMode": "implement",
+                },
+            )
+            self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["id"], "repo-doc-1")
+            mock_list_repo_documents.assert_called_once_with(settings, "platform-web")
+
     def test_create_run_covers_simulated_live_launch_and_cursor_live_launch_paths(self) -> None:
         """Covers simulated runs plus live Cursor-agent launches and error paths."""
 

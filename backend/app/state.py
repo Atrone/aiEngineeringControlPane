@@ -1983,6 +1983,10 @@ def create_task(
             list(payload.get("documentIds", [])),
         )
 
+        if not selected_documents:
+            # Attach docs from the selected repo's docs folder when the UI did not send explicit IDs.
+            selected_documents = list_repo_documents(settings, str(payload.get("repoName", "")))
+
     current_user = integration_catalog["currentUser"]
     active_team_id = str(integration_catalog.get("teamId", "default-team"))
     title = str(payload.get("title", "")).strip() or str(issue["title"] if issue else "Generated task")

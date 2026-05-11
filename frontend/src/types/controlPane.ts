@@ -67,6 +67,7 @@ export type DocumentRecord = {
   path: string;
   source: string;
   updatedAt: string;
+  repoName?: string;
 };
 
 export type UploadedDocumentRecord = DocumentRecord & {

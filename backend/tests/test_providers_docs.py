@@ -24,11 +24,15 @@ class ProviderDocsTests(unittest.TestCase):
             readme_path = repo_root / "README.md"
             architecture_path = docs_root / "architecture.md"
             plain_path = docs_root / "plain_doc.md"
+            repo_docs_root = docs_root / "ai-control-pane"
+            repo_docs_root.mkdir()
+            repo_guide_path = repo_docs_root / "guide.md"
 
             # Write sample markdown content used by the local-doc helpers.
             readme_path.write_text("# Repo Title\nRoot docs", encoding="utf-8")
             architecture_path.write_text("# Architecture\nDetailed architecture", encoding="utf-8")
             plain_path.write_text("No heading here", encoding="utf-8")
+            repo_guide_path.write_text("# Repo Guide\nSelected repo docs", encoding="utf-8")
 
             settings = get_settings().__class__(**{**get_settings().__dict__, "docs_directory": str(docs_root)})
 
@@ -43,12 +47,17 @@ class ProviderDocsTests(unittest.TestCase):
             # Confirm repo document listing includes the README and docs markdown files.
             documents = providers.list_repo_documents(settings)
             self.assertGreaterEqual(len(documents), 2)
+            selected_repo_documents = providers.list_repo_documents(settings, repo_name="ai-control-pane")
+            self.assertEqual([document["path"] for document in selected_repo_documents], ["docs/ai-control-pane/guide.md"])
+            self.assertEqual(selected_repo_documents[0]["repoName"], "ai-control-pane")
 
             # Confirm excerpting truncates long documents and local context collection labels sections.
             excerpt = providers._read_doc_excerpt(architecture_path, 10)
             context = providers._collect_doc_context(settings, per_doc_chars=25, max_docs=5)
+            selected_repo_context = providers._collect_doc_context(settings, repo_name="ai-control-pane")
             self.assertIn("...[truncated]...", excerpt)
             self.assertIn("### README.md", context)
+            self.assertIn("### docs/ai-control-pane/guide.md", selected_repo_context)
 
     def test_remote_doc_helpers_cover_github_content_listing_and_fetching(self) -> None:
         """Covers GitHub content decoding, listing recursion, formatting, and remote context fetches."""

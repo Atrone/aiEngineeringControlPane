@@ -66,6 +66,7 @@ import {
   formatEventTime,
   formatReviewEffortValue,
   getConnectionValue,
+  getDocumentsForRepository,
   getNavLinkClassName,
   getRunChannelTone,
   isActionableBlocker,
@@ -303,6 +304,15 @@ describe('App pure helper functions', () => {
 
     expect(buildEnrichmentSourceLabel([])).toBe('repo docs');
     expect(buildEnrichmentSourceLabel([{} as UploadedDocumentRecord])).toBe('uploaded docs');
+    expect(
+      getDocumentsForRepository(
+        [
+          { ...documentRecord, id: 'doc-platform', repoName: 'platform-web' },
+          { ...documentRecord, id: 'doc-shared', repoName: undefined },
+        ],
+        'Platform Web',
+      ).map((document) => document.id),
+    ).toEqual(['doc-platform']);
     expect(isActionableBlocker('No active blockers')).toBe(false);
     expect(isActionableBlocker('Missing API key')).toBe(true);
     expect(parseRuntimeSeconds('02:30')).toBe(150);
@@ -686,6 +696,43 @@ describe('App route and page component functions', () => {
     );
 
     expect(screen.getByText('Loading task detail...')).toBeInTheDocument();
+  });
+
+  it('submits selected repository docs from the intake page by default', async () => {
+    mockedUseApiQuery().mockImplementation((queryFn) => {
+      if (queryFn === api.fetchIntakeOptions) {
+        // Return the intake payload with one selected-repo doc and one unrelated repo doc.
+        return {
+          data: {
+            repositories: [{ id: 'platform-web', name: 'platform-web', fullName: 'acme/platform-web', defaultBranch: 'main', private: false, provider: 'github', url: '' }],
+            issues: [],
+            documents: [
+              { ...documentRecord, id: 'doc-platform', repoName: 'platform-web' },
+              { ...documentRecord, id: 'doc-api', repoName: 'api-service' },
+            ],
+            currentUser,
+            integrationStatuses: [integrationStatus],
+          },
+          error: null,
+          isLoading: false,
+        };
+      }
+
+      // Return empty scope results for the issue-scoping query.
+      return { data: { wellScopedIssueIds: [], poorlyScopedIssueIds: [] }, error: null, isLoading: false };
+    });
+    vi.mocked(api.createTask).mockResolvedValue(createRunFixture({ id: 'created-run' }));
+
+    renderWithRouter(<WorkIntakePage />, '/intake');
+    await screen.findByText('1 docs from acme/platform-web\'s docs folder will be attached before uploads are added.');
+
+    fireEvent.change(screen.getByLabelText('Task title'), { target: { value: 'Create task' } });
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'Implement with selected docs.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create task and start run' }));
+
+    await waitFor(() => {
+      expect(api.createTask).toHaveBeenCalledWith(expect.objectContaining({ documentIds: ['doc-platform'] }));
+    });
   });
 
   it('submits reviewer decisions through TaskDecisionPanelBody', async () => {
