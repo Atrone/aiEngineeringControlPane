@@ -2810,6 +2810,241 @@ def _parse_suggested_actions_response(response_text: str) -> List[str]:
     return suggested_actions[:5]
 
 
+def _build_review_effort_label(effort_minutes: int) -> str:
+    """Builds a stable review-effort bucket label from an OpenAI minute guess."""
+
+    if effort_minutes <= 10:
+        # Keep tiny PRs visibly distinct from normal review work.
+        return "Quick review"
+
+    if effort_minutes <= 30:
+        # Treat most straightforward PRs as standard review work.
+        return "Moderate review"
+
+    if effort_minutes <= 60:
+        # Call out PRs that likely need a deeper pass.
+        return "Deep review"
+
+    # Mark very large or risky PRs as extended review work.
+    return "Extended review"
+
+
+def _summarize_run_for_review_effort(run: Dict[str, Any]) -> str:
+    """Builds a compact PR-summary line for OpenAI review-effort estimation."""
+
+    # Pull run identity fields so the model can return estimates by stable run ID.
+    run_id = str(run.get("id") or "").strip()
+    ticket = str(run.get("ticket") or run_id).strip()
+    title = str(run.get("title") or "").strip()
+    status = str(run.get("status") or "").strip()
+
+    # Use the PR title and body because the requested signal is the PR summary.
+    pull_request = run.get("pullRequest") or {}
+    pr_title = str(pull_request.get("title") or "").strip()
+    pr_body = str(pull_request.get("body") or run.get("summary") or "").strip()
+
+    if len(pr_body) > 1600:
+        # Cap very large descriptions so one PR cannot dominate the prompt budget.
+        pr_body = pr_body[:1597].rstrip() + "..."
+
+    # Compose one machine-readable line while preserving the PR body text for judgment.
+    return (
+        f"- runId: {run_id or '(missing)'} | ticket: {ticket or '(n/a)'} | "
+        f"title: {title or '(untitled)'} | status: {status or '(unknown)'} | "
+        f"prTitle: {pr_title or '(n/a)'} | prSummary: {pr_body or '(no PR summary available)'}"
+    )
+
+
+def _build_review_effort_messages(runs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Builds the OpenAI chat messages for PR-summary review-effort guesses."""
+
+    # Flatten each run into one prompt line so the model can score the batch consistently.
+    run_lines: List[str] = []
+    for run in runs:
+        run_lines.append(_summarize_run_for_review_effort(run))
+
+    runs_section = "\n".join(run_lines) if run_lines else "(no runs are currently visible in the lobby)"
+    system_content = (
+        "You estimate human pull-request review effort for the AI Engineering Control Pane. "
+        "Base each estimate only on the provided PR title and PR summary/body. "
+        "Return a JSON object only, no prose, no markdown fences. "
+        "The JSON object must have exactly one key: \"reviewEfforts\" whose value is an array. "
+        "Each array item must have exactly these keys: "
+        '"runId" (string matching one provided runId), '
+        '"effortMinutes" (integer from 1 to 180), '
+        '"confidence" (number between 0 and 1), '
+        '"rationale" (short sentence under 120 characters). '
+        "Use lower estimates for narrow, well-described changes and higher estimates for broad, risky, "
+        "ambiguous, cross-cutting, migration, auth, data, or infrastructure changes."
+    )
+    user_content = (
+        "Visible lobby runs to estimate from their PR summaries:\n"
+        f"{runs_section}\n\n"
+        'Return JSON shaped like: {"reviewEfforts":[{"runId":"run-1","effortMinutes":20,"confidence":0.7,"rationale":"Small UI PR with clear scope."}]}'
+    )
+
+    # Return the chat-completion message list used by the review-effort call.
+    return [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def _parse_review_effort_response(response_text: str, runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Parses OpenAI review-effort guesses into normalized run-scoped estimates."""
+
+    # Strip common markdown fences so the JSON parser survives minor formatting drift.
+    cleaned_text = response_text.strip()
+    if cleaned_text.startswith("```"):
+        # Drop the opening fence before parsing the remaining JSON body.
+        cleaned_text = cleaned_text.split("\n", 1)[1] if "\n" in cleaned_text else cleaned_text[3:]
+    if cleaned_text.endswith("```"):
+        # Drop the closing fence so the remaining body is valid JSON.
+        cleaned_text = cleaned_text[: -3].rstrip()
+
+    try:
+        # Parse the cleaned response body as JSON so each estimate can be validated.
+        parsed_payload = json.loads(cleaned_text)
+    except json.JSONDecodeError as decode_error:
+        # Reject non-JSON responses with a readable error for the UI.
+        raise OpenAIEnrichmentError(
+            "OpenAI did not return a JSON review-effort payload."
+        ) from decode_error
+
+    if not isinstance(parsed_payload, dict):
+        # Reject JSON arrays or scalars so only well-formed objects proceed.
+        raise OpenAIEnrichmentError(
+            "OpenAI returned an unexpected shape for review effort."
+        )
+
+    raw_estimates = parsed_payload.get("reviewEfforts")
+    if not isinstance(raw_estimates, list):
+        # Require the expected array so callers can rely on a stable response shape.
+        raise OpenAIEnrichmentError(
+            "OpenAI response did not include a reviewEfforts array."
+        )
+
+    valid_run_ids: List[str] = []
+    for run in runs:
+        run_id = str(run.get("id") or "").strip()
+        if run_id:
+            # Preserve the incoming run order for the normalized response.
+            valid_run_ids.append(run_id)
+
+    valid_run_id_set = set(valid_run_ids)
+    estimates_by_run_id: Dict[str, Dict[str, Any]] = {}
+
+    # Normalize each model estimate while ignoring duplicates and unknown run IDs.
+    for raw_estimate in raw_estimates:
+        if not isinstance(raw_estimate, dict):
+            continue
+
+        run_id = str(raw_estimate.get("runId") or "").strip()
+        if run_id not in valid_run_id_set or run_id in estimates_by_run_id:
+            # Skip estimates that do not belong to the requested lobby runs.
+            continue
+
+        raw_minutes = raw_estimate.get("effortMinutes")
+        if not isinstance(raw_minutes, (int, float)):
+            # Skip entries that do not include the required numeric effort guess.
+            continue
+
+        effort_minutes = max(1, min(180, int(round(float(raw_minutes)))))
+        raw_confidence = raw_estimate.get("confidence")
+        confidence: Optional[float] = None
+        if isinstance(raw_confidence, (int, float)):
+            # Clamp confidence to the frontend's expected [0, 1] display range.
+            confidence = max(0.0, min(1.0, float(raw_confidence)))
+
+        rationale = str(raw_estimate.get("rationale") or "").strip()
+        if len(rationale) > 160:
+            # Keep rationale copy short enough for channel hover text.
+            rationale = rationale[:157].rstrip() + "..."
+
+        estimates_by_run_id[run_id] = {
+            "runId": run_id,
+            "effortMinutes": effort_minutes,
+            "label": _build_review_effort_label(effort_minutes),
+            "confidence": confidence,
+            "rationale": rationale or "Estimated from the PR summary.",
+            "source": "openai",
+        }
+
+    # Return estimates in the same order as the requested lobby runs.
+    return [estimates_by_run_id[run_id] for run_id in valid_run_ids if run_id in estimates_by_run_id]
+
+
+def estimate_review_effort_for_runs(
+    settings: Settings,
+    *,
+    runs: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Asks OpenAI to estimate human review effort for visible lobby runs."""
+
+    if not runs:
+        # Return an empty successful payload when the selected lobby has no runs.
+        return {"reviewEfforts": [], "model": settings.openai_model, "runCount": 0}
+
+    if not settings.openai_api_key:
+        # Reject review-effort requests when the OpenAI key is not configured.
+        raise OpenAIEnrichmentError(
+            "OpenAI is not configured for this environment. Set OPENAI_API_KEY to enable review-effort estimates."
+        )
+
+    messages = _build_review_effort_messages(runs)
+    request_headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    request_payload: Dict[str, Any] = {
+        "model": settings.openai_model,
+        "messages": messages,
+        "temperature": 0.0,
+        "response_format": {"type": "json_object"},
+    }
+    url = f"{settings.openai_base_url}/chat/completions"
+
+    try:
+        # Call OpenAI so the assistant can estimate review effort from PR summaries.
+        response_payload = _request_json(
+            url,
+            method="POST",
+            headers=request_headers,
+            payload=request_payload,
+        )
+    except HTTPError as http_error:
+        # Surface upstream rejections with the HTTP status so the UI can display them.
+        try:
+            error_body = http_error.read().decode("utf-8", errors="ignore")
+        except Exception:
+            error_body = ""
+
+        raise OpenAIEnrichmentError(
+            f"OpenAI rejected the review-effort request (status {http_error.code}): "
+            f"{error_body.strip() or http_error.reason}"
+        ) from http_error
+    except URLError as url_error:
+        # Translate transport-level failures into a readable review-effort error.
+        raise OpenAIEnrichmentError(
+            f"Could not reach OpenAI for review effort: {url_error.reason}"
+        ) from url_error
+    except json.JSONDecodeError as decode_error:
+        # Reject malformed OpenAI responses with a clear error message.
+        raise OpenAIEnrichmentError(
+            "OpenAI returned a response that could not be parsed as JSON."
+        ) from decode_error
+
+    raw_response_text = _extract_openai_message(response_payload)
+    review_efforts = _parse_review_effort_response(raw_response_text, runs)
+
+    # Return the normalized estimates plus model metadata the UI may surface.
+    return {
+        "reviewEfforts": review_efforts,
+        "model": settings.openai_model,
+        "runCount": len(runs),
+    }
+
+
 def suggest_next_actions_for_runs(
     settings: Settings,
     *,

@@ -36,6 +36,7 @@ from app.auth import sign_out_session
 from app.config import get_settings
 from app.schemas import ApprovalDecisionRequest
 from app.schemas import CursorConnectRequest
+from app.schemas import DashboardReviewEffortsRequest
 from app.schemas import DashboardSuggestedActionsRequest
 from app.schemas import DocsConnectRequest
 from app.schemas import GitHubConnectRequest
@@ -51,6 +52,7 @@ from app.schemas import TaskCreateRequest
 from app.providers import classify_intake_issues_by_scope
 from app.providers import OpenAIEnrichmentError
 from app.providers import enrich_intake_field
+from app.providers import estimate_review_effort_for_runs
 from app.providers import identify_repository_for_issue
 from app.providers import suggest_next_actions_for_runs
 from app.state import create_run
@@ -376,6 +378,31 @@ def post_dashboard_suggested_actions(
     except OpenAIEnrichmentError as suggestion_error:
         # Translate OpenAI-side rejections into a readable upstream error response.
         raise HTTPException(status_code=502, detail=str(suggestion_error)) from suggestion_error
+
+
+@app.post("/dashboard/review-efforts")
+@app.post("/api/dashboard/review-efforts")
+def post_dashboard_review_efforts(
+    payload: DashboardReviewEffortsRequest,
+    request: Request,
+) -> Dict[str, Any]:
+    """Returns OpenAI-generated review-effort guesses for visible lobby runs.
+
+    The caller passes the run IDs currently shown in the selected lobby so the
+    effort estimate is grounded in each resolved run's PR summary.
+    """
+
+    effective_settings, request_headers, _ = _authorized_request(request)
+
+    # Resolve the requested run IDs into enriched run payloads before prompting.
+    visible_runs = get_runs_by_ids(payload.run_ids, effective_settings, request_headers)
+
+    try:
+        # Call OpenAI to estimate review effort from each visible run's PR summary.
+        return estimate_review_effort_for_runs(effective_settings, runs=visible_runs)
+    except OpenAIEnrichmentError as effort_error:
+        # Translate OpenAI-side rejections into a readable upstream error response.
+        raise HTTPException(status_code=502, detail=str(effort_error)) from effort_error
 
 
 @app.get("/runs/{run_id}")

@@ -6,6 +6,8 @@ import type {
   CurrentUser,
   CursorConnectRequest,
   DashboardPayload,
+  DashboardReviewEffortsRequest,
+  DashboardReviewEffortsResponse,
   DashboardSuggestedActionsRequest,
   DashboardSuggestedActionsResponse,
   GoogleAuthExchangeRequest,
@@ -244,6 +246,20 @@ export async function fetchDashboardSuggestedActions(
   // Send the visible run IDs so the backend can prompt OpenAI with matching context.
   return sendJson<DashboardSuggestedActionsResponse, DashboardSuggestedActionsRequest>(
     '/api/dashboard/suggested-actions',
+    'POST',
+    payload,
+  );
+}
+
+/**
+ * Requests OpenAI-generated review-effort guesses for the selected lobby runs.
+ */
+export async function fetchDashboardReviewEfforts(
+  payload: DashboardReviewEffortsRequest,
+): Promise<DashboardReviewEffortsResponse> {
+  // Send the visible run IDs so the backend can prompt OpenAI with PR summaries.
+  return sendJson<DashboardReviewEffortsResponse, DashboardReviewEffortsRequest>(
+    '/api/dashboard/review-efforts',
     'POST',
     payload,
   );

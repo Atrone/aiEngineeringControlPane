@@ -121,9 +121,11 @@ class SchemaModelTests(unittest.TestCase):
         identify_request = schemas.IntakeIdentifyRepositoryRequest.model_validate({"issueId": "issue-1"})
         scoping_request = schemas.IntakeIssueScopingRequest.model_validate({"issueIds": ["issue-1", "issue-2"]})
         dashboard_request = schemas.DashboardSuggestedActionsRequest.model_validate({"runIds": ["run-1"]})
+        review_effort_request = schemas.DashboardReviewEffortsRequest.model_validate({"runIds": ["run-2"]})
         self.assertEqual(identify_request.issue_id, "issue-1")
         self.assertEqual(scoping_request.issue_ids, ["issue-1", "issue-2"])
         self.assertEqual(dashboard_request.run_ids, ["run-1"])
+        self.assertEqual(review_effort_request.run_ids, ["run-2"])
 
         # Confirm required alias-backed fields still raise validation errors when omitted.
         with self.assertRaises(ValidationError):
