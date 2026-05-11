@@ -56,6 +56,14 @@ class ProviderGitHubTests(unittest.TestCase):
             self.assertEqual(providers._extract_latest_approved_review(reviews)["user"]["login"], "latest")
 
         with patch(
+            "app.providers._request_json",
+            return_value=[{"created_at": "2026-04-24T12:01:00Z", "user": {"login": "commenter"}}],
+        ):
+            # Confirm PR conversation comments are normalized for review activity detection.
+            comments = providers._fetch_github_pull_request_comments(settings, "acme", "platform-web", "42")
+            self.assertEqual(comments[0]["user"]["login"], "commenter")
+
+        with patch(
             "app.providers._fetch_github_pull_request_payload",
             return_value={
                 "state": "open",
@@ -67,6 +75,9 @@ class ProviderGitHubTests(unittest.TestCase):
         ), patch(
             "app.providers._fetch_github_pull_request_reviews",
             return_value=[{"state": "APPROVED", "submitted_at": "2026-04-24T12:00:00Z", "user": {"login": "reviewer"}}],
+        ), patch(
+            "app.providers._fetch_github_pull_request_comments",
+            return_value=[],
         ):
             # Confirm PR status normalization folds merge/review data into the app's PR model.
             pr_status = providers.fetch_github_pull_request_status(
@@ -77,6 +88,31 @@ class ProviderGitHubTests(unittest.TestCase):
             self.assertEqual(pr_status["approvedBy"], "reviewer")
             self.assertEqual(pr_status["title"], "Review dashboard lobby")
             self.assertEqual(pr_status["body"], "Shows PR content in the lobby.")
+
+        with patch(
+            "app.providers._fetch_github_pull_request_payload",
+            return_value={
+                "state": "open",
+                "merged": False,
+                "title": "Review dashboard lobby",
+                "body": "Shows PR content in the lobby.",
+                "html_url": "https://github.com/acme/platform-web/pull/42",
+            },
+        ), patch(
+            "app.providers._fetch_github_pull_request_reviews",
+            return_value=[],
+        ), patch(
+            "app.providers._fetch_github_pull_request_comments",
+            return_value=[{"created_at": "2026-04-24T12:01:00Z", "user": {"login": "commenter"}}],
+        ):
+            # Confirm PR comments mark the pull request review as in progress before approval.
+            pr_status = providers.fetch_github_pull_request_status(
+                settings,
+                "https://github.com/acme/platform-web/pull/42",
+            )
+            self.assertEqual(pr_status["state"], "open")
+            self.assertTrue(pr_status["reviewInProgress"])
+            self.assertEqual(pr_status["reviewActivityBy"], "commenter")
 
         # Confirm invalid PR URLs or missing GitHub config return None so simulation can take over.
         self.assertIsNone(providers.fetch_github_pull_request_status(settings, "https://example.com/not-a-pr"))

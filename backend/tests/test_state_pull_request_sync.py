@@ -106,7 +106,16 @@ class StatePullRequestSyncHelperTests(unittest.TestCase):
             "evidence": {"diff": [], "tests": [], "commands": [], "rationale": []},
             "blockers": [],
             "approvalHistory": [],
-            "_pullRequestState": {"state": "approved", "source": "github", "approved": True, "merged": False},
+            "_pullRequestState": {
+                "state": "open",
+                "source": "github",
+                "approved": False,
+                "merged": False,
+                "reviewInProgress": True,
+                "reviewActivityAt": "2026-04-24T12:00:00+00:00",
+                "reviewActivityBy": "reviewer",
+                "reviewActivityState": "commented",
+            },
             "_issueSnapshot": {"id": "issue-1", "ticket": "ACP-1", "provider": "linear"},
             "_documentSnapshots": [{"id": "doc-1", "path": "docs/architecture.md"}],
             "_requestedBySnapshot": {"name": "Maya", "email": "maya@example.com", "role": "admin", "provider": "guided"},
@@ -117,11 +126,27 @@ class StatePullRequestSyncHelperTests(unittest.TestCase):
             {"state": "approved", "source": "github", "approved": True, "merged": False},
             settings=replace(get_settings(), github_owner="acme"),
         )
+        in_progress_pull_request_view = state._build_pull_request_view(
+            run,
+            {
+                "state": "open",
+                "source": "github",
+                "approved": False,
+                "merged": False,
+                "reviewInProgress": True,
+                "reviewActivityAt": "2026-04-24T12:00:00+00:00",
+                "reviewActivityBy": "reviewer",
+                "reviewActivityState": "commented",
+            },
+            settings=replace(get_settings(), github_owner="acme"),
+        )
 
         # Confirm the pull-request payload exposes the normalized downstream fields.
         self.assertEqual(pull_request_view["status"], "approved")
         self.assertEqual(pull_request_view["state"], "approved")
         self.assertEqual(pull_request_view["url"], "https://github.com/acme/platform-web/pull/acp-1")
+        self.assertTrue(in_progress_pull_request_view["reviewInProgress"])
+        self.assertEqual(in_progress_pull_request_view["reviewActivityBy"], "reviewer")
 
         with patch("app.state._build_live_view", return_value={"timeline": []}):
             # Confirm run extensions expose issue, PR, CI, docs, user, and live-view fields.

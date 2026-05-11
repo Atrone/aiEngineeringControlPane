@@ -393,6 +393,7 @@ describe('App pure helper functions', () => {
     expect(buildPullRequestStateLabel(run)).toBe('Open - awaiting review');
     expect(buildPullRequestStateLabel(createRunFixture({ pullRequest: undefined }))).toBe('Not linked');
     expect(buildPullRequestStateLabel(createRunFixture({ pullRequest: { ...run.pullRequest!, state: 'approved' } }))).toBe('Approved, awaiting merge');
+    expect(buildPullRequestStateLabel(createRunFixture({ pullRequest: { ...run.pullRequest!, approved: false, reviewInProgress: true } }))).toBe('Open - review in progress');
     expect(buildTraceabilityNodeClassName('active')).toBe('traceability-node traceability-node-active');
     expect(buildTraceabilityStatusLabel('complete')).toBe('Captured');
     expect(buildTraceabilityStatusLabel('active')).toBe('Active');
@@ -409,6 +410,22 @@ describe('App pure helper functions', () => {
       'review',
       'merge-deploy',
     ]);
+
+    const commentedRun = createRunFixture({
+      approvalHistory: [],
+      pullRequest: {
+        ...run.pullRequest!,
+        approved: false,
+        approvedAt: null,
+        approvedBy: null,
+        reviewInProgress: true,
+        reviewActivityAt: '2026-04-28T10:08:00.000Z',
+        reviewActivityBy: 'octo-reviewer',
+      },
+    });
+    const reviewNode = buildRunTraceabilityGraph(commentedRun).find((node) => node.id === 'review');
+    expect(reviewNode?.title).toBe('Review in progress');
+    expect(reviewNode?.detail).toContain('octo-reviewer');
     expect(extractUrlsFromText('See https://a.example/test, then https://a.example/test and https://b.example/path.')).toEqual([
       'https://a.example/test',
       'https://b.example/path',

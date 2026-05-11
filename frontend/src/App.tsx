@@ -2512,6 +2512,16 @@ function buildReviewNoteTraceSummary(run: RunSummary): string {
   const visibleHistory = (run.approvalHistory ?? []).filter((entry) => entry.source !== 'simulated');
 
   if (visibleHistory.length === 0) {
+    const pullRequestReviewActivityAt = run.pullRequest?.reviewActivityAt;
+    const pullRequestReviewActivityBy = run.pullRequest?.reviewActivityBy;
+
+    if (run.pullRequest?.reviewInProgress) {
+      // Summarize GitHub comment activity before a final review decision exists.
+      return pullRequestReviewActivityAt
+        ? `GitHub review activity${pullRequestReviewActivityBy ? ` by ${pullRequestReviewActivityBy}` : ''} at ${formatEventTime(pullRequestReviewActivityAt)}.`
+        : 'GitHub review activity has started.';
+    }
+
     // Tell reviewers that the review step has not produced notes yet.
     return 'No review notes recorded yet.';
   }
@@ -2533,6 +2543,7 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
   const hasPullRequest = Boolean(pullRequestUrl);
   const visibleHistory = (run.approvalHistory ?? []).filter((entry) => entry.source !== 'simulated');
   const hasReviewNotes = visibleHistory.length > 0;
+  const hasReviewInProgress = Boolean(run.pullRequest?.reviewInProgress && !hasReviewNotes);
   const isMerged = Boolean(run.pullRequest?.merged || run.status === 'Merged');
   const isBlocked = run.status === 'Blocked' || run.status === 'Retry';
   const hasTestEvidence = run.evidence.tests.length > 0 || run.evidence.commands.length > 0 || Boolean(run.ci);
@@ -2606,7 +2617,7 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
     {
       id: 'review',
       eyebrow: 'Review notes',
-      title: hasReviewNotes ? `${visibleHistory.length} review event${visibleHistory.length === 1 ? '' : 's'}` : 'Awaiting review',
+      title: hasReviewNotes ? `${visibleHistory.length} review event${visibleHistory.length === 1 ? '' : 's'}` : hasReviewInProgress ? 'Review in progress' : 'Awaiting review',
       detail: buildReviewNoteTraceSummary(run),
       status: hasReviewNotes ? 'complete' : run.status === 'Review' ? 'active' : 'pending',
       href: pullRequestUrl || undefined,
@@ -3930,6 +3941,11 @@ function buildPullRequestStateLabel(run: RunSummary): string {
   }
 
   if (normalizedState === 'ready_for_review' || normalizedState === 'open') {
+    if (pullRequest.reviewInProgress) {
+      // Show PR comment activity as an active review instead of an untouched queue item.
+      return 'Open - review in progress';
+    }
+
     // Flag review-ready PRs with a clear, scannable label.
     return 'Open - awaiting review';
   }

@@ -2964,6 +2964,31 @@ def _fetch_github_pull_request_reviews(
     return []
 
 
+def _fetch_github_pull_request_comments(
+    settings: Settings,
+    owner: str,
+    repo: str,
+    number: str,
+) -> List[Dict[str, Any]]:
+    """Fetches issue comments left on the requested GitHub pull request."""
+
+    # GitHub exposes top-level PR conversation comments through the issues API.
+    comments_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{number}/comments"
+
+    try:
+        response_payload = _request_json(comments_url, headers=_build_github_request_headers(settings))
+    except (HTTPError, URLError, json.JSONDecodeError):
+        # Return no comments when GitHub cannot provide the PR conversation.
+        return []
+
+    if isinstance(response_payload, list):
+        # Keep only structured comment records so downstream extraction is predictable.
+        return [comment for comment in response_payload if isinstance(comment, dict)]
+
+    # Return no comments when the response shape is not the expected array.
+    return []
+
+
 def _extract_latest_approved_review(reviews: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Finds the most recent GitHub review that left an APPROVED decision."""
 
@@ -2985,6 +3010,53 @@ def _extract_latest_approved_review(reviews: List[Dict[str, Any]]) -> Optional[D
 
     # Return the latest approved GitHub review if one was found.
     return latest_approved_review
+
+
+def _extract_latest_review_activity(
+    reviews: List[Dict[str, Any]],
+    comments: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Finds the latest review or comment activity left on a pull request."""
+
+    latest_activity: Optional[Dict[str, Any]] = None
+    latest_timestamp: Optional[str] = None
+
+    # Fold submitted PR reviews into the shared review-activity timeline.
+    for review in reviews:
+        submitted_at = str(review.get("submitted_at", "") or "").strip()
+
+        if not submitted_at:
+            # Skip review records that do not have a usable activity timestamp.
+            continue
+
+        if latest_timestamp is None or submitted_at > latest_timestamp:
+            # Keep the most recent review activity based on GitHub's submitted time.
+            latest_timestamp = submitted_at
+            latest_activity = {
+                "state": str(review.get("state", "") or "").strip().lower(),
+                "timestamp": submitted_at,
+                "actor": str(review.get("user", {}).get("login", "") or "").strip() or None,
+            }
+
+    # Fold top-level PR conversation comments into the same activity timeline.
+    for comment in comments:
+        created_at = str(comment.get("created_at", "") or "").strip()
+
+        if not created_at:
+            # Skip comment records that do not have a usable activity timestamp.
+            continue
+
+        if latest_timestamp is None or created_at > latest_timestamp:
+            # Treat a PR conversation comment as in-progress review activity.
+            latest_timestamp = created_at
+            latest_activity = {
+                "state": "commented",
+                "timestamp": created_at,
+                "actor": str(comment.get("user", {}).get("login", "") or "").strip() or None,
+            }
+
+    # Return the latest review activity if GitHub exposed one.
+    return latest_activity
 
 
 def fetch_github_pull_request_status(
@@ -3027,11 +3099,33 @@ def fetch_github_pull_request_status(
         pr_components["repo"],
         pr_components["number"],
     )
+    comments = _fetch_github_pull_request_comments(
+        settings,
+        pr_components["owner"],
+        pr_components["repo"],
+        pr_components["number"],
+    )
     latest_approved_review = _extract_latest_approved_review(reviews)
+    latest_review_activity = _extract_latest_review_activity(reviews, comments)
     approved_flag = latest_approved_review is not None
     approved_at_value = (
         str(latest_approved_review.get("submitted_at", "") or "").strip() or None
         if latest_approved_review
+        else None
+    )
+    review_activity_at_value = (
+        str(latest_review_activity.get("timestamp", "") or "").strip() or None
+        if latest_review_activity
+        else None
+    )
+    review_activity_by_login = (
+        str(latest_review_activity.get("actor", "") or "").strip() or None
+        if latest_review_activity
+        else None
+    )
+    review_activity_state = (
+        str(latest_review_activity.get("state", "") or "").strip() or None
+        if latest_review_activity
         else None
     )
     approved_by_login = (
@@ -3064,6 +3158,10 @@ def fetch_github_pull_request_status(
         "approved": approved_flag,
         "approvedAt": approved_at_value,
         "approvedBy": approved_by_login,
+        "reviewInProgress": bool(latest_review_activity and not approved_flag and not merged_flag),
+        "reviewActivityAt": review_activity_at_value,
+        "reviewActivityBy": review_activity_by_login,
+        "reviewActivityState": review_activity_state,
         "number": pr_components["number"],
         "owner": pr_components["owner"],
         "repo": pr_components["repo"],

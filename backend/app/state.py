@@ -1371,6 +1371,10 @@ def _build_pull_request_view(
         "approved": bool(pr_state.get("approved", False)),
         "approvedAt": pr_state.get("approvedAt"),
         "approvedBy": pr_state.get("approvedBy"),
+        "reviewInProgress": bool(pr_state.get("reviewInProgress", False)),
+        "reviewActivityAt": pr_state.get("reviewActivityAt"),
+        "reviewActivityBy": pr_state.get("reviewActivityBy"),
+        "reviewActivityState": pr_state.get("reviewActivityState"),
         "source": pr_state.get("source", "simulated"),
     }
 

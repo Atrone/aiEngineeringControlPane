@@ -200,6 +200,10 @@ export type RunSummary = {
     approved?: boolean;
     approvedAt?: string | null;
     approvedBy?: string | null;
+    reviewInProgress?: boolean;
+    reviewActivityAt?: string | null;
+    reviewActivityBy?: string | null;
+    reviewActivityState?: string | null;
     source?: 'github' | 'simulated' | 'skipped';
   };
   ci?: {
