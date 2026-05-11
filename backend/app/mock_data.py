@@ -237,7 +237,7 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
             "id": "sig-15",
             "ticket": "SIG-15",
             "title": "like basically the best ticket out there",
-            "description": "Linear ticket SIG-15 scopes the SIG-15 implementation and reviewer evidence handoff.",
+            "description": "Linear ticket SIG-15 scopes the implementation with issue traceability and reviewer evidence handoff.",
             "priority": "0",
             "status": "In Progress",
             "url": "https://linear.app/example/issue/SIG-15",
