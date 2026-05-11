@@ -44,6 +44,17 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
             "No active blockers",
             "Uses existing auth middleware for protected settings routes",
         ],
+        "_issueSnapshot": {
+            "id": "linear-acp-142",
+            "ticket": "ACP-142",
+            "title": "Settings UI for model routing",
+            "description": "Build a settings experience for model routing, budget caps, and provider validation.",
+            "priority": "2",
+            "status": "In Progress",
+            "url": "https://linear.app/example/issue/ACP-142",
+            "assignee": {"name": "Maya", "email": "maya@example.com"},
+            "provider": "linear",
+        },
     },
     {
         "id": "acp-155",

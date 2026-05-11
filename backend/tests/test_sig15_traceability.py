@@ -1,4 +1,4 @@
-"""Regression coverage for SIG-15 demo seeding and intake traceability behavior."""
+"""Regression coverage for SIG-15 Linear traceability, intake, and In Progress status normalization."""
 
 import unittest
 from unittest.mock import patch
@@ -42,6 +42,33 @@ class Sig15TraceabilityTests(unittest.TestCase):
         # Prove fallback issue rows prefer snapshot status instead of the run lifecycle state.
         self.assertEqual(issues[0]["status"], "In Progress")
         self.assertEqual(issues[0]["provider"], "linear")
+
+    def test_issue_launch_status_indicates_in_progress_accepts_tracker_variants(self) -> None:
+        """Covers normalized matching for Linear, underscore, and hyphenated workflow labels."""
+
+        # Confirm canonical Linear-style labels classify as in-progress launches.
+        self.assertTrue(state._issue_launch_status_indicates_in_progress("In Progress"))
+        self.assertTrue(state._issue_launch_status_indicates_in_progress("in progress"))
+        self.assertTrue(state._issue_launch_status_indicates_in_progress("in_progress"))
+        self.assertTrue(state._issue_launch_status_indicates_in_progress("In-Progress"))
+
+        # Confirm unrelated workflow states never set the preserved flag incorrectly.
+        self.assertFalse(state._issue_launch_status_indicates_in_progress("Done"))
+        self.assertFalse(state._issue_launch_status_indicates_in_progress(""))
+        self.assertFalse(state._issue_launch_status_indicates_in_progress("In Review"))
+
+    def test_acp_142_snapshot_still_surfaces_in_progress_traceability(self) -> None:
+        """Confirms a second seeded demo row keeps snapshot-driven traceability for regression."""
+
+        settings = get_settings()
+        # Load the enriched public payload for the seeded review-ready settings run.
+        detail = state.get_run_detail("acp-142", settings, {})
+
+        # Confirm the ticket-level snapshot reflects the preserved Linear-style workflow state.
+        self.assertEqual(detail["issue"]["status"], "In Progress")
+        self.assertEqual(detail["issue"]["provider"], "linear")
+        self.assertTrue(detail["traceability"]["preservedFromInProgress"])
+        self.assertEqual(detail["traceability"]["issueStatusAtLaunch"], "In Progress")
 
 
 if __name__ == "__main__":

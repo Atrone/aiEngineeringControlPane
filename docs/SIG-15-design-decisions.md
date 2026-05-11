@@ -1,33 +1,44 @@
-# SIG-15: Linear traceability demo — design decisions
+# SIG-15: Issue traceability from In Progress — design decisions
 
 **Linear:** SIG-15 (like basically the best ticket out there)  
-**Scope:** `backend/app/state.py` — fallback intake issue catalog when Linear/Jira are not connected
+**Status:** In Progress (ticket meta; implementation closes the engineering loop)  
+**Scope:** `backend/app/state.py`, `backend/app/mock_data.py`, reviewer-facing task detail and intake catalogs
 
 ## Goals
 
-- Give reviewers a first-class **SIG-15** row in task intake without requiring a Linear API key.
-- Match the ticket’s **In Progress** status so the task-detail **traceability** snapshot can show `preservedFromInProgress: true` after a run is created from intake.
-- Keep acceptance wording aligned with the issue so auto-filled acceptance criteria in the UI matches the tracker.
+- Give reviewers a first-class **SIG-15** path in task intake without requiring a Linear API key, while matching the ticket’s **In Progress** status so task-detail **traceability** can show `preservedFromInProgress: true`.
+- Keep **issue traceability** consistent between intake and the task-detail **traceability snapshot** when runs preserve an `_issueSnapshot`.
+- Normalize common tracker spellings (`In Progress`, `in_progress`, `In-Progress`) so the `preservedFromInProgress` flag stays reliable across providers.
 
 ## References (product)
 
-- `docs/mvp-definition.md` — human approval and evidence before merge.
-- `docs/integrations.md` — issue tracker sync and linking tasks back to the originating issue.
+- `docs/integrations.md` — issue tracker integration: link tasks and PRs back to the originating issue; sync state at key moments.
+- `docs/mvp-definition.md` — evidence-backed review before merge; auditable trail from ticket to code.
+- `docs/wireframes.md` — task detail surfaces evidence and decisions on one page.
 
 ## Implementation summary
 
 | Area | Change | Rationale |
 | --- | --- | --- |
-| Fallback issues | Append a synthetic Linear issue `SIG-15` with status `In Progress` | Exercises `_build_traceability_snapshot` and the intake form’s status-driven acceptance line |
-| Provider | `provider: linear` | Matches `buildIssueTrackerRunLabel` / “Linear-linked issue” in the UI |
-| Priority | `0` | Matches the Linear priority field from the originating ticket |
+| SIG-15 intake row | `_sig_15_linear_demo_issue` plus ordering in `_fallback_issues` | Surfaces the ticket when the run store alone would not list SIG-15 |
+| Fallback issues | Prefer `_issueSnapshot` fields (including stable snapshot `id`) for each seeded run | Operators see launch-time tracker metadata instead of only the run lifecycle state |
+| Status normalization | `_issue_launch_status_indicates_in_progress` | Avoids brittle equality when APIs emit underscores or hyphens |
+| Traceability snapshot | `preservedFromInProgress` uses the helper | Review panels stay aligned with acceptance language |
+| Demo runs | Seeded `sig-15` and `acp-142` runs carry Linear-style `_issueSnapshot` rows | Supplies concrete lobby and regression targets without depending on live Linear |
 
-## Manual review checks performed
+## Automated validation performed
 
-- Intake (no Linear key): **SIG-15** appears in the issue list with **In Progress** and **0 priority**.
-- Selecting SIG-15 fills acceptance criteria: *Deliver SIG-15 with clear review evidence and preserve issue traceability from In Progress.*
-- After creating a run from SIG-15, task detail **Traceability** shows **Preserved from In Progress: Yes**.
+- `python3 -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt && python3 -m pip install httpx` (local environment bootstrap for this agent run)
+- `python3 -m pytest backend/tests/test_sig15_traceability.py -q`
+- `python3 -m pytest backend/tests/ -q` (full backend suite before handoff)
+- `npm ci && npm test -- --run` in `frontend/` (guards against accidental API contract drift)
+
+## Manual reviewer checks (optional)
+
+- Intake (no Linear key): **SIG-15** appears first with **In Progress** and **0 priority**; selecting it fills acceptance criteria aligned with the ticket.
+- Task detail for run `sig-15`: **Traceability snapshot** shows **Preserved from In Progress: Yes** while the run can remain in **Review**.
+- Task detail for run `acp-142`: same traceability snapshot behavior for an additional seeded snapshot row.
 
 ## Traceability
 
-Commits for this work reference **SIG-15** in the message subject for Linear ticket traceability.
+All commits for this work reference **SIG-15** in the message subject for Linear ticket traceability.

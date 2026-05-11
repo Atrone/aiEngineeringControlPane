@@ -1554,6 +1554,29 @@ def _build_pull_request_view(
     }
 
 
+def _issue_launch_status_indicates_in_progress(issue_status: str) -> bool:
+    """
+    Reports whether a captured issue status should count as an In Progress launch for traceability.
+
+    Issue trackers vary in spelling; this helper keeps the ``preservedFromInProgress`` flag aligned
+    with the acceptance-criteria language used during intake (Linear ``In Progress``, Jira variants, and
+    underscore or hyphenated API forms).
+    """
+
+    # Coerce unknown values to a string so callers can pass raw tracker payloads safely.
+    raw_status = str(issue_status or "").strip()
+
+    if not raw_status:
+        # Return false when the tracker did not provide a usable workflow state label.
+        return False
+
+    # Normalize casing and common separators so ``in_progress`` and ``In Progress`` classify the same.
+    normalized = " ".join(raw_status.lower().replace("_", " ").replace("-", " ").split())
+
+    # Match only the canonical in-progress identity to avoid accidental matches on unrelated states.
+    return normalized == "in progress"
+
+
 def _build_traceability_snapshot(
     run: Dict[str, Any],
     *,
@@ -1594,7 +1617,7 @@ def _build_traceability_snapshot(
         "pullRequestSource": str(pull_request.get("source", "simulated")).strip(),
         "capturedEvidenceCount": captured_evidence_count,
         "latestDecision": latest_decision,
-        "preservedFromInProgress": issue_status_at_launch.lower() == "in progress",
+        "preservedFromInProgress": _issue_launch_status_indicates_in_progress(issue_status_at_launch),
     }
 
 
