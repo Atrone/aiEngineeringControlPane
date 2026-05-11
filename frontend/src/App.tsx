@@ -1783,13 +1783,6 @@ function DashboardPage() {
     );
   }
 
-  let blockedReasonsBody: ReactNode;
-
-  if (blockedReasonListItems.length === 0) {
-    blockedReasonsBody = <p className="muted-copy">No blocked reasons are on file for the current filters.</p>;
-  } else {
-    blockedReasonsBody = <ul className="compact-list rail-list">{blockedReasonListItems}</ul>;
-  }
 
   const channelListEmptyCopy = selectedTeamRuns.length > 0 && filteredTeamRuns.length === 0
     ? 'No runs match the current mission control filters. Clear or adjust filters to see channels again.'
