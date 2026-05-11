@@ -18,6 +18,7 @@ from fastapi import status
 
 from app.config import Settings
 from app.providers import normalize_cursor_api_key
+from app.providers import normalize_github_copilot_token
 from app.providers import normalize_jira_site_url
 from app.providers import normalize_linear_api_key
 
@@ -52,6 +53,9 @@ class SessionRecord:
     jira_project_key: str = ""
     cursor_api_key: str = ""
     cursor_model: str = "default"
+    github_copilot_token: str = ""
+    github_copilot_model: str = ""
+    github_copilot_custom_agent: str = ""
     docs_directory: str = ""
 
 
@@ -575,6 +579,9 @@ def build_effective_settings(settings: Settings, session: SessionRecord) -> Sett
         jira_project_key=session.jira_project_key or settings.jira_project_key,
         cursor_api_key=session.cursor_api_key or settings.cursor_api_key,
         cursor_model=session.cursor_model or settings.cursor_model,
+        github_copilot_token=session.github_copilot_token or settings.github_copilot_token,
+        github_copilot_model=session.github_copilot_model or settings.github_copilot_model,
+        github_copilot_custom_agent=session.github_copilot_custom_agent or settings.github_copilot_custom_agent,
         docs_directory=session.docs_directory or settings.docs_directory,
     )
 
@@ -679,6 +686,23 @@ def connect_cursor(session: SessionRecord, api_key: str, model: str) -> None:
     # Save the Cursor Cloud Agents inputs to the signed-in session.
     session.cursor_api_key = normalized_api_key
     session.cursor_model = normalized_model
+
+
+def connect_github_copilot(session: SessionRecord, token: str, model: str, custom_agent: str) -> None:
+    """Stores the GitHub Copilot cloud agent setup selected during guided setup."""
+
+    normalized_token = normalize_github_copilot_token(token)
+    normalized_model = model.strip()
+    normalized_custom_agent = custom_agent.strip()
+
+    if not normalized_token:
+        # Reject incomplete Copilot setup requests before mutating the session.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="GitHub token is required for Copilot cloud agent.")
+
+    # Save the GitHub Copilot cloud agent inputs to the signed-in session.
+    session.github_copilot_token = normalized_token
+    session.github_copilot_model = normalized_model
+    session.github_copilot_custom_agent = normalized_custom_agent
 
 
 def connect_docs(session: SessionRecord, docs_directory: str) -> None:

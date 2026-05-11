@@ -136,6 +136,8 @@ class ProviderGitHubTests(unittest.TestCase):
             jira_api_token="jira-token",
             cursor_api_key="cursor-token",
             cursor_model="default",
+            github_copilot_token="copilot-token",
+            github_copilot_model="gpt",
             google_client_id="client",
             google_client_secret="secret",
             google_redirect_uri="http://localhost/callback",
@@ -149,6 +151,9 @@ class ProviderGitHubTests(unittest.TestCase):
             return_value=True,
         ), patch(
             "app.providers.is_cursor_connected",
+            return_value=True,
+        ), patch(
+            "app.providers.is_github_copilot_connected",
             return_value=True,
         ), patch(
             "app.providers.list_linear_issues",
@@ -166,6 +171,7 @@ class ProviderGitHubTests(unittest.TestCase):
             self.assertEqual(next(item for item in statuses if item["id"] == "linear")["mode"], "live")
             self.assertEqual(next(item for item in statuses if item["id"] == "jira")["details"], "1 issues available")
             self.assertEqual(next(item for item in statuses if item["id"] == "cursor_cloud_agents")["connected"], True)
+            self.assertEqual(next(item for item in statuses if item["id"] == "github_copilot_cloud_agent")["connected"], True)
             self.assertEqual(next(item for item in statuses if item["id"] == "google_sso")["connected"], True)
 
 

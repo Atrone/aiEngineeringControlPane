@@ -34,6 +34,7 @@ Copy-Item .env.example .env
 The app implements the recommended day-one stack from the integration spec:
 - `GitHub` for repositories and pull-request context
 - `GitHub Actions` for CI status context
+- `Cursor Cloud Agents` and `GitHub Copilot cloud agent` for live cloud-agent execution
 - `Linear` for issue intake
 - `Repo markdown` for knowledge source attachment
 - `Google SSO-style identity abstraction` for approval attribution
@@ -48,6 +49,11 @@ The integration layer runs in `hybrid` mode:
 - `GITHUB_TOKEN`
 - `GITHUB_OWNER`
 - `GITHUB_REPOSITORIES`
+- `CURSOR_API_KEY`
+- `CURSOR_MODEL`
+- `GITHUB_COPILOT_TOKEN`
+- `GITHUB_COPILOT_MODEL`
+- `GITHUB_COPILOT_CUSTOM_AGENT`
 - `LINEAR_API_KEY`
 - `LINEAR_TEAM_ID`
 - `CONTROL_PANE_DOCS_DIR`

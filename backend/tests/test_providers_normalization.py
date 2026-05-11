@@ -97,6 +97,9 @@ class ProviderNormalizationTests(unittest.TestCase):
             linear_team_id="ENG",
             cursor_api_key="cursor-token",
             cursor_model="default",
+            github_copilot_token="copilot-token",
+            github_copilot_model="gpt",
+            github_copilot_custom_agent="reviewer",
             docs_directory="docs",
             google_client_id="client",
             google_client_secret="secret",
@@ -132,6 +135,7 @@ class ProviderNormalizationTests(unittest.TestCase):
         self.assertEqual(providers._build_connection_payload(settings, "linear")["values"]["teamId"], "ENG")
         self.assertEqual(providers._build_connection_payload(settings, "jira")["values"]["projectKey"], settings.jira_project_key)
         self.assertEqual(providers._build_connection_payload(settings, "cursor_cloud_agents")["values"]["model"], "default")
+        self.assertEqual(providers._build_connection_payload(settings, "github_copilot_cloud_agent")["values"]["customAgent"], "reviewer")
         self.assertEqual(providers._build_connection_payload(settings, "repo_docs")["values"]["docsDirectory"], "docs")
         self.assertEqual(providers._build_connection_payload(settings, "google_sso")["label"], "Google OAuth configured")
 

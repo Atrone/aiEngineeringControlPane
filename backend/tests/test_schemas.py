@@ -71,7 +71,7 @@ class SchemaModelTests(unittest.TestCase):
         self.assertEqual(github_request.owner, "acme")
         self.assertEqual(github_request.token, "gh-token")
 
-        # Confirm Linear, Jira, Cursor, and docs models accept aliased field names.
+        # Confirm Linear, Jira, Cursor, Copilot, and docs models accept aliased field names.
         linear_request = schemas.LinearConnectRequest.model_validate({"apiKey": "lin-key", "teamId": "team-1"})
         jira_request = schemas.JiraConnectRequest.model_validate(
             {
@@ -82,10 +82,12 @@ class SchemaModelTests(unittest.TestCase):
             }
         )
         cursor_request = schemas.CursorConnectRequest.model_validate({"apiKey": "cursor-key"})
+        copilot_request = schemas.GitHubCopilotConnectRequest.model_validate({"token": "gh-token", "customAgent": "reviewer"})
         docs_request = schemas.DocsConnectRequest.model_validate({"docsDirectory": "docs"})
         self.assertEqual(linear_request.api_key, "lin-key")
         self.assertEqual(jira_request.project_key, "ACP")
         self.assertEqual(cursor_request.model, "default")
+        self.assertEqual(copilot_request.custom_agent, "reviewer")
         self.assertEqual(docs_request.docs_directory, "docs")
 
     def test_intake_and_dashboard_request_models_support_alias_population(self) -> None:

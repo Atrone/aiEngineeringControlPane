@@ -103,6 +103,16 @@ class CursorConnectRequest(BaseModel):
     model: str = "default"
 
 
+class GitHubCopilotConnectRequest(BaseModel):
+    """Defines the payload used to connect GitHub Copilot cloud agent setup."""
+
+    token: str
+    model: str = ""
+    custom_agent: str = Field(default="", alias="customAgent")
+
+    model_config = {"populate_by_name": True}
+
+
 class DocsConnectRequest(BaseModel):
     """Defines the payload used to connect a docs directory during guided setup."""
 
