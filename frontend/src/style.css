@@ -1549,6 +1549,88 @@ ul {
   color: #fde68a;
 }
 
+.traceability-graph {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.traceability-step {
+  display: flex;
+  align-items: center;
+  min-width: 16rem;
+}
+
+.traceability-node {
+  display: grid;
+  gap: 0.55rem;
+  min-height: 11.25rem;
+  width: 100%;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(155, 179, 209, 0.14);
+  background: #313338;
+}
+
+.traceability-node-complete {
+  border-color: rgba(52, 211, 153, 0.24);
+  background: linear-gradient(180deg, rgba(52, 211, 153, 0.12), #313338 48%);
+}
+
+.traceability-node-active {
+  border-color: rgba(88, 101, 242, 0.42);
+  background: linear-gradient(180deg, rgba(88, 101, 242, 0.16), #313338 52%);
+}
+
+.traceability-node-pending {
+  opacity: 0.72;
+}
+
+.traceability-node-blocked {
+  border-color: rgba(251, 191, 36, 0.28);
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.13), #313338 52%);
+}
+
+.traceability-node-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.traceability-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.36);
+  color: #e5eef9;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.traceability-link {
+  align-self: end;
+  font-size: 0.84rem;
+}
+
+.traceability-connector {
+  display: block;
+  width: 2.25rem;
+  height: 2px;
+  margin: 0 0.35rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(125, 211, 252, 0.18), rgba(125, 211, 252, 0.58));
+  flex: 0 0 auto;
+}
+
 .detail-list li + li {
   margin-top: 0.65rem;
 }
@@ -1710,6 +1792,24 @@ ul {
 
   .topbar {
     padding: 1rem;
+  }
+
+  .traceability-graph {
+    display: grid;
+    overflow-x: visible;
+  }
+
+  .traceability-step {
+    display: grid;
+    min-width: 0;
+    gap: 0.6rem;
+  }
+
+  .traceability-connector {
+    width: 2px;
+    height: 1.75rem;
+    margin: 0 auto;
+    background: linear-gradient(180deg, rgba(125, 211, 252, 0.18), rgba(125, 211, 252, 0.58));
   }
 }
 

@@ -29,6 +29,7 @@ import {
   TaskDecisionPanelBody,
   TaskDetailPage,
   TaskImplementationPackagePanelBody,
+  RunTraceabilityGraphPanelBody,
   TimelineList,
   WorkIntakePage,
   buildApprovalDecisionLabel,
@@ -42,11 +43,14 @@ import {
   buildReviewEffortLabel,
   buildRoleCapabilityItems,
   buildRoleLabel,
+  buildRunTraceabilityGraph,
   buildRunTeamGroups,
   buildRunTeamKey,
   buildShellPageTitle,
   buildTeamHoverLabel,
   buildTeamInitials,
+  buildTraceabilityNodeClassName,
+  buildTraceabilityStatusLabel,
   buildTimelineEntryClassName,
   buildUploadedDocumentRecord,
   buildUserHeadline,
@@ -377,6 +381,22 @@ describe('App pure helper functions', () => {
     expect(buildPullRequestStateLabel(run)).toBe('Open - awaiting review');
     expect(buildPullRequestStateLabel(createRunFixture({ pullRequest: undefined }))).toBe('Not linked');
     expect(buildPullRequestStateLabel(createRunFixture({ pullRequest: { ...run.pullRequest!, state: 'approved' } }))).toBe('Approved, awaiting merge');
+    expect(buildTraceabilityNodeClassName('active')).toBe('traceability-node traceability-node-active');
+    expect(buildTraceabilityStatusLabel('complete')).toBe('Captured');
+    expect(buildTraceabilityStatusLabel('active')).toBe('Active');
+    expect(buildTraceabilityStatusLabel('blocked')).toBe('Blocked');
+    expect(buildTraceabilityStatusLabel('pending')).toBe('Pending');
+    expect(buildRunTraceabilityGraph(run).map((node) => node.id)).toEqual([
+      'issue',
+      'repo',
+      'branch',
+      'agent',
+      'commits',
+      'tests',
+      'pull-request',
+      'review',
+      'merge-deploy',
+    ]);
     expect(extractUrlsFromText('See https://a.example/test, then https://a.example/test and https://b.example/path.')).toEqual([
       'https://a.example/test',
       'https://b.example/path',
@@ -430,6 +450,7 @@ describe('App presentational component functions', () => {
         <ApprovalHistoryList entries={run.approvalHistory} />
         <PullRequestPanelBody run={run} />
         <TaskImplementationPackagePanelBody run={run} />
+        <RunTraceabilityGraphPanelBody run={run} />
       </div>,
     );
 
@@ -441,6 +462,8 @@ describe('App presentational component functions', () => {
     expect(screen.getByText('Reviewer approved')).toBeInTheDocument();
     expect(screen.getByText('Pull request:')).toBeInTheDocument();
     expect(screen.getByText('Issue traceability')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Run traceability graph' })).toBeInTheDocument();
+    expect(screen.getByText('Merge/deploy status')).toBeInTheDocument();
   });
 
   it('renders empty states for list-oriented components', () => {

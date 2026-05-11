@@ -67,6 +67,15 @@ type RunTeamGroup = {
   blockedCount: number;
   mergedCount: number;
 };
+type TraceabilityNodeStatus = 'complete' | 'active' | 'pending' | 'blocked';
+type RunTraceabilityNode = {
+  id: string;
+  eyebrow: string;
+  title: string;
+  detail: string;
+  status: TraceabilityNodeStatus;
+  href?: string;
+};
 const googleAuthCallbackExchanges = new Map<string, Promise<AuthSession>>();
 const ignoredBlockerReasons: Set<string> = new Set([
   'none',
@@ -2339,6 +2348,11 @@ function TaskDetailPage() {
       </section>
 
       <Panel
+        body={<RunTraceabilityGraphPanelBody run={activeRun} />}
+        title="End-to-end traceability"
+      />
+
+      <Panel
         body={hasLiveEvidence && liveView
           ? <EvidenceTabPanel activeTab={activeEvidenceTab} liveView={liveView} onTabChange={setActiveEvidenceTab} />
           : <p className="muted-copy">No live evidence has been captured for this task yet.</p>}
@@ -2400,6 +2414,193 @@ function resolveCurrentPullRequestUrl(run: RunSummary): string {
 
   // Fall back to the Cursor target PR URL while the canonical run payload catches up.
   return run.cloudAgent?.target?.prUrl?.trim() ?? '';
+}
+
+/**
+ * Builds a status class name for one traceability graph node.
+ */
+function buildTraceabilityNodeClassName(status: TraceabilityNodeStatus): string {
+  // Join the base graph-card class with a state modifier for visual scanning.
+  return `traceability-node traceability-node-${status}`;
+}
+
+/**
+ * Converts a traceability status into a concise chip label.
+ */
+function buildTraceabilityStatusLabel(status: TraceabilityNodeStatus): string {
+  if (status === 'complete') {
+    // Use past-tense wording for steps with captured evidence.
+    return 'Captured';
+  }
+
+  if (status === 'active') {
+    // Use active wording for the currently moving part of the run.
+    return 'Active';
+  }
+
+  if (status === 'blocked') {
+    // Use blocked wording when the run status says this step needs attention.
+    return 'Blocked';
+  }
+
+  // Return the default pending label for future or unavailable evidence.
+  return 'Pending';
+}
+
+/**
+ * Summarizes the latest human or provider review notes for traceability.
+ */
+function buildReviewNoteTraceSummary(run: RunSummary): string {
+  const visibleHistory = (run.approvalHistory ?? []).filter((entry) => entry.source !== 'simulated');
+
+  if (visibleHistory.length === 0) {
+    // Tell reviewers that the review step has not produced notes yet.
+    return 'No review notes recorded yet.';
+  }
+
+  const latestEntry = visibleHistory[visibleHistory.length - 1];
+  const decisionLabel = buildApprovalDecisionLabel(latestEntry.decision);
+  const actorName = latestEntry.actor?.name ?? 'Reviewer';
+  const noteText = latestEntry.notes ? ` - ${latestEntry.notes}` : '';
+
+  // Combine decision, actor, time, and notes into one graph-friendly sentence.
+  return `${decisionLabel} by ${actorName} at ${formatEventTime(latestEntry.timestamp)}${noteText}`;
+}
+
+/**
+ * Derives the end-to-end traceability chain from the run payload.
+ */
+function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
+  const pullRequestUrl = resolveCurrentPullRequestUrl(run);
+  const hasPullRequest = Boolean(pullRequestUrl);
+  const visibleHistory = (run.approvalHistory ?? []).filter((entry) => entry.source !== 'simulated');
+  const hasReviewNotes = visibleHistory.length > 0;
+  const isMerged = Boolean(run.pullRequest?.merged || run.status === 'Merged');
+  const isBlocked = run.status === 'Blocked' || run.status === 'Retry';
+  const hasTestEvidence = run.evidence.tests.length > 0 || run.evidence.commands.length > 0 || Boolean(run.ci);
+  const hasCommitEvidence = run.evidence.diff.length > 0 || hasPullRequest;
+  const agentSessionLink = run.cloudAgent?.target?.url?.trim() ?? '';
+  const issueLabel = run.issue?.provider
+    ? `${run.issue.provider.toUpperCase()} ticket`
+    : 'Issue ticket';
+
+  // Return the complete ordered graph from task intake through merge/deploy readiness.
+  return [
+    {
+      id: 'issue',
+      eyebrow: issueLabel,
+      title: run.ticket,
+      detail: run.issue?.title ?? run.title,
+      status: 'complete',
+      href: run.issue?.url || undefined,
+    },
+    {
+      id: 'repo',
+      eyebrow: 'Selected repo',
+      title: run.repo,
+      detail: `Owner: ${run.owner}`,
+      status: 'complete',
+    },
+    {
+      id: 'branch',
+      eyebrow: 'Branch',
+      title: run.branch,
+      detail: 'Workspace branch selected for the agent run.',
+      status: 'complete',
+    },
+    {
+      id: 'agent',
+      eyebrow: 'Agent session',
+      title: run.cloudAgent?.id ?? run.agent,
+      detail: run.cloudAgent?.status
+        ? `Cursor status: ${run.cloudAgent.status}`
+        : `Assigned agent: ${run.agent}`,
+      status: run.status === 'Running' ? 'active' : 'complete',
+      href: agentSessionLink || undefined,
+    },
+    {
+      id: 'commits',
+      eyebrow: 'Commits',
+      title: hasCommitEvidence ? `${run.evidence.diff.length || 1} change set${run.evidence.diff.length === 1 ? '' : 's'}` : 'No commits captured',
+      detail: hasCommitEvidence
+        ? run.evidence.diff[0] ?? 'Commit evidence is linked through the pull request.'
+        : 'Commit metadata has not been reported for this run yet.',
+      status: hasCommitEvidence ? 'complete' : isBlocked ? 'blocked' : 'pending',
+      href: pullRequestUrl || undefined,
+    },
+    {
+      id: 'tests',
+      eyebrow: 'Tests',
+      title: run.ci?.workflow ?? 'Test evidence',
+      detail: run.ci?.summary ?? run.evidence.tests[0] ?? 'No test results captured yet.',
+      status: hasTestEvidence ? (isBlocked ? 'blocked' : 'complete') : 'pending',
+    },
+    {
+      id: 'pull-request',
+      eyebrow: 'Pull request',
+      title: hasPullRequest ? buildPullRequestStateLabel(run) : 'Not linked',
+      detail: hasPullRequest
+        ? run.pullRequest?.title ?? `PR ${run.pullRequest?.number ? `#${run.pullRequest.number}` : 'link'} is available.`
+        : 'No pull request has been attached to this run yet.',
+      status: isMerged ? 'complete' : hasPullRequest ? 'active' : 'pending',
+      href: pullRequestUrl || undefined,
+    },
+    {
+      id: 'review',
+      eyebrow: 'Review notes',
+      title: hasReviewNotes ? `${visibleHistory.length} review event${visibleHistory.length === 1 ? '' : 's'}` : 'Awaiting review',
+      detail: buildReviewNoteTraceSummary(run),
+      status: hasReviewNotes ? 'complete' : run.status === 'Review' ? 'active' : 'pending',
+      href: pullRequestUrl || undefined,
+    },
+    {
+      id: 'merge-deploy',
+      eyebrow: 'Merge/deploy status',
+      title: isMerged ? 'Merged' : run.pullRequest?.approved ? 'Approved, awaiting merge' : 'Not merged',
+      detail: isMerged
+        ? `Merged${run.pullRequest?.mergedAt ? ` at ${formatEventTime(run.pullRequest.mergedAt)}` : ''}; deploy status ready for release tracking.`
+        : run.currentStep,
+      status: isMerged ? 'complete' : isBlocked ? 'blocked' : 'pending',
+      href: pullRequestUrl || undefined,
+    },
+  ];
+}
+
+/**
+ * Renders an ordered graph of every major artifact connected to the run.
+ */
+function RunTraceabilityGraphPanelBody(props: { run: RunSummary }) {
+  const nodes = buildRunTraceabilityGraph(props.run);
+  const graphNodes: ReactNode[] = [];
+
+  // Render each traceability node as a connected card with optional deep links.
+  for (const [index, node] of nodes.entries()) {
+    graphNodes.push(
+      <li className="traceability-step" key={node.id}>
+        <article className={buildTraceabilityNodeClassName(node.status)}>
+          <div className="traceability-node-header">
+            <span className="eyebrow">{node.eyebrow}</span>
+            <span className="traceability-status">{buildTraceabilityStatusLabel(node.status)}</span>
+          </div>
+          <strong>{node.title}</strong>
+          <p className="muted-copy">{node.detail}</p>
+          {node.href ? (
+            <a className="external-link traceability-link" href={node.href} rel="noreferrer" target="_blank">
+              Open source artifact
+            </a>
+          ) : null}
+        </article>
+        {index < nodes.length - 1 ? <span aria-hidden="true" className="traceability-connector" /> : null}
+      </li>,
+    );
+  }
+
+  // Return an accessible ordered list so screen readers preserve the graph sequence.
+  return (
+    <ol aria-label="Run traceability graph" className="traceability-graph">
+      {graphNodes}
+    </ol>
+  );
 }
 
 /**
@@ -3914,6 +4115,7 @@ export {
   TaskDecisionPanelBody,
   TaskDetailPage,
   TaskImplementationPackagePanelBody,
+  RunTraceabilityGraphPanelBody,
   TimelineList,
   WorkIntakePage,
   buildApprovalDecisionLabel,
@@ -3927,11 +4129,14 @@ export {
   buildReviewEffortLabel,
   buildRoleCapabilityItems,
   buildRoleLabel,
+  buildRunTraceabilityGraph,
   buildRunTeamGroups,
   buildRunTeamKey,
   buildShellPageTitle,
   buildTeamHoverLabel,
   buildTeamInitials,
+  buildTraceabilityNodeClassName,
+  buildTraceabilityStatusLabel,
   buildTimelineEntryClassName,
   buildUploadedDocumentRecord,
   buildUserHeadline,
