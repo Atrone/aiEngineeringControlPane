@@ -111,6 +111,48 @@ class DashboardPayloadTests(unittest.TestCase):
             ],
         )
 
+    def test_dashboard_runs_expose_delegation_fields_for_task_detail(self) -> None:
+        """Ensures SIG-16 delegation context is present on enriched run payloads."""
+
+        integration_catalog = {
+            "repositories": [
+                {
+                    "id": "web-app",
+                    "name": "web-app",
+                    "fullName": "acme/web-app",
+                    "defaultBranch": "main",
+                    "private": False,
+                    "provider": "github",
+                    "url": "https://github.com/acme/web-app",
+                },
+            ],
+            "issues": [],
+            "documents": [],
+            "currentUser": {
+                "name": "Test User",
+                "email": "test@example.com",
+                "role": "admin",
+                "provider": "configured_default",
+            },
+            "statuses": [],
+        }
+
+        with patch("app.state.get_integration_catalog", return_value=integration_catalog):
+            # Build the dashboard payload so the first lobby run can be inspected for delegation keys.
+            payload = state.get_dashboard_payload(get_settings(), {})
+
+        first_run = payload["runs"][0]
+
+        # Confirm the public API exposes intake-backed fields for the control pane task detail view.
+        self.assertIn("acceptanceCriteria", first_run)
+        self.assertIn("taskPrompt", first_run)
+        self.assertIn("executionMode", first_run)
+        self.assertIn("repositoryContext", first_run)
+        # Confirm the seeded fixture still carries checklist text for reviewers.
+        self.assertIn("Settings UI lists model routing", first_run["acceptanceCriteria"])
+        # Confirm repository metadata resolves from the catalog using the run's repo short name.
+        self.assertEqual(first_run["repositoryContext"]["fullName"], "acme/web-app")
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

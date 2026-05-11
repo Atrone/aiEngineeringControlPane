@@ -685,6 +685,13 @@ ul {
   gap: 0.75rem;
 }
 
+.mission-control-filter-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
 .mission-control-filter-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -700,6 +707,70 @@ ul {
 .mission-control-filter-toolbar .field-group-wide {
   flex: 2 1 280px;
   min-width: 220px;
+}
+
+.delegation-brief {
+  display: grid;
+  gap: 1rem;
+}
+
+.delegation-brief-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.delegation-brief-block-wide {
+  grid-column: 1 / -1;
+}
+
+.delegation-brief-block {
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+  background: rgba(30, 31, 34, 0.55);
+}
+
+.delegation-dl {
+  margin: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.delegation-dl dt {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.delegation-dl dd {
+  margin: 0.15rem 0 0;
+}
+
+.delegation-criteria,
+.delegation-prompt,
+.delegation-issue-body {
+  margin: 0.35rem 0 0;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: rgba(20, 21, 24, 0.65);
+  color: #e6e7ea;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.delegation-doc-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.delegation-doc-row {
+  margin-bottom: 0.35rem;
 }
 
 .hero-panel,
