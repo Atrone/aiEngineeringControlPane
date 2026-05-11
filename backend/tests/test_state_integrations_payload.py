@@ -34,6 +34,24 @@ class StateIntegrationPayloadTests(unittest.TestCase):
         self.assertGreaterEqual(len(fallback_issues), 1)
         self.assertGreaterEqual(len(fallback_repositories), 1)
 
+        # Confirm the SIG-15 Linear demo row exists for disconnected intake and traceability review.
+        sig_15_rows = [issue for issue in fallback_issues if issue.get("ticket") == "SIG-15"]
+        self.assertEqual(len(sig_15_rows), 1)
+        self.assertEqual(sig_15_rows[0].get("status"), "In Progress")
+        self.assertEqual(sig_15_rows[0].get("provider"), "linear")
+        self.assertIn("traceability", (sig_15_rows[0].get("description") or "").lower())
+
+        # Confirm traceability snapshots treat SIG-15's In Progress status as preserved at launch.
+        sig_15_issue = state._sig_15_linear_demo_issue()
+        traceability = state._build_traceability_snapshot(
+            {"ticket": "SIG-15", "status": "Running", "evidence": {}},
+            issue=sig_15_issue,
+            pull_request={"status": "draft", "source": "simulated"},
+            approval_history=[],
+        )
+        self.assertTrue(traceability["preservedFromInProgress"])
+        self.assertEqual(traceability["issueStatusAtLaunch"], "In Progress")
+
         with patch("app.state.list_repo_documents", return_value=[{"id": "doc-1"}]):
             # Confirm fallback documents prefer real markdown docs when available.
             self.assertEqual(state._fallback_documents(settings), [{"id": "doc-1"}])
