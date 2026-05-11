@@ -752,22 +752,52 @@ def _fallback_issues() -> List[Dict[str, Any]]:
 
     # Convert seeded runs into fallback issue records for task intake.
     for run in RUN_STORE:
+        # Prefer the frozen issue snapshot so tracker status at intake survives run lifecycle changes.
+        snapshot = run.get("_issueSnapshot") if isinstance(run.get("_issueSnapshot"), dict) else {}
+        snapshot_assignee = snapshot.get("assignee") if isinstance(snapshot.get("assignee"), dict) else None
+        default_assignee = {"name": run["owner"], "email": f"{run['owner'].lower()}@example.com"}
+        assignee = deepcopy(snapshot_assignee) if snapshot_assignee else default_assignee
+
         issues.append(
             {
-                "id": run["id"],
-                "ticket": run["ticket"],
-                "title": run["title"],
-                "description": run["summary"],
-                "priority": "2",
-                "status": run["status"],
-                "url": "",
-                "assignee": {"name": run["owner"], "email": f"{run['owner'].lower()}@example.com"},
-                "provider": "fallback",
+                "id": str(snapshot.get("id") or run["id"]),
+                "ticket": str(snapshot.get("ticket") or run["ticket"]),
+                "title": str(snapshot.get("title") or run["title"]),
+                "description": str(snapshot.get("description") or run["summary"]),
+                "priority": str(snapshot.get("priority") or "2"),
+                "status": str(snapshot.get("status") or run["status"]),
+                "url": str(snapshot.get("url") or ""),
+                "assignee": assignee,
+                "provider": str(snapshot.get("provider") or "fallback"),
             }
         )
 
     # Surface SIG-15 for reviewers validating Linear traceability when no live tracker is connected.
-    issues.append(_sig_15_linear_demo_issue())
+    if not any(str(item.get("ticket", "")) == "SIG-15" for item in issues):
+        issues.append(_sig_15_linear_demo_issue())
+
+    def _sig_demo_sort_key(item: Dict[str, Any]) -> tuple[int, str]:
+        """
+        Orders fallback issues so pinned Linear SIG demo tickets stay predictable.
+
+        Returns a tuple used by list.sort so SIG-15 leads SIG-14 and SIG-13 when those
+        seeded snapshots exist in the run store.
+        """
+
+        # Read the ticket label once so repeated comparisons stay cheap and readable.
+        ticket = str(item.get("ticket", ""))
+        # Prefer SIG-15 first for the current SIG-15 traceability demo branch.
+        if ticket == "SIG-15":
+            return (0, ticket)
+        # Keep SIG-14 ahead of SIG-13 when both seeded demo snapshots exist.
+        if ticket == "SIG-14":
+            return (1, ticket)
+        if ticket == "SIG-13":
+            return (2, ticket)
+        # Keep remaining tickets sorted alphabetically after the pinned SIG rows.
+        return (3, ticket)
+
+    issues.sort(key=_sig_demo_sort_key)
 
     # Return the fallback issue catalog.
     return issues

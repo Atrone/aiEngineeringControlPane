@@ -207,6 +207,44 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
         "_approvedBy": "Priya Singh",
         "_mergedAt": "2026-04-17T09:34:48+00:00",
     },
+    {
+        "id": "sig-15",
+        "ticket": "SIG-15",
+        "title": "like basically the best ticket out there",
+        "repo": "web-app",
+        "branch": "ai/sig-15-like-basically-the-best-ticket-out-there",
+        "owner": "Jordan",
+        "agent": "impl-agent",
+        "runtime": "00:00",
+        "cost": "$0.00",
+        "status": "Review",
+        "risk": "Medium",
+        "currentStep": "Review package ready for SIG-15 handoff",
+        "summary": "Demo run for SIG-15: reviewer handoff with issue traceability preserved from In Progress.",
+        "evidence": {
+            "diff": [
+                "Seeded SIG-15 with a frozen Linear snapshot aligned to the SIG-15 feature branch.",
+                "Pinned fallback intake ordering so SIG-15 stays first for Linear traceability walkthroughs.",
+            ],
+            "tests": ["pytest backend/tests/test_sig15_traceability.py", "npm run test -- --runInBand"],
+            "commands": ["git status", "git diff origin/main...HEAD"],
+            "rationale": [
+                "Keeps Linear SIG-15 visible in the mission-control lobby while the run awaits approval.",
+            ],
+        },
+        "blockers": ["No active blockers", "Waiting for reviewer decision"],
+        "_issueSnapshot": {
+            "id": "sig-15",
+            "ticket": "SIG-15",
+            "title": "like basically the best ticket out there",
+            "description": "Linear ticket SIG-15 scopes the SIG-15 implementation and reviewer evidence handoff.",
+            "priority": "0",
+            "status": "In Progress",
+            "url": "https://linear.app/example/issue/SIG-15",
+            "assignee": {"name": "Jordan", "email": "jordan@example.com"},
+            "provider": "linear",
+        },
+    },
 ]
 
 APPROVAL_QUEUE: List[Dict[str, str]] = [
