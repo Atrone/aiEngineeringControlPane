@@ -719,6 +719,32 @@ def _sync_run_progress(run: Dict[str, Any], settings: Settings) -> None:
         run["blockers"] = ["No active blockers", "Waiting for reviewer decision"]
 
 
+def _sig_15_linear_demo_issue() -> Dict[str, Any]:
+    """
+    Builds the Linear-style SIG-15 fallback issue for disconnected intake demos.
+
+    Keeps ticket id, title, In Progress status, and acceptance wording aligned with the
+    cloud Linear issue so traceability snapshots can show preservedFromInProgress without API keys.
+    """
+
+    # Use a stable id distinct from run-derived fallback rows so intake selections stay unambiguous.
+    return {
+        "id": "linear-sig-15",
+        "ticket": "SIG-15",
+        "title": "like basically the best ticket out there",
+        "description": (
+            "Implement SIG-15: like basically the best ticket out there. "
+            "Acceptance criteria: Deliver SIG-15 with clear review evidence and preserve issue "
+            "traceability from In Progress."
+        ),
+        "priority": "0",
+        "status": "In Progress",
+        "url": "https://linear.app/example/issue/SIG-15",
+        "assignee": {"name": "Cloud Agent", "email": "agent@example.com"},
+        "provider": "linear",
+    }
+
+
 def _fallback_issues() -> List[Dict[str, Any]]:
     """Builds a fallback issue catalog from the seeded run summaries."""
 
@@ -739,6 +765,9 @@ def _fallback_issues() -> List[Dict[str, Any]]:
                 "provider": "fallback",
             }
         )
+
+    # Surface SIG-15 for reviewers validating Linear traceability when no live tracker is connected.
+    issues.append(_sig_15_linear_demo_issue())
 
     # Return the fallback issue catalog.
     return issues
