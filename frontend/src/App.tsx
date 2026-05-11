@@ -3992,6 +3992,70 @@ function PullRequestPanelBody(props: { run: RunSummary }) {
 }
 
 /**
+ * Builds a Markdown handoff document so reviewers can paste traceability and evidence into tickets or PRs.
+ */
+function buildReviewHandoffMarkdown(run: RunSummary): string {
+  // Anchor the export with the same ticket and title the mission-control lobby displays.
+  const header = `# Review handoff: ${run.ticket} — ${run.title}`;
+  // Reuse the grouped link collector so clipboard output mirrors the on-screen evidence lists.
+  const links = collectTaskDetailReferenceLinks(run);
+  const lines: string[] = [header, ''];
+
+  lines.push('## Traceability snapshot', '');
+
+  if (run.traceability) {
+    // Serialize the backend snapshot into bullet lines reviewers can quote without the UI.
+    const snap = run.traceability;
+    lines.push(`- Ticket: ${snap.ticket || run.ticket}`);
+    lines.push(`- Issue provider: ${snap.issueProvider || 'fallback'}`);
+    lines.push(`- Issue status at intake: ${snap.issueStatusAtLaunch || 'Unknown'}`);
+    lines.push(`- Run status: ${snap.runStatus || run.status}`);
+    lines.push(`- Pull request: ${snap.pullRequestStatus || 'draft'} (${snap.pullRequestSource || 'simulated'})`);
+    lines.push(`- Evidence entries captured: ${snap.capturedEvidenceCount}`);
+    lines.push(`- Preserved traceability from In Progress: ${snap.preservedFromInProgress ? 'Yes' : 'No'}`);
+
+    if (snap.latestDecision) {
+      // Include the latest recorded decision when approval history is already populated.
+      lines.push(`- Latest decision: ${snap.latestDecision}`);
+    }
+  } else {
+    // Keep the section honest when older payloads omit the structured snapshot block.
+    lines.push('_No traceability snapshot was included on this run payload._');
+  }
+
+  lines.push('', '## Suggested acceptance criteria', '');
+
+  // Mirror the intake template so pasted specs stay aligned with WorkIntake automation.
+  const intakeStatus = run.traceability?.issueStatusAtLaunch || run.issue?.status || 'Unknown';
+  lines.push(`Deliver ${run.ticket} with clear review evidence and preserve issue traceability from ${intakeStatus}.`);
+  lines.push('', '## Reference links', '');
+
+  const pushLinkSection = (label: string, urls: string[]): void => {
+    if (urls.length === 0) {
+      // Skip empty sections so the Markdown stays short for low-link runs.
+      return;
+    }
+
+    lines.push(`### ${label}`, '');
+
+    for (const url of urls) {
+      // Emit one URL per line to keep plain-text review in chat readable.
+      lines.push(`- ${url}`);
+    }
+
+    lines.push('');
+  };
+
+  pushLinkSection('Issue', links.issueLinks);
+  pushLinkSection('Interface / agent', links.interfaceLinks);
+  pushLinkSection('CI', links.ciLinks);
+  pushLinkSection('Evidence', links.evidenceLinks);
+
+  // Return a single string suitable for navigator.clipboard.writeText.
+  return lines.join('\n').trimEnd();
+}
+
+/**
  * Extracts distinct HTTP(S) URLs from a free-form text block.
  */
 function extractUrlsFromText(text: string): string[] {
@@ -4079,6 +4143,7 @@ function collectTaskDetailReferenceLinks(run: RunSummary): {
  * Renders task-specific traceability links sourced from the run payload.
  */
 function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
+  const [copyHandoffState, setCopyHandoffState] = useState<'idle' | 'copied' | 'error'>('idle');
   const links = collectTaskDetailReferenceLinks(props.run);
   const traceability = props.run.traceability;
   const hasReferenceLinks = (
@@ -4088,6 +4153,23 @@ function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
     || links.evidenceLinks.length > 0
   );
   const hasTraceabilitySnapshot = Boolean(traceability);
+
+  /**
+   * Copies the Markdown handoff package when reviewers need evidence outside the control pane.
+   */
+  async function handleCopyReviewHandoff(): Promise<void> {
+    try {
+      // Serialize the full traceability and link bundle for chat, Linear, or GitHub comments.
+      await navigator.clipboard.writeText(buildReviewHandoffMarkdown(props.run));
+      // Confirm success briefly so keyboard and pointer users get the same feedback.
+      setCopyHandoffState('copied');
+      window.setTimeout(() => { setCopyHandoffState('idle'); }, 2000);
+    } catch {
+      // Surface a lightweight error state when clipboard permissions block the write path.
+      setCopyHandoffState('error');
+      window.setTimeout(() => { setCopyHandoffState('idle'); }, 3200);
+    }
+  }
 
   /**
    * Builds reviewer-facing traceability summary lines from the run snapshot.
@@ -4101,7 +4183,7 @@ function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
     const summaryItems: string[] = [
       `Ticket: ${traceability.ticket || props.run.ticket}`,
       `Issue provider: ${traceability.issueProvider || 'fallback'}`,
-      `Issue launch status: ${traceability.issueStatusAtLaunch || 'Unknown'}`,
+      `Issue status at intake: ${traceability.issueStatusAtLaunch || 'Unknown'}`,
       `Run status: ${traceability.runStatus || props.run.status}`,
       `Pull request status: ${traceability.pullRequestStatus || 'draft'} (${traceability.pullRequestSource || 'simulated'})`,
       `Evidence entries captured: ${traceability.capturedEvidenceCount}`,
@@ -4160,9 +4242,21 @@ function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
     return <p className="muted-copy">No task-specific reference links are available for this run yet.</p>;
   }
 
+  const copyStatusLabel = copyHandoffState === 'copied'
+    ? 'Copied review handoff to clipboard.'
+    : copyHandoffState === 'error'
+      ? 'Clipboard is unavailable in this browser context.'
+      : '';
+
   // Render only concrete links sourced from the run payload.
   return (
     <div className="stacked-copy">
+      <div className="action-stack">
+        <button className="ghost-button" onClick={() => { void handleCopyReviewHandoff(); }} type="button">
+          Copy review handoff (Markdown)
+        </button>
+        {copyStatusLabel ? <p className="muted-copy">{copyStatusLabel}</p> : null}
+      </div>
       {traceabilitySnapshotItems.length > 0 ? (
         <div className="stacked-copy">
           <strong>Traceability snapshot</strong>
@@ -4248,6 +4342,7 @@ export {
   canAccessRole,
   collectBlockerReasons,
   collectTaskDetailReferenceLinks,
+  buildReviewHandoffMarkdown,
   deriveDashboardMetrics,
   exchangeGoogleAuthCodeOnce,
   extractUrlsFromText,

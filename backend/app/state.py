@@ -726,19 +726,28 @@ def _fallback_issues() -> List[Dict[str, Any]]:
 
     # Convert seeded runs into fallback issue records for task intake.
     for run in RUN_STORE:
+        # Prefer the frozen issue snapshot so tracker status at intake survives run lifecycle changes.
+        snapshot = run.get("_issueSnapshot") if isinstance(run.get("_issueSnapshot"), dict) else {}
+        snapshot_assignee = snapshot.get("assignee") if isinstance(snapshot.get("assignee"), dict) else None
+        default_assignee = {"name": run["owner"], "email": f"{run['owner'].lower()}@example.com"}
+        assignee = deepcopy(snapshot_assignee) if snapshot_assignee else default_assignee
+
         issues.append(
             {
-                "id": run["id"],
-                "ticket": run["ticket"],
-                "title": run["title"],
-                "description": run["summary"],
-                "priority": "2",
-                "status": run["status"],
-                "url": "",
-                "assignee": {"name": run["owner"], "email": f"{run['owner'].lower()}@example.com"},
-                "provider": "fallback",
+                "id": str(snapshot.get("id") or run["id"]),
+                "ticket": str(snapshot.get("ticket") or run["ticket"]),
+                "title": str(snapshot.get("title") or run["title"]),
+                "description": str(snapshot.get("description") or run["summary"]),
+                "priority": str(snapshot.get("priority") or "2"),
+                "status": str(snapshot.get("status") or run["status"]),
+                "url": str(snapshot.get("url") or ""),
+                "assignee": assignee,
+                "provider": str(snapshot.get("provider") or "fallback"),
             }
         )
+
+    # Surface SIG-13-style tickets first so demo intake matches Linear traceability walkthroughs.
+    issues.sort(key=lambda item: (0 if str(item.get("ticket")) == "SIG-13" else 1, str(item.get("ticket", ""))))
 
     # Return the fallback issue catalog.
     return issues

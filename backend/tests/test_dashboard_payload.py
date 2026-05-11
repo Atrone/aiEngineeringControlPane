@@ -70,8 +70,8 @@ class DashboardPayloadTests(unittest.TestCase):
         metrics_by_label = {metric["label"]: metric for metric in payload["metrics"]}
 
         # Confirm the active-runs card reflects the current run-state counts.
-        self.assertEqual(metrics_by_label["Active runs"]["value"], "4")
-        self.assertEqual(metrics_by_label["Active runs"]["hint"], "0 running, 2 waiting for review")
+        self.assertEqual(metrics_by_label["Active runs"]["value"], "5")
+        self.assertEqual(metrics_by_label["Active runs"]["hint"], "0 running, 3 waiting for review")
 
         # Confirm the blocked-tasks card summarizes actionable blocker reasons instead of static copy.
         self.assertEqual(metrics_by_label["Blocked tasks"]["value"], "1")
@@ -88,7 +88,7 @@ class DashboardPayloadTests(unittest.TestCase):
         self.assertEqual(metrics_by_label["Review effort"]["value"], "59 min")
         self.assertEqual(
             metrics_by_label["Review effort"]["hint"],
-            "Total runtime across 5 runs in this lobby",
+            "Total runtime across 6 runs in this lobby",
         )
 
         # Confirm the blocked-reasons panel is built from the current blocked and retry runs.
@@ -105,7 +105,7 @@ class DashboardPayloadTests(unittest.TestCase):
         self.assertEqual(
             payload["suggestedActions"],
             [
-                "Review 2 runs waiting in the approval inbox.",
+                "Review 3 runs waiting in the approval inbox.",
                 "Unblock 2 stalled runs. Top blocker: Missing test environment secret.",
                 "Connect Cursor Cloud Agents so runs launch against the live agent service.",
             ],
