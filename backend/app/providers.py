@@ -931,29 +931,32 @@ def list_repo_documents(settings: Settings, repo_name: str = "") -> List[Dict[st
 
     selected_docs_root = _resolve_repo_docs_root(docs_root, repo_name) if repo_name else None
     search_root = selected_docs_root or docs_root
-
-    if repo_name and selected_docs_root is None:
-        # Do not attach shared or unrelated docs when a specific repo was requested.
-        return documents
+    use_shared_top_level_docs = bool(repo_name and selected_docs_root is None)
 
     markdown_paths: List[Path] = []
 
     # Include the selected repo README or the root README for the shared catalog.
     repo_readme = search_root / "README.md" if selected_docs_root else docs_root.parent / "README.md"
 
-    if repo_readme.exists():
+    if repo_readme.exists() and not use_shared_top_level_docs:
         # Capture the README as part of the knowledge source list.
         markdown_paths.append(repo_readme)
 
-    # Include all markdown files from the selected docs directory.
-    for path in search_root.rglob("*.md"):
+    if use_shared_top_level_docs:
+        # Use direct docs/*.md files as shared selected-repo context.
+        candidate_paths = search_root.glob("*.md")
+    else:
+        # Include all markdown files from the selected docs directory.
+        candidate_paths = search_root.rglob("*.md")
+
+    for path in candidate_paths:
         if path.is_file():
             # Keep each markdown file for later normalization.
             markdown_paths.append(path)
 
     # Normalize and sort the markdown documents for consistent UI output.
     for path in sorted(set(markdown_paths)):
-        documents.append(_to_document_record(path, docs_root, repo_name if selected_docs_root else ""))
+        documents.append(_to_document_record(path, docs_root, repo_name if repo_name else ""))
 
     # Return the list of repo knowledge sources.
     return documents

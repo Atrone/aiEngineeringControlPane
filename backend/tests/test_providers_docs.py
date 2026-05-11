@@ -50,6 +50,15 @@ class ProviderDocsTests(unittest.TestCase):
             selected_repo_documents = providers.list_repo_documents(settings, repo_name="ai-control-pane")
             self.assertEqual([document["path"] for document in selected_repo_documents], ["docs/ai-control-pane/guide.md"])
             self.assertEqual(selected_repo_documents[0]["repoName"], "ai-control-pane")
+            shared_repo_documents = providers.list_repo_documents(settings, repo_name="platform-web")
+            self.assertEqual(
+                [document["path"] for document in shared_repo_documents],
+                ["docs/architecture.md", "docs/plain_doc.md"],
+            )
+            self.assertEqual(
+                {document["repoName"] for document in shared_repo_documents},
+                {"platform-web"},
+            )
 
             # Confirm excerpting truncates long documents and local context collection labels sections.
             excerpt = providers._read_doc_excerpt(architecture_path, 10)

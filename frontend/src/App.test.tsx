@@ -309,10 +309,12 @@ describe('App pure helper functions', () => {
         [
           { ...documentRecord, id: 'doc-platform', repoName: 'platform-web' },
           { ...documentRecord, id: 'doc-shared', repoName: undefined },
+          { ...documentRecord, id: 'doc-readme', path: 'README.md', repoName: undefined },
+          { ...documentRecord, id: 'doc-api', repoName: 'api-service' },
         ],
         'Platform Web',
       ).map((document) => document.id),
-    ).toEqual(['doc-platform']);
+    ).toEqual(['doc-platform', 'doc-shared']);
     expect(isActionableBlocker('No active blockers')).toBe(false);
     expect(isActionableBlocker('Missing API key')).toBe(true);
     expect(parseRuntimeSeconds('02:30')).toBe(150);

@@ -156,6 +156,22 @@ function normalizeRepoDocKey(value: string): string {
 }
 
 /**
+ * Reports whether a document belongs to the shared top-level docs folder.
+ */
+function isSharedTopLevelDocsDocument(document: DocumentRecord): boolean {
+  const normalizedPath = document.path.replace(/\\/g, '/').toLowerCase();
+  const pathParts = normalizedPath.split('/');
+
+  if (document.repoName) {
+    // Repo-tagged docs are handled by the selected-repository match below.
+    return false;
+  }
+
+  // Treat direct docs-folder markdown as shared context for every selected repo.
+  return pathParts.length === 2 && pathParts[0] === 'docs' && (normalizedPath.endsWith('.md') || normalizedPath.endsWith('.markdown'));
+}
+
+/**
  * Returns the repo document records that belong to the selected repository.
  */
 function getDocumentsForRepository(documents: DocumentRecord[], repoName: string): DocumentRecord[] {
@@ -166,8 +182,8 @@ function getDocumentsForRepository(documents: DocumentRecord[], repoName: string
     return [];
   }
 
-  // Keep only document records tagged by the backend for this repository's docs folder.
-  return documents.filter((document) => normalizeRepoDocKey(document.repoName ?? '') === selectedRepoKey);
+  // Keep repo-tagged documents and shared top-level docs folder files for the selection.
+  return documents.filter((document) => normalizeRepoDocKey(document.repoName ?? '') === selectedRepoKey || isSharedTopLevelDocsDocument(document));
 }
 
 /**
