@@ -1475,6 +1475,12 @@ function DashboardPage() {
           <span className="run-channel-meta">{run.repo} · {run.runtime}</span>
         </span>
         <span className="run-channel-status">{run.status}</span>
+        <RunTraceabilityGraphPanelBody
+          ariaLabel={`Run traceability graph for ${run.ticket}`}
+          run={run}
+          showArtifactLinks={false}
+          variant="compact"
+        />
       </Link>,
     );
   }
@@ -2621,9 +2627,17 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
 /**
  * Renders an ordered graph of every major artifact connected to the run.
  */
-function RunTraceabilityGraphPanelBody(props: { run: RunSummary }) {
+function RunTraceabilityGraphPanelBody(props: { ariaLabel?: string; run: RunSummary; showArtifactLinks?: boolean; variant?: 'default' | 'compact' }) {
   const nodes = buildRunTraceabilityGraph(props.run);
   const graphNodes: ReactNode[] = [];
+  // Track the compact lobby variant once so render branches stay readable.
+  const isCompactGraph = props.variant === 'compact';
+  // Switch to the compact graph class when the graph is embedded in a lobby run channel.
+  const graphClassName = isCompactGraph
+    ? 'traceability-graph traceability-graph-compact'
+    : 'traceability-graph';
+  // Keep artifact links enabled by default for full run-room graphs.
+  const shouldShowArtifactLinks = props.showArtifactLinks ?? true;
 
   // Render each traceability node as a connected card with optional deep links.
   for (const [index, node] of nodes.entries()) {
@@ -2635,8 +2649,8 @@ function RunTraceabilityGraphPanelBody(props: { run: RunSummary }) {
             <span className="traceability-status">{buildTraceabilityStatusLabel(node.status)}</span>
           </div>
           <strong>{node.title}</strong>
-          <p className="muted-copy">{node.detail}</p>
-          {node.href ? (
+          {isCompactGraph ? null : <p className="muted-copy">{node.detail}</p>}
+          {shouldShowArtifactLinks && node.href ? (
             <a className="external-link traceability-link" href={node.href} rel="noreferrer" target="_blank">
               Open source artifact
             </a>
@@ -2649,7 +2663,7 @@ function RunTraceabilityGraphPanelBody(props: { run: RunSummary }) {
 
   // Return an accessible ordered list so screen readers preserve the graph sequence.
   return (
-    <ol aria-label="Run traceability graph" className="traceability-graph">
+    <ol aria-label={props.ariaLabel ?? 'Run traceability graph'} className={graphClassName}>
       {graphNodes}
     </ol>
   );

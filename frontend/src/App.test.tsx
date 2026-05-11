@@ -639,6 +639,7 @@ describe('App route and page component functions', () => {
     expect(screen.queryByText(/Model:/i)).not.toBeInTheDocument();
     expect(suggestionsTitle.compareDocumentPosition(teamWorkspace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText('Artifact results')).not.toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Run traceability graph for ACP-1' })).toBeInTheDocument();
     expect(screen.getByText('Build dashboard PR')).toBeInTheDocument();
     expect(screen.getByText(/Adds the dashboard implementation/)).toBeInTheDocument();
     expect(pullRequestContent.compareDocumentPosition(openRunRoomLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -649,12 +650,16 @@ describe('App route and page component functions', () => {
     const platformReviewRun = createRunFixture({ runtime: '02:30' });
     const platformBlockedRun = createRunFixture({
       id: 'run-2',
+      ticket: 'ACP-2',
       status: 'Blocked',
       blockers: ['Missing API key'],
+      issue: { ...issue, id: 'issue-2', ticket: 'ACP-2', url: 'https://linear.example.com/issue/ACP-2' },
       runtime: '03:00',
     });
     const opsRun = createRunFixture({
       id: 'run-3',
+      ticket: 'OPS-1',
+      issue: { ...issue, id: 'issue-3', ticket: 'OPS-1', url: 'https://linear.example.com/issue/OPS-1' },
       runtime: '10:00',
       requestedBy: { ...currentUser, teamId: 'ops' },
     });
@@ -672,6 +677,9 @@ describe('App route and page component functions', () => {
 
     expect(await screen.findByText('6 min')).toBeInTheDocument();
     expect(screen.getByText('Total runtime across 2 runs in this lobby')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Run traceability graph for ACP-1' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Run traceability graph for ACP-2' })).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Run traceability graph for OPS-1' })).not.toBeInTheDocument();
     expect(screen.queryByText('16 min')).not.toBeInTheDocument();
   });
 
