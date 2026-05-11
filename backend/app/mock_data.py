@@ -245,6 +245,44 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
             "provider": "linear",
         },
     },
+    {
+        "id": "sig-14",
+        "ticket": "SIG-14",
+        "title": "extremely interesting ticket",
+        "repo": "web-app",
+        "branch": "ai/sig-14-extremely-interesting-ticket",
+        "owner": "Jordan",
+        "agent": "impl-agent",
+        "runtime": "00:00",
+        "cost": "$0.00",
+        "status": "Review",
+        "risk": "Medium",
+        "currentStep": "Review package ready for SIG-14 handoff",
+        "summary": "Demo run for SIG-14: reviewer handoff with issue traceability preserved from In Progress.",
+        "evidence": {
+            "diff": [
+                "Seeded SIG-14 with a frozen Linear snapshot aligned to the extremely interesting ticket branch.",
+                "Extended intake ordering so SIG-14 stays above the fold for Linear traceability demos.",
+            ],
+            "tests": ["npm run lint", "npm run test -- --runInBand"],
+            "commands": ["git status", "git diff origin/main...HEAD"],
+            "rationale": [
+                "Keeps Linear SIG-14 visible in the mission-control lobby while the run awaits approval.",
+            ],
+        },
+        "blockers": ["No active blockers", "Waiting for reviewer decision"],
+        "_issueSnapshot": {
+            "id": "sig-14",
+            "ticket": "SIG-14",
+            "title": "extremely interesting ticket",
+            "description": "Linear ticket SIG-14 scopes the extremely interesting ticket workflow.",
+            "priority": "0",
+            "status": "In Progress",
+            "url": "https://linear.app/example/issue/SIG-14",
+            "assignee": {"name": "Jordan", "email": "jordan@example.com"},
+            "provider": "linear",
+        },
+    },
 ]
 
 APPROVAL_QUEUE: List[Dict[str, str]] = [

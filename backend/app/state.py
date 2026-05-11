@@ -746,8 +746,25 @@ def _fallback_issues() -> List[Dict[str, Any]]:
             }
         )
 
-    # Surface SIG-13-style tickets first so demo intake matches Linear traceability walkthroughs.
-    issues.sort(key=lambda item: (0 if str(item.get("ticket")) == "SIG-13" else 1, str(item.get("ticket", ""))))
+    # Surface the latest SIG demo ticket first so intake matches Linear traceability walkthroughs.
+    def _sig_demo_sort_key(item: Dict[str, Any]) -> tuple[int, str]:
+        """
+        Orders fallback issues so SIG-14 leads SIG-13 for the current demo branch.
+
+        Returns a tuple used by list.sort so pinned Linear demo tickets stay predictable.
+        """
+
+        # Read the ticket label once so repeated comparisons stay cheap and readable.
+        ticket = str(item.get("ticket", ""))
+        # Prefer SIG-14 ahead of SIG-13 when both seeded demo snapshots exist.
+        if ticket == "SIG-14":
+            return (0, ticket)
+        if ticket == "SIG-13":
+            return (1, ticket)
+        # Keep remaining tickets sorted alphabetically after the pinned SIG rows.
+        return (2, ticket)
+
+    issues.sort(key=_sig_demo_sort_key)
 
     # Return the fallback issue catalog.
     return issues

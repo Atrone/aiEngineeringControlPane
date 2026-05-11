@@ -463,6 +463,31 @@ describe('App pure helper functions', () => {
     expect(markdown).toContain('https://linear.example.com/issue/ACP-1');
     expect(markdown).toContain('https://github.com/octo/repo/pull/42');
   });
+
+  it('builds Markdown review handoffs for SIG-14 extremely interesting ticket', () => {
+    const run = createRunFixture({
+      ticket: 'SIG-14',
+      title: 'extremely interesting ticket',
+      traceability: {
+        ticket: 'SIG-14',
+        issueProvider: 'linear',
+        issueStatusAtLaunch: 'In Progress',
+        runStatus: 'Review',
+        pullRequestStatus: 'open',
+        pullRequestSource: 'github',
+        capturedEvidenceCount: 4,
+        latestDecision: 'approve',
+        preservedFromInProgress: true,
+      },
+    });
+    const markdown = buildReviewHandoffMarkdown(run);
+
+    expect(markdown).toContain('# Review handoff: SIG-14');
+    expect(markdown).toContain('Preserved traceability from In Progress: Yes');
+    expect(markdown).toContain('preserve issue traceability from In Progress');
+    expect(markdown).toContain('https://linear.example.com/issue/ACP-1');
+    expect(markdown).toContain('https://github.com/octo/repo/pull/42');
+  });
 });
 
 describe('App presentational component functions', () => {
