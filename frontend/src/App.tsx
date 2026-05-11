@@ -4080,12 +4080,44 @@ function collectTaskDetailReferenceLinks(run: RunSummary): {
  */
 function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
   const links = collectTaskDetailReferenceLinks(props.run);
+  const traceability = props.run.traceability;
   const hasReferenceLinks = (
     links.issueLinks.length > 0
     || links.interfaceLinks.length > 0
     || links.ciLinks.length > 0
     || links.evidenceLinks.length > 0
   );
+  const hasTraceabilitySnapshot = Boolean(traceability);
+
+  /**
+   * Builds reviewer-facing traceability summary lines from the run snapshot.
+   */
+  function buildTraceabilitySnapshotItems(): string[] {
+    if (!traceability) {
+      // Return no lines when the backend did not include a traceability snapshot.
+      return [];
+    }
+
+    const summaryItems: string[] = [
+      `Ticket: ${traceability.ticket || props.run.ticket}`,
+      `Issue provider: ${traceability.issueProvider || 'fallback'}`,
+      `Issue launch status: ${traceability.issueStatusAtLaunch || 'Unknown'}`,
+      `Run status: ${traceability.runStatus || props.run.status}`,
+      `Pull request status: ${traceability.pullRequestStatus || 'draft'} (${traceability.pullRequestSource || 'simulated'})`,
+      `Evidence entries captured: ${traceability.capturedEvidenceCount}`,
+      `Preserved from In Progress: ${traceability.preservedFromInProgress ? 'Yes' : 'No'}`,
+    ];
+
+    if (traceability.latestDecision) {
+      // Append the latest decision only when reviewer or provider history exists.
+      summaryItems.push(`Latest decision: ${traceability.latestDecision}`);
+    }
+
+    // Return the assembled summary lines for the traceability section.
+    return summaryItems;
+  }
+
+  const traceabilitySnapshotItems = buildTraceabilitySnapshotItems();
 
   /**
    * Renders a titled list of external links used as review evidence.
@@ -4123,7 +4155,7 @@ function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
     );
   }
 
-  if (!hasReferenceLinks) {
+  if (!hasReferenceLinks && !hasTraceabilitySnapshot) {
     // Return a neutral placeholder when the run does not expose any concrete task links yet.
     return <p className="muted-copy">No task-specific reference links are available for this run yet.</p>;
   }
@@ -4131,6 +4163,12 @@ function TaskImplementationPackagePanelBody(props: { run: RunSummary }) {
   // Render only concrete links sourced from the run payload.
   return (
     <div className="stacked-copy">
+      {traceabilitySnapshotItems.length > 0 ? (
+        <div className="stacked-copy">
+          <strong>Traceability snapshot</strong>
+          <DetailList items={traceabilitySnapshotItems} />
+        </div>
+      ) : null}
       {links.issueLinks.length > 0 ? renderLinkGroup('Issue traceability', links.issueLinks, '') : null}
       {links.interfaceLinks.length > 0 ? renderLinkGroup('Updated interface', links.interfaceLinks, '') : null}
       {links.ciLinks.length > 0 ? renderLinkGroup('CI results', links.ciLinks, '') : null}

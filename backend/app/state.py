@@ -1375,6 +1375,50 @@ def _build_pull_request_view(
     }
 
 
+def _build_traceability_snapshot(
+    run: Dict[str, Any],
+    *,
+    issue: Dict[str, Any],
+    pull_request: Dict[str, Any],
+    approval_history: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Builds a compact traceability summary for task-detail review handoff."""
+
+    evidence = run.get("evidence", {}) if isinstance(run.get("evidence"), dict) else {}
+    live_view = run.get("liveView", {}) if isinstance(run.get("liveView"), dict) else {}
+    evidence_tabs = live_view.get("evidenceTabs", {}) if isinstance(live_view, dict) else {}
+    latest_decision = ""
+
+    if approval_history:
+        # Capture the latest reviewer or provider decision for the traceability summary.
+        latest_decision = str(approval_history[-1].get("decision", "")).strip()
+
+    captured_evidence_count = 0
+
+    # Count the static evidence strings currently attached to the run payload.
+    for evidence_key in ("diff", "tests", "commands", "rationale"):
+        captured_evidence_count += len(list(evidence.get(evidence_key, [])))
+
+    # Count live evidence tab entries so streaming runs expose the same evidence metric.
+    for evidence_key in ("diff", "tests", "rationale"):
+        captured_evidence_count += len(list(evidence_tabs.get(evidence_key, [])))
+
+    issue_status_at_launch = str(issue.get("status", "")).strip()
+
+    # Return a normalized traceability snapshot for task detail rendering.
+    return {
+        "ticket": str(run.get("ticket", "")).strip(),
+        "issueProvider": str(issue.get("provider", "fallback")).strip() or "fallback",
+        "issueStatusAtLaunch": issue_status_at_launch,
+        "runStatus": str(run.get("status", "")).strip(),
+        "pullRequestStatus": str(pull_request.get("status", "draft")).strip(),
+        "pullRequestSource": str(pull_request.get("source", "simulated")).strip(),
+        "capturedEvidenceCount": captured_evidence_count,
+        "latestDecision": latest_decision,
+        "preservedFromInProgress": issue_status_at_launch.lower() == "in progress",
+    }
+
+
 def _build_run_extensions(
     run: Dict[str, Any],
     *,
@@ -1424,6 +1468,13 @@ def _build_run_extensions(
     approval_history = run.get("approvalHistory", [])
 
     public_run = {key: value for key, value in run.items() if not str(key).startswith("_")}
+    public_run["liveView"] = _build_live_view(run)
+    traceability = _build_traceability_snapshot(
+        run,
+        issue=resolved_issue,
+        pull_request=pull_request,
+        approval_history=approval_history,
+    )
 
     # Return the run plus normalized integration context fields.
     return {
@@ -1435,7 +1486,7 @@ def _build_run_extensions(
         "requestedBy": resolved_user,
         "approvalHistory": approval_history,
         "cloudAgent": cloud_agent,
-        "liveView": _build_live_view(run),
+        "traceability": traceability,
     }
 
 

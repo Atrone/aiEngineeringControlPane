@@ -212,6 +212,17 @@ export type RunSummary = {
   approvalHistory?: ApprovalHistoryEntry[];
   cloudAgent?: CloudAgentRecord;
   liveView?: RunLiveView;
+  traceability?: {
+    ticket: string;
+    issueProvider: string;
+    issueStatusAtLaunch: string;
+    runStatus: string;
+    pullRequestStatus: string;
+    pullRequestSource: string;
+    capturedEvidenceCount: number;
+    latestDecision: string;
+    preservedFromInProgress: boolean;
+  };
 };
 
 export type ApprovalItem = {

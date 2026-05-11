@@ -230,6 +230,9 @@ class StateRunMutationTests(unittest.TestCase):
         # Confirm the public attribution uses the original starter instead of the current viewer.
         self.assertEqual(public_run["requestedBy"]["name"], "User A")
         self.assertEqual(public_run["requestedBy"]["email"], "user-a@example.com")
+        self.assertEqual(public_run["traceability"]["ticket"], "ACP-601")
+        self.assertEqual(public_run["traceability"]["issueProvider"], "fallback")
+        self.assertEqual(public_run["traceability"]["runStatus"], "Running")
 
     def test_record_approval_covers_decision_branches_and_missing_runs(self) -> None:
         """Covers approval updates for approve, retry, re-scope, and fallback decisions."""
