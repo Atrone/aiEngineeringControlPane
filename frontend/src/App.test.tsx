@@ -38,6 +38,7 @@ import {
   buildEvidenceStatusClassName,
   buildEvidenceTabLabel,
   buildIssueTrackerRunLabel,
+  buildReviewHandoffMarkdown,
   buildLogEntryClassName,
   buildPullRequestStateLabel,
   buildReviewEffortLabel,
@@ -437,6 +438,31 @@ describe('App pure helper functions', () => {
     expect(links.ciLinks).toEqual(['https://ci.example.com/build/1']);
     expect(links.evidenceLinks).toContain('https://preview.example.com');
   });
+
+  it('builds Markdown review handoffs with traceability and reference links', () => {
+    const run = createRunFixture({
+      ticket: 'SIG-13',
+      title: 'mega interesting ticket',
+      traceability: {
+        ticket: 'SIG-13',
+        issueProvider: 'linear',
+        issueStatusAtLaunch: 'In Progress',
+        runStatus: 'Review',
+        pullRequestStatus: 'open',
+        pullRequestSource: 'github',
+        capturedEvidenceCount: 4,
+        latestDecision: 'approve',
+        preservedFromInProgress: true,
+      },
+    });
+    const markdown = buildReviewHandoffMarkdown(run);
+
+    expect(markdown).toContain('# Review handoff: SIG-13');
+    expect(markdown).toContain('Preserved traceability from In Progress: Yes');
+    expect(markdown).toContain('preserve issue traceability from In Progress');
+    expect(markdown).toContain('https://linear.example.com/issue/ACP-1');
+    expect(markdown).toContain('https://github.com/octo/repo/pull/42');
+  });
 });
 
 describe('App presentational component functions', () => {
@@ -491,6 +517,7 @@ describe('App presentational component functions', () => {
     expect(screen.getByText('Reviewer approved')).toBeInTheDocument();
     expect(screen.getByText('Pull request:')).toBeInTheDocument();
     expect(screen.getByText('Issue traceability')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy review handoff (Markdown)' })).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Run traceability graph' })).toBeInTheDocument();
     expect(screen.getByText('Merge/deploy status')).toBeInTheDocument();
   });
