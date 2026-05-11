@@ -1870,7 +1870,6 @@ function DashboardPage() {
 
       <section className="content-grid discord-support-grid">
         <div className="rail-stack">
-          <Panel body={blockedReasonsBody} title="Blocked reasons" />
           <Panel body={suggestionsBody} title="Suggested next actions" />
         </div>
       </section>
