@@ -47,10 +47,15 @@ class StateCursorPromptTests(unittest.TestCase):
         issue_block = state._build_cursor_issue_block(issue)
         docs_block = state._build_cursor_docs_block(documents)
         empty_docs_block = state._build_cursor_docs_block([])
+        issue_traceability_rationale = state._build_issue_traceability_rationale(issue)
+        fallback_traceability_rationale = state._build_issue_traceability_rationale(None)
         self.assertIn("Ticket: ACP-2", issue_block)
         self.assertIn("Assignee: Maya", issue_block)
         self.assertIn("docs/testing.md", docs_block)
         self.assertIn("No repo markdown documents were attached", empty_docs_block)
+        self.assertIn("linear ticket ACP-2", issue_traceability_rationale)
+        self.assertIn("status was 'Todo'", issue_traceability_rationale)
+        self.assertIn("No issue selected", fallback_traceability_rationale)
 
         run = {
             "repo": "platform-web",

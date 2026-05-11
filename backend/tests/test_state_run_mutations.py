@@ -74,6 +74,10 @@ class StateRunMutationTests(unittest.TestCase):
             self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["id"], "upload-doc-1")
             self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["path"], "uploads/architecture.md")
             self.assertEqual(state.RUN_STORE[0]["_requestedBySnapshot"]["name"], "Maya")
+            self.assertIn(
+                "Traceability: launched from linear ticket ACP-500",
+                state.RUN_STORE[0]["evidence"]["rationale"][0],
+            )
             mock_create_run.assert_called_once()
 
     def test_create_run_covers_simulated_live_launch_and_cursor_live_launch_paths(self) -> None:
@@ -205,6 +209,11 @@ class StateRunMutationTests(unittest.TestCase):
         # Confirm the public attribution uses the original starter instead of the current viewer.
         self.assertEqual(public_run["requestedBy"]["name"], "User A")
         self.assertEqual(public_run["requestedBy"]["email"], "user-a@example.com")
+
+        # Confirm the public payload includes a normalized issue-traceability block.
+        self.assertEqual(public_run["issueTraceability"]["ticket"], "ACP-601")
+        self.assertEqual(public_run["issueTraceability"]["issueId"], "task-2")
+        self.assertEqual(public_run["issueTraceability"]["provider"], "fallback")
 
     def test_record_approval_covers_decision_branches_and_missing_runs(self) -> None:
         """Covers approval updates for approve, retry, re-scope, and fallback decisions."""
