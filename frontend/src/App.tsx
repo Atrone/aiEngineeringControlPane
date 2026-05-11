@@ -2147,7 +2147,7 @@ function WorkIntakePage() {
               </div>
             </div>
             <p className="subtle-copy">
-              Upload markdown or text documents to ground the enrich buttons and attach that repo context to the created task.
+              Add markdown files to the selected repository's top-level docs/ folder to auto-attach them, or upload markdown or text files here for this task.
             </p>
             {uploadError ? <p className="error-copy">{uploadError}</p> : null}
             {uploadedDocuments.length > 0 ? (
@@ -2181,7 +2181,7 @@ function WorkIntakePage() {
                 ))}
               </div>
             ) : (
-              <p className="muted-copy">No uploaded repo documents yet. Add markdown files under the selected repository's docs folder or upload files here.</p>
+              <p className="muted-copy">No uploaded repo documents yet. Repo docs are picked up from the selected repository's top-level docs/ folder, for example docs/guide.md or docs/runbook.md.</p>
             )}
           </section>
 
