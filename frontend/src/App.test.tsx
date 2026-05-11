@@ -105,6 +105,7 @@ vi.mock('./lib/api', () => ({
   fetchAuthConfig: vi.fn(),
   fetchCurrentUser: vi.fn(),
   fetchDashboard: vi.fn(),
+  fetchDashboardReviewEfforts: vi.fn(),
   fetchDashboardSuggestedActions: vi.fn(),
   fetchIntegrations: vi.fn(),
   fetchIntakeOptions: vi.fn(),
@@ -321,8 +322,12 @@ describe('App pure helper functions', () => {
     expect(parseRuntimeSeconds('bad')).toBe(0);
     expect(collectBlockerReasons([blockedRun, reviewRun])).toEqual(new Set(['Missing API key']));
     expect(formatReviewEffortValue(0, 0)).toBe('0 min');
-    expect(formatReviewEffortValue(2, 240)).toBe('4 min');
-    expect(deriveDashboardMetrics([reviewRun, blockedRun, mergedRun]).map((metric) => metric.value)).toEqual(['2', '1', '1', '7 min']);
+    expect(formatReviewEffortValue(2, 24)).toBe('24 min');
+    expect(deriveDashboardMetrics([reviewRun, blockedRun, mergedRun]).map((metric) => metric.value)).toEqual(['2', '1', '1', '0 min']);
+    expect(deriveDashboardMetrics([reviewRun, blockedRun], {
+      'run-1': { runId: 'run-1', effortMinutes: 18, label: 'Moderate review', confidence: 0.8, rationale: 'Clear scope.', source: 'openai' },
+      'run-2': { runId: 'run-2', effortMinutes: 30, label: 'Moderate review', confidence: 0.6, rationale: 'Needs care.', source: 'openai' },
+    }).find((metric) => metric.label === 'Review effort')?.value).toBe('48 min');
     expect(isIssueTrackerProvider(' Jira ')).toBe(true);
     expect(isIssueTrackerProvider('github')).toBe(false);
     expect(isIssueTrackerRun(reviewRun)).toBe(true);
@@ -333,7 +338,7 @@ describe('App pure helper functions', () => {
     expect(buildTeamInitials('')).toBe('AI');
     expect(getRunChannelTone(blockedRun)).toBe('blocked');
     expect(getRunChannelTone(mergedRun)).toBe('merged');
-    expect(buildReviewEffortLabel(blockedRun)).toContain('1 actionable blocker');
+    expect(buildReviewEffortLabel(blockedRun, { runId: 'run-2', effortMinutes: 30, label: 'Moderate review', confidence: 0.6, rationale: 'Needs care.', source: 'openai' })).toContain('30 min OpenAI guess');
     expect(shouldShowRunLobbyPullRequest(reviewRun)).toBe(true);
     expect(shouldShowRunLobbyPullRequest(blockedRun)).toBe(false);
     expect(resolveCurrentPullRequestUrl(reviewRun)).toBe('https://github.com/octo/repo/pull/42');
@@ -540,6 +545,11 @@ describe('App route and page component functions', () => {
     vi.mocked(api.fetchAuthConfig).mockResolvedValue({ googleSsoEnabled: false, guidedSignInEnabled: true });
     vi.mocked(api.signIn).mockResolvedValue({ sessionToken: 'token', currentUser });
     vi.mocked(api.signOut).mockResolvedValue();
+    vi.mocked(api.fetchDashboardReviewEfforts).mockResolvedValue({
+      reviewEfforts: [{ runId: 'run-1', effortMinutes: 18, label: 'Moderate review', confidence: 0.8, rationale: 'Clear UI PR summary.', source: 'openai' }],
+      model: 'test-model',
+      runCount: 1,
+    });
     vi.mocked(api.fetchDashboardSuggestedActions).mockResolvedValue({ suggestedActions: ['Review blocked runs'], model: 'test-model', runCount: 1 });
     mockedUseApiQuery().mockReturnValue({ data: null, error: null, isLoading: true });
   });
@@ -665,6 +675,9 @@ describe('App route and page component functions', () => {
     await waitFor(() => {
       expect(api.fetchDashboardSuggestedActions).toHaveBeenCalledWith({ runIds: ['run-1'] });
     });
+    await waitFor(() => {
+      expect(api.fetchDashboardReviewEfforts).toHaveBeenCalledWith({ runIds: ['run-1'] });
+    });
 
     const suggestionsTitle = await screen.findByText('Suggested next actions');
     const teamWorkspace = screen.getByRole('region', { name: 'Team run workspace' });
@@ -675,13 +688,14 @@ describe('App route and page component functions', () => {
     expect(suggestionsTitle.compareDocumentPosition(teamWorkspace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText('Artifact results')).not.toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Run traceability graph for ACP-1' })).toBeInTheDocument();
+    expect(screen.getByText(/Moderate review/)).toBeInTheDocument();
     expect(screen.getByText('Build dashboard PR')).toBeInTheDocument();
     expect(screen.getByText(/Adds the dashboard implementation/)).toBeInTheDocument();
     expect(pullRequestContent.compareDocumentPosition(openRunRoomLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(openRunRoomLink).toBeInTheDocument();
   });
 
-  it('totals review effort from runs in the selected lobby only', async () => {
+  it('totals OpenAI review effort from runs in the selected lobby only', async () => {
     const platformReviewRun = createRunFixture({ runtime: '02:30' });
     const platformBlockedRun = createRunFixture({
       id: 'run-2',
@@ -707,15 +721,26 @@ describe('App route and page component functions', () => {
       currentUser,
     };
     mockedUseApiQuery().mockReturnValue({ data: dashboard, error: null, isLoading: false });
+    vi.mocked(api.fetchDashboardReviewEfforts).mockResolvedValue({
+      reviewEfforts: [
+        { runId: 'run-1', effortMinutes: 12, label: 'Moderate review', confidence: 0.7, rationale: 'Small scoped PR.', source: 'openai' },
+        { runId: 'run-2', effortMinutes: 25, label: 'Moderate review', confidence: 0.6, rationale: 'Needs blocker follow-up.', source: 'openai' },
+      ],
+      model: 'test-model',
+      runCount: 2,
+    });
 
     renderWithRouter(<DashboardPage />, '/dashboard');
 
-    expect(await screen.findByText('6 min')).toBeInTheDocument();
-    expect(screen.getByText('Total runtime across 2 runs in this lobby')).toBeInTheDocument();
+    expect(await screen.findByText('37 min')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI PR-summary guesses across 2 runs in this lobby')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(api.fetchDashboardReviewEfforts).toHaveBeenCalledWith({ runIds: ['run-1', 'run-2'] });
+    });
     expect(screen.getByRole('list', { name: 'Run traceability graph for ACP-1' })).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Run traceability graph for ACP-2' })).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Run traceability graph for OPS-1' })).not.toBeInTheDocument();
-    expect(screen.queryByText('16 min')).not.toBeInTheDocument();
+    expect(api.fetchDashboardReviewEfforts).not.toHaveBeenCalledWith({ runIds: ['run-1', 'run-2', 'run-3'] });
   });
 
   it('renders loading states for data-backed page components', () => {

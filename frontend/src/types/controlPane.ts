@@ -375,3 +375,22 @@ export type DashboardSuggestedActionsResponse = {
   model: string;
   runCount: number;
 };
+
+export type ReviewEffortEstimate = {
+  runId: string;
+  effortMinutes: number;
+  label: string;
+  confidence: number | null;
+  rationale: string;
+  source: 'openai';
+};
+
+export type DashboardReviewEffortsRequest = {
+  runIds: string[];
+};
+
+export type DashboardReviewEffortsResponse = {
+  reviewEfforts: ReviewEffortEstimate[];
+  model: string;
+  runCount: number;
+};

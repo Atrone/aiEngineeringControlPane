@@ -317,6 +317,18 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
             # Confirm suggestions payloads must include the suggestedActions array.
             providers._parse_suggested_actions_response('{"notSuggestedActions":[]}')
 
+        with self.assertRaises(providers.OpenAIEnrichmentError):
+            # Confirm non-JSON review-effort payloads are rejected.
+            providers._parse_review_effort_response("not-json", [{"id": "run-1"}])
+
+        with self.assertRaises(providers.OpenAIEnrichmentError):
+            # Confirm non-object review-effort payloads are rejected.
+            providers._parse_review_effort_response("[]", [{"id": "run-1"}])
+
+        with self.assertRaises(providers.OpenAIEnrichmentError):
+            # Confirm review-effort payloads must include the reviewEfforts array.
+            providers._parse_review_effort_response('{"notReviewEfforts":[]}', [{"id": "run-1"}])
+
         parsed_actions = providers._parse_suggested_actions_response(
             json.dumps(
                 {
@@ -378,6 +390,40 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
                 # Confirm malformed OpenAI JSON responses are translated for suggestions.
                 providers.suggest_next_actions_for_runs(settings, runs=runs)
         self.assertIn("could not be parsed as JSON", str(suggestion_decode_error_result.exception))
+
+        effort_http_error = HTTPError(
+            url="https://example-openai.test/v1/chat/completions",
+            code=500,
+            msg="Server Error",
+            hdrs=None,
+            fp=None,
+        )
+
+        def raising_effort_read():
+            """Raises while reading the review-effort provider error body."""
+
+            # Simulate an unreadable provider error body for the review-effort call.
+            raise ValueError("body unavailable")
+
+        effort_http_error.read = raising_effort_read  # type: ignore[assignment]
+
+        with patch("app.providers._request_json", side_effect=effort_http_error):
+            with self.assertRaises(providers.OpenAIEnrichmentError) as effort_http_error_result:
+                # Confirm unreadable HTTP errors still surface a usable review-effort message.
+                providers.estimate_review_effort_for_runs(settings, runs=[{"id": "run-1"}])
+        self.assertIn("review-effort request", str(effort_http_error_result.exception))
+
+        with patch("app.providers._request_json", side_effect=URLError("offline")):
+            with self.assertRaises(providers.OpenAIEnrichmentError) as effort_url_error_result:
+                # Confirm transport failures are translated into review-effort-specific errors.
+                providers.estimate_review_effort_for_runs(settings, runs=[{"id": "run-1"}])
+        self.assertIn("Could not reach OpenAI for review effort", str(effort_url_error_result.exception))
+
+        with patch("app.providers._request_json", side_effect=json.JSONDecodeError("bad", "doc", 0)):
+            with self.assertRaises(providers.OpenAIEnrichmentError) as effort_decode_error_result:
+                # Confirm malformed OpenAI JSON responses are translated for review-effort estimation.
+                providers.estimate_review_effort_for_runs(settings, runs=[{"id": "run-1"}])
+        self.assertIn("could not be parsed as JSON", str(effort_decode_error_result.exception))
 
         # Confirm invalid GitHub PR inputs are rejected before URL parsing.
         self.assertIsNone(providers.parse_github_pull_request_url(None))  # type: ignore[arg-type]

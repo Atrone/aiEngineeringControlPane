@@ -18,6 +18,7 @@ import {
   fetchAuthConfig,
   fetchCurrentUser,
   fetchDashboard,
+  fetchDashboardReviewEfforts,
   fetchDashboardSuggestedActions,
   fetchIntakeOptions,
   fetchIntegrations,
@@ -34,6 +35,7 @@ import {
 import type {
   ApprovalDecisionRequest,
   CursorConnectRequest,
+  DashboardReviewEffortsRequest,
   DashboardSuggestedActionsRequest,
   GitHubConnectRequest,
   IntakeEnrichRequest,
@@ -274,6 +276,7 @@ describe('resource API functions', () => {
   });
 
   it.each([
+    ['fetchDashboardReviewEfforts', () => fetchDashboardReviewEfforts({ runIds: ['run-1'] } satisfies DashboardReviewEffortsRequest), '/api/dashboard/review-efforts'],
     ['fetchDashboardSuggestedActions', () => fetchDashboardSuggestedActions({ runIds: ['run-1'] } satisfies DashboardSuggestedActionsRequest), '/api/dashboard/suggested-actions'],
     ['enrichIntakeField', () => enrichIntakeField({
       field: 'title',

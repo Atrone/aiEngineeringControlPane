@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from app import main
 from app.providers import OpenAIEnrichmentError
+from app.schemas import DashboardReviewEffortsRequest
 from app.schemas import DashboardSuggestedActionsRequest
 
 
@@ -55,6 +56,34 @@ class MainDashboardRouteTests(unittest.TestCase):
                     request,
                 )
             self.assertEqual(suggestion_error.exception.status_code, 502)
+
+        with patch("app.main._authorized_request", return_value=("settings", {"x": "y"}, "session")), patch(
+            "app.main.get_runs_by_ids",
+            return_value=[{"id": "run-1"}],
+        ), patch(
+            "app.main.estimate_review_effort_for_runs",
+            return_value={"reviewEfforts": [{"runId": "run-1", "effortMinutes": 20}]},
+        ) as mock_estimate:
+            # Confirm the review-efforts route resolves visible runs before calling OpenAI.
+            payload = DashboardReviewEffortsRequest.model_validate({"runIds": ["run-1"]})
+            response = main.post_dashboard_review_efforts(payload, request)
+            self.assertEqual(response["reviewEfforts"][0]["effortMinutes"], 20)
+            mock_estimate.assert_called_once_with("settings", runs=[{"id": "run-1"}])
+
+        with patch("app.main._authorized_request", return_value=("settings", {"x": "y"}, "session")), patch(
+            "app.main.get_runs_by_ids",
+            return_value=[{"id": "run-1"}],
+        ), patch(
+            "app.main.estimate_review_effort_for_runs",
+            side_effect=OpenAIEnrichmentError("provider-failed"),
+        ):
+            # Confirm OpenAI review-effort failures are translated into route-facing HTTP exceptions.
+            with self.assertRaises(HTTPException) as effort_error:
+                main.post_dashboard_review_efforts(
+                    DashboardReviewEffortsRequest.model_validate({"runIds": ["run-1"]}),
+                    request,
+                )
+            self.assertEqual(effort_error.exception.status_code, 502)
 
         with patch("app.main._authorized_request", return_value=("settings", {"x": "y"}, "session")), patch(
             "app.main.get_run_detail",

@@ -18,6 +18,7 @@ import {
   fetchAuthConfig,
   fetchCurrentUser,
   fetchDashboard,
+  fetchDashboardReviewEfforts,
   fetchDashboardSuggestedActions,
   fetchIntegrations,
   fetchIntakeOptions,
@@ -46,6 +47,7 @@ import type {
   RunLiveView,
   RunLogEntry,
   RiskLevel,
+  ReviewEffortEstimate,
   RunSummary,
   RunStatus,
   RunTimelineEntry,
@@ -270,24 +272,25 @@ function collectBlockerReasons(runs: RunSummary[]): Set<string> {
 }
 
 /**
- * Formats the review-effort metric value from the total lobby runtime.
+ * Formats the review-effort metric value from OpenAI's total minute guesses.
  */
-function formatReviewEffortValue(runCount: number, totalRuntimeSeconds: number): string {
+function formatReviewEffortValue(runCount: number, totalEffortMinutes: number): string {
   if (runCount === 0) {
-    // Return a stable zero state when no lobby runs are visible.
+    // Return a stable zero state while no OpenAI estimates are available.
     return '0 min';
   }
 
-  const totalMinutes = Math.round(totalRuntimeSeconds / 60);
-
-  // Return the summed runtime in minutes for the dashboard metric value.
-  return `${Math.max(0, totalMinutes)} min`;
+  // Return the summed OpenAI effort guesses in minutes for the dashboard metric value.
+  return `${Math.max(0, Math.round(totalEffortMinutes))} min`;
 }
 
 /**
  * Derives the four dashboard metric cards from the runs shown in the selected lobby.
  */
-function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
+function deriveDashboardMetrics(
+  runs: RunSummary[],
+  reviewEffortsByRunId: Record<string, ReviewEffortEstimate> = {},
+): DashboardMetric[] {
   let activeRuns = 0;
   let runningRuns = 0;
   let reviewReadyRuns = 0;
@@ -295,7 +298,7 @@ function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
   let blockedRuns = 0;
   let mergedRuns = 0;
   let reviewEffortRunCount = 0;
-  let totalReviewRuntimeSeconds = 0;
+  let totalReviewEffortMinutes = 0;
 
   // Aggregate the run counts needed by the dashboard cards.
   for (const run of runs) {
@@ -331,10 +334,12 @@ function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
       mergedRuns += 1;
     }
 
-    if (run.runtime.trim()) {
-      // Sum the per-run effort shown in the lobby channel list.
+    const reviewEffort = reviewEffortsByRunId[run.id];
+
+    if (reviewEffort) {
+      // Sum the per-run OpenAI review-effort guesses shown in the lobby.
       reviewEffortRunCount += 1;
-      totalReviewRuntimeSeconds += parseRuntimeSeconds(run.runtime);
+      totalReviewEffortMinutes += reviewEffort.effortMinutes;
     }
   }
 
@@ -368,15 +373,15 @@ function deriveDashboardMetrics(runs: RunSummary[]): DashboardMetric[] {
     : 'No merged runs are recorded in the current session';
 
   const reviewEffortHint = reviewEffortRunCount > 0
-    ? `Total runtime across ${reviewEffortRunCount} run${reviewEffortRunCount === 1 ? '' : 's'} in this lobby`
-    : 'No runs are available to estimate review effort';
+    ? `OpenAI PR-summary guesses across ${reviewEffortRunCount} run${reviewEffortRunCount === 1 ? '' : 's'} in this lobby`
+    : 'Waiting for OpenAI review-effort guesses from PR summaries';
 
   // Return the derived dashboard metrics in the same order as the backend payload.
   return [
     { label: 'Active runs', value: String(activeRuns), hint: activeRunsHint },
     { label: 'Blocked tasks', value: String(blockedRuns), hint: blockedRunsHint },
     { label: 'Merged today', value: String(mergedRuns), hint: mergedRunsHint },
-    { label: 'Review effort', value: formatReviewEffortValue(reviewEffortRunCount, totalReviewRuntimeSeconds), hint: reviewEffortHint },
+    { label: 'Review effort', value: formatReviewEffortValue(reviewEffortRunCount, totalReviewEffortMinutes), hint: reviewEffortHint },
   ];
 }
 
@@ -479,14 +484,23 @@ function getRunChannelTone(run: RunSummary): RunChannelTone {
 /**
  * Builds the hover text that explains the review effort behind a run channel.
  */
-function buildReviewEffortLabel(run: RunSummary): string {
-  const blockerCount = collectBlockerReasons([run]).size;
-  const blockerCopy = blockerCount > 0
-    ? ` · ${blockerCount} actionable blocker${blockerCount === 1 ? '' : 's'}`
-    : '';
+function buildReviewEffortLabel(run: RunSummary, reviewEffort?: ReviewEffortEstimate): string {
+  if (reviewEffort) {
+    const confidenceCopy = reviewEffort.confidence === null
+      ? ''
+      : ` · ${Math.round(reviewEffort.confidence * 100)}% confidence`;
 
-  // Include runtime, risk, and blockers because those are the fastest review-effort signals.
-  return `Review effort: ${run.runtime} runtime · ${run.risk} risk · ${run.status}${blockerCopy}`;
+    // Show the OpenAI estimate as the primary review-effort signal for lobby runs.
+    return `Review effort: ${reviewEffort.label} · ${reviewEffort.effortMinutes} min OpenAI guess${confidenceCopy} · ${reviewEffort.rationale}`;
+  }
+
+  if (run.pullRequest?.body?.trim()) {
+    // Surface the pending AI state when the PR summary is available but the estimate has not arrived.
+    return 'Review effort: estimating from PR summary with OpenAI';
+  }
+
+  // Fall back to an explicit missing-summary state so the lobby does not imply runtime-based scoring.
+  return `Review effort: awaiting PR summary · ${run.status}`;
 }
 
 /**
@@ -1337,22 +1351,29 @@ function DashboardPage() {
   const [suggestedActions, setSuggestedActions] = useState<string[]>([]);
   const [suggestionsError, setSuggestionsError] = useState<string>('');
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState<boolean>(false);
+  const [reviewEffortsByRunId, setReviewEffortsByRunId] = useState<Record<string, ReviewEffortEstimate>>({});
+  const [reviewEffortsError, setReviewEffortsError] = useState<string>('');
+  const [isReviewEffortsLoading, setIsReviewEffortsLoading] = useState<boolean>(false);
   const [selectedTeamKey, setSelectedTeamKey] = useState<string>('');
+  const issueTrackerLinkedRuns = query.data
+    ? query.data.runs.filter((run) => isIssueTrackerRun(run))
+    : [];
+  const teamGroups = buildRunTeamGroups(issueTrackerLinkedRuns);
+  const selectedTeam = teamGroups.find((group) => group.key === selectedTeamKey) ?? teamGroups[0] ?? null;
+  const selectedTeamRuns = selectedTeam?.runs ?? [];
 
   // Build a stable, comma-joined key so the effect reruns only when the visible run IDs change.
-  const visibleRunIdsKey = query.data
-    ? query.data.runs
-        .filter((run) => isIssueTrackerRun(run))
-        .map((run) => run.id)
-        .join(',')
-    : '';
+  const visibleRunIdsKey = selectedTeamRuns.map((run) => run.id).join(',');
 
   useEffect(() => {
     if (!visibleRunIdsKey) {
-      // Skip the suggestions call when there are no visible issue-tracker-linked runs.
+      // Skip OpenAI calls when there are no visible issue-tracker-linked runs.
       setSuggestedActions([]);
       setSuggestionsError('');
       setIsSuggestionsLoading(false);
+      setReviewEffortsByRunId({});
+      setReviewEffortsError('');
+      setIsReviewEffortsLoading(false);
       return;
     }
 
@@ -1361,6 +1382,8 @@ function DashboardPage() {
 
     setIsSuggestionsLoading(true);
     setSuggestionsError('');
+    setIsReviewEffortsLoading(true);
+    setReviewEffortsError('');
 
     /**
      * Requests OpenAI-generated suggestions for the currently visible runs.
@@ -1393,7 +1416,46 @@ function DashboardPage() {
       }
     }
 
+    /**
+     * Requests OpenAI-generated review-effort guesses for the selected lobby runs.
+     */
+    async function loadReviewEfforts(): Promise<void> {
+      try {
+        // Send the selected lobby run IDs so OpenAI can estimate effort from their PR summaries.
+        const response = await fetchDashboardReviewEfforts({ runIds });
+
+        if (!isActive) {
+          // Skip state updates when the effect has already been cleaned up.
+          return;
+        }
+
+        const nextReviewEffortsByRunId: Record<string, ReviewEffortEstimate> = {};
+
+        // Index the estimates by run ID for cheap lookups during lobby rendering.
+        for (const reviewEffort of response.reviewEfforts) {
+          nextReviewEffortsByRunId[reviewEffort.runId] = reviewEffort;
+        }
+
+        setReviewEffortsByRunId(nextReviewEffortsByRunId);
+      } catch (error) {
+        if (!isActive) {
+          // Skip state updates when the effect has already been cleaned up.
+          return;
+        }
+
+        const readableMessage = error instanceof Error ? error.message : 'Review-effort estimates were unavailable.';
+        setReviewEffortsByRunId({});
+        setReviewEffortsError(readableMessage);
+      } finally {
+        if (isActive) {
+          // Always clear the loading flag once the request settles.
+          setIsReviewEffortsLoading(false);
+        }
+      }
+    }
+
     void loadSuggestions();
+    void loadReviewEfforts();
 
     return () => {
       // Mark the effect as inactive so stale responses do not overwrite fresh state.
@@ -1421,12 +1483,7 @@ function DashboardPage() {
     setSelectedTeamKey(teamKey);
   }
 
-  // Limit the dashboard run feed to runs backed by real issue-tracker records.
-  const issueTrackerLinkedRuns = query.data.runs.filter((run) => isIssueTrackerRun(run));
-  const teamGroups = buildRunTeamGroups(issueTrackerLinkedRuns);
-  const selectedTeam = teamGroups.find((group) => group.key === selectedTeamKey) ?? teamGroups[0] ?? null;
-  const selectedTeamRuns = selectedTeam?.runs ?? [];
-  const derivedMetrics = deriveDashboardMetrics(selectedTeamRuns);
+  const derivedMetrics = deriveDashboardMetrics(selectedTeamRuns, reviewEffortsByRunId);
   const selectedPreviewRun = selectedTeamRuns[0] ?? null;
   const metricCards: ReactNode[] = [];
   const teamServerButtons: ReactNode[] = [];
@@ -1460,7 +1517,7 @@ function DashboardPage() {
   // Build the run channel list for the selected team.
   for (const run of selectedTeamRuns) {
     const channelTone = getRunChannelTone(run);
-    const reviewEffort = buildReviewEffortLabel(run);
+    const reviewEffort = buildReviewEffortLabel(run, reviewEffortsByRunId[run.id]);
 
     runChannels.push(
       <Link
@@ -1519,6 +1576,12 @@ function DashboardPage() {
     );
   }
 
+  const reviewEffortStatusCopy = reviewEffortsError
+    ? `OpenAI review effort unavailable: ${reviewEffortsError}`
+    : isReviewEffortsLoading
+      ? 'Estimating review effort from PR summaries with OpenAI...'
+      : 'Hover a run channel to see OpenAI-estimated review effort.';
+
   // Surface the operational view as a Discord-style server, channel, and run room.
   return (
     <div className="page-grid">
@@ -1551,7 +1614,7 @@ function DashboardPage() {
           <div className="channel-panel-header">
             <p className="eyebrow">Team server</p>
             <h3>{selectedTeam?.label ?? 'No team selected'}</h3>
-            <p className="subtle-copy">Hover a run channel to see review effort.</p>
+            <p className="subtle-copy">{reviewEffortStatusCopy}</p>
           </div>
           <div className="run-channel-list">
             {runChannels.length > 0 ? runChannels : <p className="muted-copy">No run channels are available for this team.</p>}
@@ -1577,7 +1640,7 @@ function DashboardPage() {
                 <span>{selectedPreviewRun.runtime}</span>
               </div>
 
-              <p className="subtle-copy">{buildReviewEffortLabel(selectedPreviewRun)}</p>
+              <p className="subtle-copy">{buildReviewEffortLabel(selectedPreviewRun, reviewEffortsByRunId[selectedPreviewRun.id])}</p>
 
               <RunLobbyPullRequestPreview run={selectedPreviewRun} />
 

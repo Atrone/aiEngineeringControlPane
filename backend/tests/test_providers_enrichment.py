@@ -100,6 +100,26 @@ class ProviderEnrichmentTests(unittest.TestCase):
         self.assertEqual(suggestions_messages[0]["role"], "system")
         self.assertLessEqual(len(parsed_suggestions[1]), 240)
 
+        # Confirm review-effort helpers use PR summaries and normalize model guesses.
+        review_effort_line = providers._summarize_run_for_review_effort(
+            {
+                "id": "run-1",
+                "ticket": "ACP-1",
+                "title": "Review me",
+                "status": "Review",
+                "pullRequest": {"title": "PR title", "body": "Small UI-only change."},
+            }
+        )
+        review_effort_messages = providers._build_review_effort_messages([{"id": "run-1", "pullRequest": {"body": "Small change."}}])
+        parsed_review_efforts = providers._parse_review_effort_response(
+            '{"reviewEfforts":[{"runId":"run-1","effortMinutes":12,"confidence":1.5,"rationale":"Clear scope."},{"runId":"missing","effortMinutes":99}]}',
+            [{"id": "run-1"}],
+        )
+        self.assertIn("Small UI-only change", review_effort_line)
+        self.assertEqual(review_effort_messages[0]["role"], "system")
+        self.assertEqual(parsed_review_efforts[0]["label"], "Moderate review")
+        self.assertEqual(parsed_review_efforts[0]["confidence"], 1.0)
+
     def test_openai_backed_helpers_cover_success_and_error_paths(self) -> None:
         """Covers direct enrichment, repo identification, and dashboard suggestions helpers."""
 
@@ -162,6 +182,18 @@ class ProviderEnrichmentTests(unittest.TestCase):
             self.assertEqual(suggestions_result["suggestedActions"], ["Review the blocked run."])
             self.assertEqual(suggestions_result["runCount"], 1)
 
+        with patch(
+            "app.providers._request_json",
+            return_value={"choices": [{"message": {"content": '{"reviewEfforts":[{"runId":"run-1","effortMinutes":18,"confidence":0.8,"rationale":"Small PR summary."}]}'}}]},
+        ):
+            # Confirm review-effort estimation returns parsed estimates and run count.
+            review_effort_result = providers.estimate_review_effort_for_runs(
+                settings,
+                runs=[{"id": "run-1", "pullRequest": {"body": "Small PR summary."}}],
+            )
+            self.assertEqual(review_effort_result["reviewEfforts"][0]["effortMinutes"], 18)
+            self.assertEqual(review_effort_result["runCount"], 1)
+
         # Confirm missing OpenAI configuration is rejected for enrichment use cases.
         with self.assertRaises(providers.OpenAIEnrichmentError):
             providers.enrich_intake_field(
@@ -184,6 +216,9 @@ class ProviderEnrichmentTests(unittest.TestCase):
 
         with self.assertRaises(providers.OpenAIEnrichmentError):
             providers.suggest_next_actions_for_runs(replace(settings, openai_api_key=""), runs=[{"ticket": "ACP-1"}])
+
+        with self.assertRaises(providers.OpenAIEnrichmentError):
+            providers.estimate_review_effort_for_runs(replace(settings, openai_api_key=""), runs=[{"id": "run-1"}])
 
         http_error = HTTPError(
             url="https://api.openai.com/v1/chat/completions",

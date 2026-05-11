@@ -155,3 +155,15 @@ class DashboardSuggestedActionsRequest(BaseModel):
     run_ids: List[str] = Field(default_factory=list, alias="runIds")
 
     model_config = {"populate_by_name": True}
+
+
+class DashboardReviewEffortsRequest(BaseModel):
+    """Defines the payload used to ask OpenAI for lobby review-effort guesses.
+
+    The caller passes the run IDs currently visible in the selected lobby so
+    OpenAI can estimate human review effort from each run's PR summary.
+    """
+
+    run_ids: List[str] = Field(default_factory=list, alias="runIds")
+
+    model_config = {"populate_by_name": True}
