@@ -75,6 +75,7 @@ type RunTraceabilityNode = {
   detail: string;
   status: TraceabilityNodeStatus;
   href?: string;
+  hrefLabel?: string;
 };
 const googleAuthCallbackExchanges = new Map<string, Promise<AuthSession>>();
 const ignoredBlockerReasons: Set<string> = new Set([
@@ -2473,6 +2474,80 @@ function resolveCurrentPullRequestUrl(run: RunSummary): string {
 }
 
 /**
+ * Resolves the GitHub repository URL tied to a run artifact.
+ */
+function resolveRunRepositoryUrl(run: RunSummary): string {
+  const pullRequestUrl = resolveCurrentPullRequestUrl(run);
+  const pullRequestMatch = pullRequestUrl.match(/^(https:\/\/github\.com\/[^/]+\/[^/#?]+)\/pull\/[^/#?]+/iu);
+
+  if (pullRequestMatch) {
+    // Use the canonical PR URL so repo links stay aligned with the active artifact.
+    return pullRequestMatch[1];
+  }
+
+  const sourceRepository = run.cloudAgent?.source?.repository?.trim() ?? '';
+  const sourceRepositoryMatch = sourceRepository.match(/^(?:https:\/\/github\.com\/)?([^/\s]+\/[^/\s]+?)(?:\.git)?$/iu);
+
+  if (sourceRepositoryMatch) {
+    // Normalize Cursor source repository metadata into a browsable GitHub repo URL.
+    return `https://github.com/${sourceRepositoryMatch[1]}`;
+  }
+
+  // Return no URL when the run payload does not identify a concrete remote repository.
+  return '';
+}
+
+/**
+ * Resolves the GitHub branch URL tied to a run artifact.
+ */
+function resolveRunBranchUrl(run: RunSummary): string {
+  const repositoryUrl = resolveRunRepositoryUrl(run);
+  const branchName = run.cloudAgent?.target?.branchName?.trim() || run.branch.trim();
+
+  if (!repositoryUrl || !branchName) {
+    // Avoid emitting a misleading branch link when either side of the URL is unknown.
+    return '';
+  }
+
+  // Encode branch slashes so GitHub opens the branch name rather than a nested path.
+  return `${repositoryUrl}/tree/${encodeURIComponent(branchName)}`;
+}
+
+/**
+ * Appends a GitHub pull-request subpage to the run's active PR URL.
+ */
+function resolvePullRequestArtifactUrl(run: RunSummary, subpage: string): string {
+  const pullRequestUrl = resolveCurrentPullRequestUrl(run).replace(/\/+$/u, '');
+
+  if (!pullRequestUrl) {
+    // Return no URL when there is no PR artifact to extend.
+    return '';
+  }
+
+  // Keep artifact-specific graph links on the same PR that reviewers already use.
+  return `${pullRequestUrl}/${subpage}`;
+}
+
+/**
+ * Resolves the most relevant CI or validation URL recorded for a run.
+ */
+function resolveRunValidationUrl(run: RunSummary): string {
+  const validationUrls = [
+    ...extractUrlsFromText(run.ci?.summary ?? ''),
+    ...extractUrlsFromText(run.evidence.tests.join('\n')),
+    ...extractUrlsFromText(run.evidence.commands.join('\n')),
+  ];
+
+  if (validationUrls.length > 0) {
+    // Prefer the first concrete CI URL captured in the backend evidence payload.
+    return validationUrls[0];
+  }
+
+  // Fall back to the PR checks tab when CI evidence exists but no standalone URL was captured.
+  return resolvePullRequestArtifactUrl(run, 'checks');
+}
+
+/**
  * Builds a status class name for one traceability graph node.
  */
 function buildTraceabilityNodeClassName(status: TraceabilityNodeStatus): string {
@@ -2547,6 +2622,11 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
   const hasTestEvidence = run.evidence.tests.length > 0 || run.evidence.commands.length > 0 || Boolean(run.ci);
   const hasCommitEvidence = run.evidence.diff.length > 0 || hasPullRequest;
   const agentSessionLink = run.cloudAgent?.target?.url?.trim() ?? '';
+  const repositoryUrl = resolveRunRepositoryUrl(run);
+  const branchUrl = resolveRunBranchUrl(run);
+  const commitUrl = resolvePullRequestArtifactUrl(run, 'commits') || branchUrl;
+  const pullRequestChecksUrl = resolvePullRequestArtifactUrl(run, 'checks');
+  const validationUrl = resolveRunValidationUrl(run);
   const issueLabel = run.issue?.provider
     ? `${run.issue.provider.toUpperCase()} ticket`
     : 'Issue ticket';
@@ -2560,6 +2640,7 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
       detail: run.issue?.title ?? run.title,
       status: 'complete',
       href: run.issue?.url || undefined,
+      hrefLabel: run.issue?.provider ? `Open ${run.issue.provider} task` : 'Open issue artifact',
     },
     {
       id: 'repo',
@@ -2567,6 +2648,8 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
       title: run.repo,
       detail: `Owner: ${run.owner}`,
       status: 'complete',
+      href: repositoryUrl || undefined,
+      hrefLabel: 'Open repository',
     },
     {
       id: 'branch',
@@ -2574,6 +2657,8 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
       title: run.branch,
       detail: 'Workspace branch selected for the agent run.',
       status: 'complete',
+      href: branchUrl || undefined,
+      hrefLabel: 'Open branch',
     },
     {
       id: 'agent',
@@ -2584,6 +2669,7 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
         : `Assigned agent: ${run.agent}`,
       status: run.status === 'Running' ? 'active' : 'complete',
       href: agentSessionLink || undefined,
+      hrefLabel: 'Open Cursor agent run',
     },
     {
       id: 'commits',
@@ -2593,7 +2679,8 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
         ? run.evidence.diff[0] ?? 'Commit evidence is linked through the pull request.'
         : 'Commit metadata has not been reported for this run yet.',
       status: hasCommitEvidence ? 'complete' : isBlocked ? 'blocked' : 'pending',
-      href: pullRequestUrl || undefined,
+      href: commitUrl || undefined,
+      hrefLabel: hasPullRequest ? 'Open PR commits' : 'Open branch changes',
     },
     {
       id: 'tests',
@@ -2601,6 +2688,8 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
       title: run.ci?.workflow ?? 'Test evidence',
       detail: run.ci?.summary ?? run.evidence.tests[0] ?? 'No test results captured yet.',
       status: hasTestEvidence ? (isBlocked ? 'blocked' : 'complete') : 'pending',
+      href: validationUrl || undefined,
+      hrefLabel: validationUrl === pullRequestChecksUrl ? 'Open PR checks' : 'Open test evidence',
     },
     {
       id: 'pull-request',
@@ -2611,6 +2700,7 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
         : 'No pull request has been attached to this run yet.',
       status: isMerged ? 'complete' : hasPullRequest ? 'active' : 'pending',
       href: pullRequestUrl || undefined,
+      hrefLabel: 'Open pull request',
     },
     {
       id: 'review',
@@ -2619,6 +2709,7 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
       detail: buildReviewNoteTraceSummary(run),
       status: hasReviewNotes ? 'complete' : run.status === 'Review' ? 'active' : 'pending',
       href: pullRequestUrl || undefined,
+      hrefLabel: 'Open review artifact',
     },
     {
       id: 'merge-deploy',
@@ -2629,6 +2720,7 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
         : run.currentStep,
       status: isMerged ? 'complete' : isBlocked ? 'blocked' : 'pending',
       href: pullRequestUrl || undefined,
+      hrefLabel: isMerged ? 'Open merged pull request' : 'Open release artifact',
     },
   ];
 }
@@ -2661,7 +2753,7 @@ function RunTraceabilityGraphPanelBody(props: { ariaLabel?: string; run: RunSumm
           {isCompactGraph ? null : <p className="muted-copy">{node.detail}</p>}
           {shouldShowArtifactLinks && node.href ? (
             <a className="external-link traceability-link" href={node.href} rel="noreferrer" target="_blank">
-              Open source artifact
+              {node.hrefLabel ?? 'Open artifact'}
             </a>
           ) : null}
         </article>

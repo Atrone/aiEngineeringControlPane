@@ -399,7 +399,9 @@ describe('App pure helper functions', () => {
     expect(buildTraceabilityStatusLabel('active')).toBe('Active');
     expect(buildTraceabilityStatusLabel('blocked')).toBe('Blocked');
     expect(buildTraceabilityStatusLabel('pending')).toBe('Pending');
-    expect(buildRunTraceabilityGraph(run).map((node) => node.id)).toEqual([
+    const traceabilityGraph = buildRunTraceabilityGraph(run);
+
+    expect(traceabilityGraph.map((node) => node.id)).toEqual([
       'issue',
       'repo',
       'branch',
@@ -409,6 +411,17 @@ describe('App pure helper functions', () => {
       'pull-request',
       'review',
       'merge-deploy',
+    ]);
+    expect(traceabilityGraph.map((node) => [node.id, node.href])).toEqual([
+      ['issue', 'https://linear.example.com/issue/ACP-1'],
+      ['repo', 'https://github.com/octo/repo'],
+      ['branch', 'https://github.com/octo/repo/tree/feature%2Fdashboard'],
+      ['agent', 'https://cursor.example.com/agents/1'],
+      ['commits', 'https://github.com/octo/repo/pull/42/commits'],
+      ['tests', 'https://ci.example.com/build/1'],
+      ['pull-request', 'https://github.com/octo/repo/pull/42'],
+      ['review', 'https://github.com/octo/repo/pull/42'],
+      ['merge-deploy', 'https://github.com/octo/repo/pull/42'],
     ]);
 
     const commentedRun = createRunFixture({
@@ -493,6 +506,11 @@ describe('App presentational component functions', () => {
     expect(screen.getByText('Issue traceability')).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Run traceability graph' })).toBeInTheDocument();
     expect(screen.getByText('Merge/deploy status')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open repository' })).toHaveAttribute('href', 'https://github.com/octo/repo');
+    expect(screen.getByRole('link', { name: 'Open branch' })).toHaveAttribute('href', 'https://github.com/octo/repo/tree/feature%2Fdashboard');
+    expect(screen.getByRole('link', { name: 'Open Cursor agent run' })).toHaveAttribute('href', 'https://cursor.example.com/agents/1');
+    expect(screen.getByRole('link', { name: 'Open PR commits' })).toHaveAttribute('href', 'https://github.com/octo/repo/pull/42/commits');
+    expect(screen.getByRole('link', { name: 'Open test evidence' })).toHaveAttribute('href', 'https://ci.example.com/build/1');
   });
 
   it('renders empty states for list-oriented components', () => {
