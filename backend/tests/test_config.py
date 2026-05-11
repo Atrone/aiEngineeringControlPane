@@ -41,6 +41,9 @@ class ConfigHelpersTests(unittest.TestCase):
             "JIRA_PROJECT_KEY": "ACP",
             "CURSOR_API_KEY": "cursor-token",
             "CURSOR_MODEL": "gpt",
+            "GITHUB_COPILOT_TOKEN": "copilot-token",
+            "GITHUB_COPILOT_MODEL": "claude-sonnet-4.5",
+            "GITHUB_COPILOT_CUSTOM_AGENT": "security-reviewer",
             "CONTROL_PANE_DOCS_DIR": "docs/custom",
             "CONTROL_PANE_DEFAULT_USER_NAME": "Config User",
             "CONTROL_PANE_DEFAULT_USER_EMAIL": "config@example.com",
@@ -70,6 +73,8 @@ class ConfigHelpersTests(unittest.TestCase):
         self.assertEqual(settings.github_repositories, ["repo-one", "repo-two"])
         self.assertEqual(settings.jira_site_url, "https://acme.atlassian.net")
         self.assertEqual(settings.cursor_model, "gpt")
+        self.assertEqual(settings.github_copilot_model, "claude-sonnet-4.5")
+        self.assertEqual(settings.github_copilot_custom_agent, "security-reviewer")
         self.assertEqual(settings.docs_directory, "docs/custom")
         self.assertEqual(settings.frontend_base_url, "http://frontend.example.com/")
         self.assertEqual(settings.google_authorized_emails, ["admin@example.com", "lead@example.com", "engineer@example.com"])
@@ -84,6 +89,7 @@ class ConfigHelpersTests(unittest.TestCase):
             default_settings = config.get_settings()
 
         self.assertEqual(default_settings.cursor_model, "default")
+        self.assertEqual(default_settings.github_copilot_token, "")
         self.assertEqual(default_settings.default_user_name, "Maya Chen")
         self.assertEqual(default_settings.openai_model, "gpt-4o-mini")
 

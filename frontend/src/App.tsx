@@ -8,6 +8,7 @@ import {
   connectCursor,
   clearSessionToken,
   connectGitHub,
+  connectGitHubCopilot,
   connectJira,
   connectLinear,
   createApprovalDecision,
@@ -35,6 +36,7 @@ import type {
   DashboardMetric,
   DocumentRecord,
   GitHubConnectRequest,
+  GitHubCopilotConnectRequest,
   IntakeEnrichField,
   IntakeEnrichRequest,
   IntakeIssueScopingResponse,
@@ -2690,6 +2692,8 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
   const commitUrl = resolvePullRequestArtifactUrl(run, 'commits') || branchUrl;
   const pullRequestChecksUrl = resolvePullRequestArtifactUrl(run, 'checks');
   const validationUrl = resolveRunValidationUrl(run);
+  const cloudAgentName = run.cloudAgent?.provider === 'github-copilot-cloud-agent' ? 'GitHub Copilot' : 'Cursor';
+  const cloudAgentRunLabel = run.cloudAgent?.provider === 'github-copilot-cloud-agent' ? 'Open GitHub Copilot issue' : 'Open Cursor agent run';
   const issueLabel = run.issue?.provider
     ? `${run.issue.provider.toUpperCase()} ticket`
     : 'Issue ticket';
@@ -2728,11 +2732,11 @@ function buildRunTraceabilityGraph(run: RunSummary): RunTraceabilityNode[] {
       eyebrow: 'Agent session',
       title: run.cloudAgent?.id ?? run.agent,
       detail: run.cloudAgent?.status
-        ? `Cursor status: ${run.cloudAgent.status}`
+        ? `${cloudAgentName} status: ${run.cloudAgent.status}`
         : `Assigned agent: ${run.agent}`,
       status: run.status === 'Running' ? 'active' : 'complete',
       href: agentSessionLink || undefined,
-      hrefLabel: 'Open Cursor agent run',
+      hrefLabel: cloudAgentRunLabel,
     },
     {
       id: 'commits',
@@ -2999,6 +3003,11 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     apiKey: '',
     model: 'default',
   });
+  const [githubCopilotForm, setGithubCopilotForm] = useState<GitHubCopilotConnectRequest>({
+    token: '',
+    model: '',
+    customAgent: '',
+  });
   const [mutationError, setMutationError] = useState<string>('');
   const [mutationSuccess, setMutationSuccess] = useState<string>('');
   const [activeSetupId, setActiveSetupId] = useState<string>('');
@@ -3010,6 +3019,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     { id: 'linear-settings', label: 'Linear setup' },
     { id: 'jira-settings', label: 'Jira setup' },
     { id: 'cursor-settings', label: 'Cursor setup' },
+    { id: 'github-copilot-settings', label: 'Copilot setup' },
   ];
 
   useEffect(() => {
@@ -3017,6 +3027,7 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     const linearStatus = findIntegrationStatus(query.data?.statuses ?? [], 'linear');
     const jiraStatus = findIntegrationStatus(query.data?.statuses ?? [], 'jira');
     const cursorStatus = findIntegrationStatus(query.data?.statuses ?? [], 'cursor_cloud_agents');
+    const githubCopilotStatus = findIntegrationStatus(query.data?.statuses ?? [], 'github_copilot_cloud_agent');
 
     // Mirror the saved GitHub connection into the setup form defaults.
     setGithubForm({
@@ -3043,6 +3054,13 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     setCursorForm({
       apiKey: '',
       model: getConnectionValue(cursorStatus, 'model') || 'default',
+    });
+
+    // Mirror the saved GitHub Copilot connection into the setup form defaults.
+    setGithubCopilotForm({
+      token: '',
+      model: getConnectionValue(githubCopilotStatus, 'model'),
+      customAgent: getConnectionValue(githubCopilotStatus, 'customAgent'),
     });
   }, [query.data]);
 
@@ -3165,13 +3183,39 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
     }
   }
 
+  /**
+   * Saves the GitHub Copilot cloud agent setup selected by the user.
+   */
+  async function handleGitHubCopilotConnect(event: FormEvent<HTMLFormElement>): Promise<void> {
+    // Prevent the browser from performing a full page form submission.
+    event.preventDefault();
+    setActiveSetupId('github_copilot_cloud_agent');
+    setMutationError('');
+    setMutationSuccess('');
+
+    try {
+      // Save the Copilot setup for the current signed-in session.
+      await connectGitHubCopilot(githubCopilotForm);
+
+      // Show a success message and refresh the status view.
+      setMutationSuccess('GitHub Copilot cloud agent connection saved for this session.');
+      setRefreshKey((currentValue) => currentValue + 1);
+    } catch (caughtError) {
+      // Surface Copilot setup failures directly inside the integrations view.
+      setMutationError(caughtError instanceof Error ? caughtError.message : 'Unable to connect GitHub Copilot cloud agent.');
+    } finally {
+      // Clear the active submit state when the request settles.
+      setActiveSetupId('');
+    }
+  }
+
   // Render the integrations management view.
   return (
     <div className="page-grid">
       <section className="hero-panel compact-panel">
         <div>
           <p className="eyebrow">Settings</p>
-          <h3>Manage integrations with a guided, accessible setup flow for GitHub, Linear, Jira, and Cursor Cloud Agents.</h3>
+          <h3>Manage integrations with a guided, accessible setup flow for GitHub, Linear, Jira, Cursor Cloud Agents, and GitHub Copilot cloud agent.</h3>
         </div>
         <div className="hero-pills">
           <span className="pill">{props.currentUser.name}</span>
@@ -3376,6 +3420,51 @@ function IntegrationsPage(props: { currentUser: CurrentUser }) {
               <div className="form-actions">
                 <button className="primary-button" disabled={activeSetupId === 'cursor_cloud_agents'} type="submit">
                   {activeSetupId === 'cursor_cloud_agents' ? 'Saving Cursor...' : 'Connect Cursor'}
+                </button>
+              </div>
+            </form>
+          }
+        />
+        <Panel
+          title="Connect GitHub Copilot cloud agent"
+          body={
+            <form aria-describedby="github-copilot-setup-help github-copilot-settings-a11y github-copilot-settings-traceability" className="form-grid" id="github-copilot-settings" onSubmit={(event) => { void handleGitHubCopilotConnect(event); }}>
+              <p className="muted-copy" id="github-copilot-setup-help">Step 1: add a GitHub token with Copilot issue-assignment permissions. Step 2: optionally choose a model or custom agent. Step 3: use Start run to create a GitHub issue assigned to Copilot for the selected repository.</p>
+              <p className="subtle-copy" id="github-copilot-settings-a11y">Accessibility note: keep model and custom-agent labels readable so operators can distinguish Copilot runs from Cursor runs.</p>
+              <p className="subtle-copy" id="github-copilot-settings-traceability">Traceability note: the generated GitHub issue is surfaced as the cloud-agent session link on task detail pages.</p>
+              <label className="field-group">
+                <span>GitHub token</span>
+                <input
+                  aria-label="GitHub token for Copilot cloud agent"
+                  onChange={(event) => { setGithubCopilotForm({ ...githubCopilotForm, token: event.target.value }); }}
+                  placeholder="ghp_..."
+                  type="password"
+                  value={githubCopilotForm.token}
+                />
+              </label>
+              <label className="field-group">
+                <span>Model</span>
+                <input
+                  aria-label="GitHub Copilot cloud agent model"
+                  onChange={(event) => { setGithubCopilotForm({ ...githubCopilotForm, model: event.target.value }); }}
+                  placeholder="Optional model"
+                  type="text"
+                  value={githubCopilotForm.model}
+                />
+              </label>
+              <label className="field-group">
+                <span>Custom agent</span>
+                <input
+                  aria-label="GitHub Copilot custom agent"
+                  onChange={(event) => { setGithubCopilotForm({ ...githubCopilotForm, customAgent: event.target.value }); }}
+                  placeholder="Optional custom agent"
+                  type="text"
+                  value={githubCopilotForm.customAgent}
+                />
+              </label>
+              <div className="form-actions">
+                <button className="primary-button" disabled={activeSetupId === 'github_copilot_cloud_agent'} type="submit">
+                  {activeSetupId === 'github_copilot_cloud_agent' ? 'Saving Copilot...' : 'Connect Copilot'}
                 </button>
               </div>
             </form>
@@ -4118,6 +4207,7 @@ function PullRequestPanelBody(props: { run: RunSummary }) {
   const approvedAt = hasLivePullRequest && prInfo?.approvedAt ? formatEventTime(prInfo.approvedAt) : null;
   const mergedAt = hasLivePullRequest && prInfo?.mergedAt ? formatEventTime(prInfo.mergedAt) : null;
   const cloudAgentUrl = props.run.cloudAgent?.target?.url ?? '';
+  const cloudAgentName = props.run.cloudAgent?.provider === 'github-copilot-cloud-agent' ? 'GitHub Copilot' : 'Cursor';
 
   // Return the combined PR + CI summary used on the task detail page.
   return (
@@ -4147,7 +4237,7 @@ function PullRequestPanelBody(props: { run: RunSummary }) {
       {hasLivePullRequest && prInfo?.merged ? (
         <p className="subtle-copy">Merged{mergedAt ? ` at ${mergedAt}` : ''}</p>
       ) : null}
-      {props.run.cloudAgent?.status ? <p>Cursor status: {props.run.cloudAgent.status}</p> : null}
+      {props.run.cloudAgent?.status ? <p>{cloudAgentName} status: {props.run.cloudAgent.status}</p> : null}
       {cloudAgentUrl ? (
         <p className="subtle-copy">
           Cloud agent link:{' '}

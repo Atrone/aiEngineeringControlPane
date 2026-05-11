@@ -36,6 +36,10 @@ class CursorAgentError(Exception):
     """Captures a readable Cursor Cloud Agents API failure."""
 
 
+class GitHubCopilotAgentError(Exception):
+    """Captures a readable GitHub Copilot cloud agent API failure."""
+
+
 def _utc_timestamp() -> str:
     """Builds an ISO timestamp for provider status payloads."""
 
@@ -114,6 +118,19 @@ def normalize_cursor_api_key(api_key: str) -> str:
     return normalized_api_key
 
 
+def normalize_github_copilot_token(token: str) -> str:
+    """Normalizes a pasted GitHub token for Copilot cloud agent API calls."""
+
+    normalized_token = token.strip()
+
+    if normalized_token.lower().startswith("bearer "):
+        # Drop an accidental bearer prefix because the header builder adds it.
+        return normalized_token[7:].strip()
+
+    # Return the caller-provided token when no prefix cleanup is needed.
+    return normalized_token
+
+
 def _build_cursor_headers(api_key: str) -> Dict[str, str]:
     """Builds the authenticated request headers for the Cursor Cloud Agents API."""
 
@@ -124,6 +141,21 @@ def _build_cursor_headers(api_key: str) -> Dict[str, str]:
     return {
         "Authorization": f"Basic {authorization_value}",
         "Content-Type": "application/json",
+    }
+
+
+def _build_github_copilot_headers(token: str) -> Dict[str, str]:
+    """Builds the authenticated request headers for GitHub Copilot cloud agent calls."""
+
+    normalized_token = normalize_github_copilot_token(token)
+
+    # Return GitHub's recommended JSON headers plus the user token.
+    return {
+        "Authorization": f"Bearer {normalized_token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "ai-control-pane",
     }
 
 
@@ -317,6 +349,28 @@ def is_cursor_connected(settings: Settings) -> bool:
     return bool(str(response.get("userEmail", "")).strip())
 
 
+def is_github_copilot_connected(settings: Settings) -> bool:
+    """Checks whether the configured GitHub token can reach Copilot assignment APIs."""
+
+    normalized_token = normalize_github_copilot_token(settings.github_copilot_token)
+
+    if not normalized_token:
+        # Report no live connection when Copilot has not been configured yet.
+        return False
+
+    try:
+        response = _request_json(
+            "https://api.github.com/user",
+            headers=_build_github_copilot_headers(normalized_token),
+        )
+    except (HTTPError, URLError, json.JSONDecodeError):
+        # Report no live connection when GitHub rejects the token or transport fails.
+        return False
+
+    # Report a live connection only when GitHub returns the authenticated user identity.
+    return bool(str(response.get("login", "")).strip())
+
+
 def launch_cursor_agent(
     settings: Settings,
     *,
@@ -389,6 +443,106 @@ def get_cursor_agent(settings: Settings, agent_id: str) -> Dict[str, Any]:
 
     # Return the latest agent payload so callers can map it into app state.
     return response
+
+
+def _build_github_copilot_issue_body(prompt_text: str, source_issue: Mapping[str, Any]) -> str:
+    """Builds the GitHub issue body used to start a Copilot cloud agent session."""
+
+    source_url = str(source_issue.get("url", "")).strip()
+    body_sections = [
+        "This issue was created by AI Control Pane to launch GitHub Copilot cloud agent.",
+        prompt_text.strip(),
+    ]
+
+    if source_url:
+        # Preserve the upstream tracker link so the Copilot-created PR remains traceable.
+        body_sections.append(f"Source issue: {source_url}")
+
+    # Return a compact issue body that carries the full implementation context.
+    return "\n\n".join(section for section in body_sections if section)
+
+
+def launch_github_copilot_agent(
+    settings: Settings,
+    *,
+    target_repo: str,
+    base_ref: str,
+    prompt_text: str,
+    issue_title: str,
+    source_issue: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Launches GitHub Copilot cloud agent by creating an assigned GitHub issue."""
+
+    normalized_token = normalize_github_copilot_token(settings.github_copilot_token)
+
+    if not normalized_token:
+        # Reject launch attempts when the GitHub Copilot token has not been configured.
+        raise GitHubCopilotAgentError("Connect GitHub Copilot cloud agent before launching a live agent.")
+
+    normalized_target_repo = target_repo.strip()
+
+    if "/" not in normalized_target_repo:
+        # Reject malformed repository names before constructing the GitHub REST URL.
+        raise GitHubCopilotAgentError("GitHub Copilot cloud agent requires a target repository in owner/repo format.")
+
+    agent_assignment: Dict[str, str] = {
+        "target_repo": normalized_target_repo,
+        "base_branch": base_ref.strip() or "main",
+        "custom_instructions": prompt_text.strip(),
+        "custom_agent": settings.github_copilot_custom_agent.strip(),
+        "model": settings.github_copilot_model.strip(),
+    }
+    payload = {
+        "title": issue_title.strip() or "AI Control Pane task",
+        "body": _build_github_copilot_issue_body(prompt_text, source_issue),
+        "assignees": ["copilot-swe-agent[bot]"],
+        "agent_assignment": agent_assignment,
+    }
+
+    try:
+        issue_response = _request_json(
+            f"https://api.github.com/repos/{normalized_target_repo}/issues",
+            method="POST",
+            headers=_build_github_copilot_headers(normalized_token),
+            payload=payload,
+        )
+    except HTTPError as error:
+        # Surface the upstream GitHub API error message with a product-specific prefix.
+        raise GitHubCopilotAgentError(f"GitHub Copilot cloud agent launch failed: {_extract_provider_error_message(error)}") from error
+    except (URLError, json.JSONDecodeError) as error:
+        # Surface transport and parsing failures with a stable product-specific message.
+        raise GitHubCopilotAgentError("GitHub Copilot cloud agent launch failed because the API response could not be read.") from error
+
+    issue_number = str(issue_response.get("number", "")).strip()
+    issue_url = str(issue_response.get("html_url", "")).strip()
+    issue_id = str(issue_response.get("id", issue_number or "unknown")).strip()
+    created_at = str(issue_response.get("created_at", "")).strip() or _utc_timestamp()
+
+    # Return a Cursor-compatible cloudAgent payload so the frontend can render both providers.
+    return {
+        "id": f"github-copilot-{issue_id}",
+        "name": "GitHub Copilot cloud agent",
+        "provider": "github-copilot-cloud-agent",
+        "status": "ASSIGNED",
+        "createdAt": created_at,
+        "summary": "GitHub Copilot cloud agent was assigned to the generated issue.",
+        "source": {
+            "repository": normalized_target_repo,
+            "ref": base_ref.strip() or "main",
+        },
+        "target": {
+            "branchName": "",
+            "url": issue_url,
+            "prUrl": "",
+            "autoCreatePr": True,
+            "issueUrl": issue_url,
+        },
+        "issue": {
+            "id": issue_id,
+            "number": issue_number,
+            "url": issue_url,
+        },
+    }
 
 
 def _build_linear_issue_query(team_field: Optional[str] = None) -> str:
@@ -1485,6 +1639,16 @@ def _build_connection_payload(settings: Settings, integration_id: str) -> Option
             },
         }
 
+    if integration_id == "github_copilot_cloud_agent" and settings.github_copilot_token:
+        # Return the saved Copilot model and custom-agent hints without exposing the token.
+        return {
+            "label": settings.github_copilot_model or "Default Copilot model",
+            "values": {
+                "model": settings.github_copilot_model,
+                "customAgent": settings.github_copilot_custom_agent,
+            },
+        }
+
     if integration_id == "repo_docs" and settings.docs_directory:
         # Return the docs directory currently used for markdown discovery.
         return {
@@ -1516,6 +1680,7 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
     linear_connected = is_linear_connected(settings)
     jira_connected = is_jira_connected(settings)
     cursor_connected = is_cursor_connected(settings)
+    github_copilot_connected = is_github_copilot_connected(settings)
     issues = list_linear_issues(settings)
     jira_issues = list_jira_issues(settings)
     google_sso_configured = bool(settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri)
@@ -1622,6 +1787,27 @@ def get_integration_statuses(settings: Settings) -> List[Dict[str, Any]]:
             "requiredRole": "admin",
             "recommendedAction": "Connect a Cursor API key so new runs launch real cloud agents against your GitHub repos.",
             "connection": _build_connection_payload(settings, "cursor_cloud_agents"),
+            "checkedAt": timestamp,
+        },
+        {
+            "id": "github_copilot_cloud_agent",
+            "name": "GitHub Copilot cloud agent",
+            "mode": "live" if github_copilot_connected else "mock",
+            "connected": github_copilot_connected,
+            "capabilities": [
+                "Create Copilot-assigned GitHub issues",
+                "Pass target repo, base branch, and custom instructions",
+                "Auto-create pull requests through Copilot",
+            ],
+            "configured": bool(settings.github_copilot_token),
+            "details": (
+                f"Ready to assign Copilot with model {settings.github_copilot_model or 'default'}"
+                if github_copilot_connected
+                else "Connect GitHub Copilot so Start run can assign Copilot to a GitHub issue"
+            ),
+            "requiredRole": "admin",
+            "recommendedAction": "Connect a GitHub token with Copilot assignment permissions so new runs can launch Copilot cloud agent.",
+            "connection": _build_connection_payload(settings, "github_copilot_cloud_agent"),
             "checkedAt": timestamp,
         },
         {

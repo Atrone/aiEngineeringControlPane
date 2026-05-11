@@ -94,6 +94,7 @@ export type IntegrationStatus = {
 export type CloudAgentRecord = {
   id: string;
   name?: string;
+  provider?: string;
   status: string;
   createdAt?: string;
   summary?: string;
@@ -105,6 +106,7 @@ export type CloudAgentRecord = {
     branchName?: string;
     url?: string;
     prUrl?: string;
+    issueUrl?: string;
     autoCreatePr?: boolean;
     openAsCursorGithubApp?: boolean;
     skipReviewerRequest?: boolean;
@@ -319,6 +321,12 @@ export type JiraConnectRequest = {
 export type CursorConnectRequest = {
   apiKey: string;
   model: string;
+};
+
+export type GitHubCopilotConnectRequest = {
+  token: string;
+  model: string;
+  customAgent: string;
 };
 
 export type IntakeEnrichField = 'title' | 'prompt' | 'acceptanceCriteria';

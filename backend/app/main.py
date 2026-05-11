@@ -23,6 +23,7 @@ from app.auth import consume_google_oauth_state
 from app.auth import connect_cursor
 from app.auth import connect_docs
 from app.auth import connect_github
+from app.auth import connect_github_copilot
 from app.auth import connect_jira
 from app.auth import connect_linear
 from app.auth import create_google_oauth_state
@@ -40,6 +41,7 @@ from app.schemas import DashboardReviewEffortsRequest
 from app.schemas import DashboardSuggestedActionsRequest
 from app.schemas import DocsConnectRequest
 from app.schemas import GitHubConnectRequest
+from app.schemas import GitHubCopilotConnectRequest
 from app.schemas import GoogleAuthExchangeRequest
 from app.schemas import IntakeEnrichRequest
 from app.schemas import IntakeIdentifyRepositoryRequest
@@ -711,4 +713,18 @@ def post_cursor_connect(payload: CursorConnectRequest, request: Request) -> Dict
     request_headers = build_request_headers(request.headers, session)
 
     # Return the refreshed integrations payload after saving the Cursor setup.
+    return get_integrations_payload(effective_settings, request_headers)
+
+
+@app.post("/integrations/github-copilot/connect")
+@app.post("/api/integrations/github-copilot/connect")
+def post_github_copilot_connect(payload: GitHubCopilotConnectRequest, request: Request) -> Dict[str, Any]:
+    """Stores the GitHub Copilot cloud agent setup selected in guided integrations."""
+
+    _, _, session = _authorized_request_with_roles(request, ("admin",))
+    connect_github_copilot(session, payload.token, payload.model, payload.custom_agent)
+    effective_settings = build_effective_settings(settings, session)
+    request_headers = build_request_headers(request.headers, session)
+
+    # Return the refreshed integrations payload after saving the Copilot setup.
     return get_integrations_payload(effective_settings, request_headers)

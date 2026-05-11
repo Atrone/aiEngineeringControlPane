@@ -222,12 +222,16 @@ class AuthTokenHelpersTests(unittest.TestCase):
                 jira_project_key="ACP",
                 cursor_api_key="cursor-token",
                 cursor_model="gpt",
+                github_copilot_token="copilot-token",
+                github_copilot_model="copilot-gpt",
+                github_copilot_custom_agent="reviewer",
                 docs_directory="docs",
             ),
         )
         self.assertEqual(effective_settings.github_owner, "acme")
         self.assertEqual(effective_settings.github_repositories, ["repo-one"])
         self.assertEqual(effective_settings.cursor_model, "gpt")
+        self.assertEqual(effective_settings.github_copilot_custom_agent, "reviewer")
 
         # Confirm sign-out removes the session token from the in-memory store.
         auth.SESSION_STORE[session_token] = required_session

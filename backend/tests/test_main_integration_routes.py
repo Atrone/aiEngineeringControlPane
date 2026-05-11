@@ -8,6 +8,7 @@ from app import main
 from app.schemas import CursorConnectRequest
 from app.schemas import DocsConnectRequest
 from app.schemas import GitHubConnectRequest
+from app.schemas import GitHubCopilotConnectRequest
 from app.schemas import JiraConnectRequest
 from app.schemas import LinearConnectRequest
 
@@ -16,7 +17,7 @@ class MainIntegrationRouteTests(unittest.TestCase):
     """Verifies integration connect route wrappers in main.py."""
 
     def test_connect_routes_mutate_session_and_refresh_integrations(self) -> None:
-        """Covers GitHub, Linear, Jira, docs, and Cursor route wrappers."""
+        """Covers GitHub, Linear, Jira, docs, Cursor, and Copilot route wrappers."""
 
         request = SimpleNamespace(headers={"authorization": "Bearer session"})
         session = SimpleNamespace()
@@ -40,7 +41,9 @@ class MainIntegrationRouteTests(unittest.TestCase):
             "app.main.connect_docs"
         ) as mock_connect_docs, patch(
             "app.main.connect_cursor"
-        ) as mock_connect_cursor:
+        ) as mock_connect_cursor, patch(
+            "app.main.connect_github_copilot"
+        ) as mock_connect_github_copilot:
             # Confirm GitHub connect delegates to the auth helper and refreshes integrations.
             github_response = main.post_github_connect(
                 GitHubConnectRequest(owner="acme", repositories="repo-one", token="gh-token"),
@@ -94,8 +97,16 @@ class MainIntegrationRouteTests(unittest.TestCase):
             self.assertEqual(cursor_response["statuses"], [])
             mock_connect_cursor.assert_called_once_with(session, "cursor-token", "default")
 
+            # Confirm GitHub Copilot connect delegates to the auth helper and refreshes integrations.
+            copilot_response = main.post_github_copilot_connect(
+                GitHubCopilotConnectRequest.model_validate({"token": "gh-token", "model": "gpt", "customAgent": "reviewer"}),
+                request,
+            )
+            self.assertEqual(copilot_response["statuses"], [])
+            mock_connect_github_copilot.assert_called_once_with(session, "gh-token", "gpt", "reviewer")
+
             # Confirm each connect route requested a fresh integrations payload.
-            self.assertEqual(mock_get_integrations_payload.call_count, 5)
+            self.assertEqual(mock_get_integrations_payload.call_count, 6)
 
 
 if __name__ == "__main__":

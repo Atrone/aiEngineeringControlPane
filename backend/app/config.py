@@ -21,6 +21,9 @@ class Settings:
     jira_project_key: str
     cursor_api_key: str
     cursor_model: str
+    github_copilot_token: str
+    github_copilot_model: str
+    github_copilot_custom_agent: str
     docs_directory: str
     default_user_name: str
     default_user_email: str
@@ -100,6 +103,9 @@ def get_settings() -> Settings:
         jira_project_key=os.getenv("JIRA_PROJECT_KEY", "").strip(),
         cursor_api_key=os.getenv("CURSOR_API_KEY", "").strip(),
         cursor_model=os.getenv("CURSOR_MODEL", "default").strip() or "default",
+        github_copilot_token=os.getenv("GITHUB_COPILOT_TOKEN", "").strip(),
+        github_copilot_model=os.getenv("GITHUB_COPILOT_MODEL", "").strip(),
+        github_copilot_custom_agent=os.getenv("GITHUB_COPILOT_CUSTOM_AGENT", "").strip(),
         docs_directory=_resolve_docs_directory(),
         default_user_name=os.getenv("CONTROL_PANE_DEFAULT_USER_NAME", "Maya Chen").strip(),
         default_user_email=os.getenv("CONTROL_PANE_DEFAULT_USER_EMAIL", "maya.chen@example.com").strip(),

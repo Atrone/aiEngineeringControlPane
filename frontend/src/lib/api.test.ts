@@ -7,6 +7,7 @@ import {
   clearSessionToken,
   connectCursor,
   connectGitHub,
+  connectGitHubCopilot,
   connectJira,
   connectLinear,
   createApprovalDecision,
@@ -38,6 +39,7 @@ import type {
   DashboardReviewEffortsRequest,
   DashboardSuggestedActionsRequest,
   GitHubConnectRequest,
+  GitHubCopilotConnectRequest,
   IntakeEnrichRequest,
   IntakeIdentifyRepositoryRequest,
   IntakeIssueScopingRequest,
@@ -305,6 +307,7 @@ describe('resource API functions', () => {
     ['connectLinear', () => connectLinear({ apiKey: 'key', teamId: 'team' } satisfies LinearConnectRequest), '/api/integrations/linear/connect'],
     ['connectJira', () => connectJira({ siteUrl: 'https://jira.example.com', email: 'maya@example.com', apiToken: 'token', projectKey: 'ACP' } satisfies JiraConnectRequest), '/api/integrations/jira/connect'],
     ['connectCursor', () => connectCursor({ apiKey: 'key', model: 'gpt' } satisfies CursorConnectRequest), '/api/integrations/cursor/connect'],
+    ['connectGitHubCopilot', () => connectGitHubCopilot({ token: 'token', model: 'gpt', customAgent: 'reviewer' } satisfies GitHubCopilotConnectRequest), '/api/integrations/github-copilot/connect'],
   ])('%s performs the expected POST request', async (_name, request, endpoint) => {
     const fetchMock = vi.fn().mockResolvedValue(createJsonResponse({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);

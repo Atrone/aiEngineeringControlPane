@@ -15,6 +15,8 @@ from app.providers import CursorAgentError
 from app.providers import fetch_github_pull_request_status
 from app.providers import get_cursor_agent
 from app.providers import get_integration_statuses
+from app.providers import GitHubCopilotAgentError
+from app.providers import launch_github_copilot_agent
 from app.providers import launch_cursor_agent
 from app.providers import list_github_repositories
 from app.providers import list_jira_issues
@@ -601,6 +603,91 @@ def _build_cursor_cloud_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _build_github_copilot_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
+    """Builds the task detail live view for a run backed by GitHub Copilot cloud agent."""
+
+    cloud_agent = run.get("_githubCopilotAgent", {}) or {}
+    target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
+    created_at = str(cloud_agent.get("createdAt", "")).strip() or _utc_timestamp()
+    copilot_status = str(cloud_agent.get("status", "ASSIGNED"))
+    timeline_status = "complete" if run["status"] != "Running" else "active"
+    review_status = "pending" if run["status"] == "Running" else "complete"
+    timeline = [
+        {
+            "id": "github-copilot-launch",
+            "title": "GitHub Copilot cloud agent assigned",
+            "detail": f"{cloud_agent.get('id', 'Unknown agent')} was assigned for {run['repo']}.",
+            "timestamp": created_at,
+            "status": "complete",
+        },
+        {
+            "id": "github-copilot-progress",
+            "title": f"GitHub Copilot status: {copilot_status}",
+            "detail": run["currentStep"],
+            "timestamp": _utc_timestamp(),
+            "status": timeline_status,
+        },
+        {
+            "id": "github-copilot-review",
+            "title": "Review handoff",
+            "detail": "The task will move into review once Copilot opens a pull request.",
+            "timestamp": _utc_timestamp(),
+            "status": review_status,
+        },
+    ]
+    logs = [
+        {
+            "id": "github-copilot-log-launch",
+            "timestamp": created_at,
+            "level": "info",
+            "source": "github-copilot-cloud",
+            "message": f"Assigned Copilot through GitHub issue {target_payload.get('issueUrl', target_payload.get('url', 'unknown'))}.",
+        },
+        {
+            "id": "github-copilot-log-status",
+            "timestamp": _utc_timestamp(),
+            "level": "warning" if run["status"] == "Blocked" else "success" if run["status"] == "Review" else "info",
+            "source": "github-copilot-cloud",
+            "message": run["currentStep"],
+        },
+    ]
+    rationale_entries = [
+        {
+            "id": "github-copilot-rationale-launch",
+            "timestamp": created_at,
+            "summary": "Live cloud agent assigned",
+            "detail": str(run.get("_githubCopilotPromptSummary", "The run was sent to GitHub Copilot cloud agent using the selected task context.")),
+            "status": "captured" if run["status"] != "Running" else "running",
+        },
+    ]
+
+    if str(target_payload.get("prUrl", "")).strip():
+        # Add the generated pull request URL when Copilot already created one.
+        rationale_entries.append(
+            {
+                "id": "github-copilot-rationale-pr",
+                "timestamp": _utc_timestamp(),
+                "summary": "Pull request link available",
+                "detail": f"GitHub Copilot attached PR {target_payload.get('prUrl')}.",
+                "status": "captured",
+            }
+        )
+
+    # Return the live execution snapshot consumed by the task detail page.
+    return {
+        "isLive": run["status"] == "Running",
+        "statusLabel": "GitHub Copilot cloud agent running" if run["status"] == "Running" else "GitHub Copilot cloud agent complete",
+        "lastUpdatedAt": _utc_timestamp(),
+        "timeline": timeline,
+        "logs": logs,
+        "evidenceTabs": {
+            "diff": [],
+            "tests": [],
+            "rationale": rationale_entries,
+        },
+    }
+
+
 def _build_static_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
     """Builds the timeline, logs, and evidence tabs for a static run."""
 
@@ -637,6 +724,10 @@ def _build_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
     if run.get("_cursorAgent"):
         # Prefer the Cursor-specific live view when the run is backed by a cloud agent.
         return _build_cursor_cloud_live_view(run)
+
+    if run.get("_githubCopilotAgent"):
+        # Prefer the Copilot-specific live view when the run is backed by a cloud agent.
+        return _build_github_copilot_live_view(run)
 
     if run.get("_streamStartedAt"):
         # Prefer the streaming execution view when the run was started in the live simulator.
@@ -690,6 +781,31 @@ def _sync_run_progress(run: Dict[str, Any], settings: Settings) -> None:
         if str(latest_agent.get("summary", "")).strip():
             # Replace the placeholder task summary when Cursor returns a richer summary.
             run["summary"] = str(latest_agent["summary"])
+
+        return
+
+    if run.get("_githubCopilotAgent"):
+        current_status = str(run.get("status", ""))
+
+        if current_status in {"Approved", "Blocked", "Retry", "Merged"}:
+            # Preserve reviewer-driven or terminal states after the live agent has already finished.
+            return
+
+        cloud_agent = run.get("_githubCopilotAgent", {}) or {}
+        target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
+        copilot_status = str(cloud_agent.get("status", "ASSIGNED"))
+        run["runtime"] = _format_cursor_agent_runtime(cloud_agent, require_nonzero=False)
+
+        if str(target_payload.get("prUrl", "")).strip():
+            # Move Copilot runs to review once a pull request URL is known.
+            run["status"] = "Review"
+            run["currentStep"] = "GitHub Copilot cloud agent opened a pull request for review"
+            run["blockers"] = ["No active blockers", "Waiting for reviewer decision"]
+        else:
+            # Keep Copilot runs active while GitHub works from the assigned issue.
+            run["status"] = "Running"
+            run["currentStep"] = f"GitHub Copilot cloud agent status: {copilot_status}"
+            run["blockers"] = ["GitHub Copilot cloud agent is still running", "Reviewer controls unlock after Copilot opens a pull request"]
 
         return
 
@@ -1054,12 +1170,12 @@ def _map_cursor_agent_status(cursor_status: str) -> str:
 def _resolve_pull_request_url(run: Dict[str, Any], settings: Optional[Settings] = None) -> str:
     """Resolves the pull-request URL recorded for the given run."""
 
-    cloud_agent = run.get("_cursorAgent") or {}
+    cloud_agent = run.get("_cursorAgent") or run.get("_githubCopilotAgent") or {}
     target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
     pull_request_url = str(target_payload.get("prUrl", "") or "").strip()
 
     if pull_request_url:
-        # Prefer the live Cursor-created PR URL when the run was launched against GitHub.
+        # Prefer the live cloud-agent-created PR URL when the run was launched against GitHub.
         return pull_request_url
 
     # Prefer the connected GitHub owner so task detail links mirror the active integration setup.
@@ -1507,7 +1623,7 @@ def _build_run_extensions(
         "role": "admin",
         "provider": "fallback",
     }
-    cloud_agent = deepcopy(run.get("_cursorAgent"))
+    cloud_agent = deepcopy(run.get("_cursorAgent") or run.get("_githubCopilotAgent"))
 
     if settings is not None:
         # Advance the PR state machine before building the public run payload.
@@ -1767,6 +1883,7 @@ def _build_dashboard_suggested_actions(
     jira_status = _find_integration_status(integration_statuses, "jira")
     github_status = _find_integration_status(integration_statuses, "github")
     cursor_status = _find_integration_status(integration_statuses, "cursor_cloud_agents")
+    github_copilot_status = _find_integration_status(integration_statuses, "github_copilot_cloud_agent")
     docs_status = _find_integration_status(integration_statuses, "repo_docs")
     issue_tracker_connected = bool(
         (linear_status and bool(linear_status.get("connected")))
@@ -1796,6 +1913,9 @@ def _build_dashboard_suggested_actions(
     elif cursor_status and not bool(cursor_status.get("connected")):
         # Recommend connecting Cursor when runs cannot launch against the live cloud agent surface.
         suggested_actions.append("Connect Cursor Cloud Agents so runs launch against the live agent service.")
+    elif github_copilot_status and not bool(github_copilot_status.get("connected")):
+        # Recommend connecting Copilot when no alternate live cloud-agent surface is available.
+        suggested_actions.append("Connect GitHub Copilot cloud agent so runs can assign Copilot to GitHub issues.")
     elif docs_status and not bool(docs_status.get("connected")):
         # Recommend connecting repo docs when runs are missing grounded markdown context.
         suggested_actions.append("Connect repo docs so new tasks attach real markdown context.")
@@ -2226,6 +2346,8 @@ def create_run(
                 run["_executionMode"] = str(payload.get("executionMode", "implement"))
                 run["_cursorAgent"] = launched_agent
                 run["_cursorPromptSummary"] = f"Launched Cursor Cloud Agent {launched_agent.get('id', 'unknown')} for {issue.get('ticket', run['ticket'])}."
+                run.pop("_githubCopilotAgent", None)
+                run.pop("_githubCopilotPromptSummary", None)
                 run.pop("_approvedAt", None)
                 run.pop("_approvedBy", None)
                 run.pop("_mergedAt", None)
@@ -2247,6 +2369,70 @@ def create_run(
                     settings=settings,
                 )
 
+            if settings.github_copilot_token:
+                repository = _find_repository(integration_catalog["repositories"], run["repo"])
+
+                if not repository or not str(repository.get("fullName", "")).strip():
+                    # Reject live launches when GitHub is not configured for the selected repository.
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Connect GitHub for the selected repository before launching GitHub Copilot cloud agent.",
+                    )
+
+                prompt_text = _build_cursor_prompt(
+                    run,
+                    issue=issue,
+                    documents=documents,
+                    repository=repository,
+                )
+
+                try:
+                    launched_agent = launch_github_copilot_agent(
+                        settings,
+                        target_repo=str(repository["fullName"]),
+                        base_ref=str(repository.get("defaultBranch", "main")),
+                        prompt_text=prompt_text,
+                        issue_title=str(run.get("title", run.get("summary", "AI Control Pane task"))),
+                        source_issue=issue,
+                    )
+                except GitHubCopilotAgentError as error:
+                    # Translate provider launch failures into a clear API response.
+                    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+
+                target_payload = launched_agent.get("target", {}) if isinstance(launched_agent, dict) else {}
+                run["status"] = "Running"
+                run["agent"] = "github-copilot-cloud-agent"
+                run["currentStep"] = "GitHub Copilot cloud agent assigned through the connected GitHub repository"
+                run["runtime"] = "00:00"
+                run["cost"] = "$0.00"
+                run["blockers"] = ["GitHub Copilot cloud agent is still running", "Reviewer controls unlock after Copilot opens a pull request"]
+                run["_streamStartedAt"] = ""
+                run["_executionMode"] = str(payload.get("executionMode", "implement"))
+                run["_githubCopilotAgent"] = launched_agent
+                run["_githubCopilotPromptSummary"] = f"Assigned GitHub Copilot cloud agent through issue {target_payload.get('issueUrl', target_payload.get('url', 'unknown'))}."
+                run.pop("_cursorAgent", None)
+                run.pop("_cursorPromptSummary", None)
+                run.pop("_approvedAt", None)
+                run.pop("_approvedBy", None)
+                run.pop("_mergedAt", None)
+                run.pop("_pullRequestState", None)
+                _clear_issue_tracker_sync_state(run)
+                run["evidence"]["commands"] = [f"POST /repos/{repository['fullName']}/issues -> {launched_agent.get('id', 'unknown')}"]
+                run["evidence"]["diff"] = ["Waiting for GitHub Copilot cloud agent to produce a pull request."]
+                run["evidence"]["tests"] = ["Waiting for GitHub Copilot cloud agent to report validation in the pull request."]
+                run["evidence"]["rationale"] = [
+                    f"Live launch assigned Copilot in {repository.get('fullName', repository.get('name', run['repo']))} using issue {issue.get('ticket', run['ticket'])}.",
+                ]
+
+                # Return the updated run record with the live Copilot metadata attached.
+                return _build_run_extensions(
+                    run,
+                    issue=issue,
+                    documents=documents,
+                    current_user=current_user,
+                    settings=settings,
+                )
+
             run["status"] = "Running"
             run["agent"] = payload.get("agentName", "impl-agent")
             run["currentStep"] = "Loading task context"
@@ -2257,6 +2443,8 @@ def create_run(
             run["_executionMode"] = str(payload.get("executionMode", "implement"))
             run.pop("_cursorAgent", None)
             run.pop("_cursorPromptSummary", None)
+            run.pop("_githubCopilotAgent", None)
+            run.pop("_githubCopilotPromptSummary", None)
             run.pop("_approvedAt", None)
             run.pop("_approvedBy", None)
             run.pop("_mergedAt", None)

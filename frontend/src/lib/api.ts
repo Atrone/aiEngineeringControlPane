@@ -12,6 +12,7 @@ import type {
   DashboardSuggestedActionsResponse,
   GoogleAuthExchangeRequest,
   GitHubConnectRequest,
+  GitHubCopilotConnectRequest,
   IntakeEnrichRequest,
   IntakeEnrichResponse,
   IntakeIdentifyRepositoryRequest,
@@ -395,5 +396,13 @@ export async function connectJira(payload: JiraConnectRequest): Promise<Integrat
 export async function connectCursor(payload: CursorConnectRequest): Promise<IntegrationsPayload> {
   // Save the Cursor setup and fetch the refreshed integrations payload.
   return sendJson<IntegrationsPayload, CursorConnectRequest>('/api/integrations/cursor/connect', 'POST', payload);
+}
+
+/**
+ * Stores the GitHub Copilot cloud agent setup chosen in guided integrations.
+ */
+export async function connectGitHubCopilot(payload: GitHubCopilotConnectRequest): Promise<IntegrationsPayload> {
+  // Save the Copilot setup and fetch the refreshed integrations payload.
+  return sendJson<IntegrationsPayload, GitHubCopilotConnectRequest>('/api/integrations/github-copilot/connect', 'POST', payload);
 }
 

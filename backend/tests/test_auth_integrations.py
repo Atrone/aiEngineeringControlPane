@@ -8,6 +8,7 @@ from app.auth import SessionRecord
 from app.auth import connect_cursor
 from app.auth import connect_docs
 from app.auth import connect_github
+from app.auth import connect_github_copilot
 from app.auth import connect_jira
 from app.auth import connect_linear
 
@@ -103,6 +104,22 @@ class AuthIntegrationConnectionTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as docs_error:
             connect_docs(self._build_session(), " ")
         self.assertEqual(docs_error.exception.status_code, 400)
+
+    def test_connect_github_copilot_saves_expected_session_values(self) -> None:
+        """Covers the GitHub Copilot cloud agent guided-setup helper."""
+
+        session = self._build_session()
+
+        # Confirm the token, model, and custom agent are normalized before storage.
+        connect_github_copilot(session, " Bearer gh-token ", " gpt-5.1 ", " reviewer ")
+        self.assertEqual(session.github_copilot_token, "gh-token")
+        self.assertEqual(session.github_copilot_model, "gpt-5.1")
+        self.assertEqual(session.github_copilot_custom_agent, "reviewer")
+
+        # Confirm missing GitHub tokens are rejected before mutating the session.
+        with self.assertRaises(HTTPException) as copilot_error:
+            connect_github_copilot(self._build_session(), "", "", "")
+        self.assertEqual(copilot_error.exception.status_code, 400)
 
 
 if __name__ == "__main__":
