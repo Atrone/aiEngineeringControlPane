@@ -1047,7 +1047,7 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
             # run-lobby
           </Link>
           <Link className={getNavLinkClassName(location.pathname, '/intake')} to="/intake">
-            # new-work
+            # delegate-agent
           </Link>
           {canReview ? (
             <Link className={getNavLinkClassName(location.pathname, '/settings')} to="/settings">
@@ -1816,11 +1816,16 @@ function DashboardPage() {
           <p className="eyebrow" id={`${missionFilterFormId}-legend`}>
             Mission control filters
           </p>
-          {hasActiveMissionFilters ? (
-            <button className="ghost-button" onClick={handleClearMissionFilters} type="button">
-              Clear filters
-            </button>
-          ) : null}
+          <div className="mission-control-filter-bar-actions">
+            <Link className="primary-button link-button" to="/intake">
+              Delegate to agent
+            </Link>
+            {hasActiveMissionFilters ? (
+              <button className="ghost-button" onClick={handleClearMissionFilters} type="button">
+                Clear filters
+              </button>
+            ) : null}
+          </div>
         </div>
         <form className="mission-control-filter-toolbar" role="search" onSubmit={(event) => { event.preventDefault(); }}>
           <div className="field-group field-group-wide mission-control-search-field">
@@ -2341,8 +2346,11 @@ function WorkIntakePage() {
     <div className="page-grid">
       <section className="hero-panel">
         <div>
-          <p className="eyebrow">Integrated intake</p>
-          <h3>Create a new AI work item through clean, separated setup pages on a single intake surface.</h3>
+          <p className="eyebrow">Delegate to an AI agent</p>
+          <h3>
+            Tech leads: hand a scoped ticket to an implementation agent with repository context, acceptance criteria,
+            and linked docs — then monitor the run from the lobby and run room.
+          </h3>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
@@ -2379,7 +2387,7 @@ function WorkIntakePage() {
         </aside>
 
         <form className="intake-flow" onSubmit={(event) => { void handleSubmit(event); }}>
-          <nav className="intake-step-nav" aria-label="New work setup pages">
+          <nav className="intake-step-nav" aria-label="Agent delegation setup pages">
             <a href="#intake-issues">1. Issues</a>
             <a href="#intake-repository">2. Repository</a>
             <a href="#intake-execution">3. Mode</a>
@@ -2631,6 +2639,182 @@ function WorkIntakePage() {
 }
 
 /**
+ * Converts a stored execution mode token into a human-readable intake label.
+ */
+function formatExecutionModeLabel(executionMode: string): string {
+  // Normalize the stored token so unknown future modes still render safely.
+  const normalizedMode = executionMode.trim().toLowerCase();
+
+  if (normalizedMode === 'implement') {
+    // Match the intake card copy for the default engineering implementation path.
+    return 'Implement — change code and prepare review evidence';
+  }
+
+  if (normalizedMode === 'research') {
+    // Match the intake card copy for investigation-heavy work.
+    return 'Research — investigate and return a grounded plan';
+  }
+
+  if (normalizedMode === 'review') {
+    // Match the intake card copy for reviewer-style analysis runs.
+    return 'Review — evaluate existing changes, risks, and tests';
+  }
+
+  if (normalizedMode === 'test') {
+    // Match the intake card copy for validation-focused runs.
+    return 'Test — focus on validation, reproduction, and regression coverage';
+  }
+
+  // Fall back to the raw token when the backend introduces a new execution mode.
+  return executionMode.trim() || 'Implement — change code and prepare review evidence';
+}
+
+/**
+ * Renders the tech-lead delegation brief: repo context, issue narrative, criteria, and agent instructions.
+ */
+function TaskAgentDelegationBriefPanelBody(props: { run: RunSummary }) {
+  // Read optional repository metadata resolved by the backend integration catalog.
+  const repositoryContext = props.run.repositoryContext;
+  // Read the linked issue so description and ticket metadata can sit beside criteria.
+  const issue = props.run.issue;
+  // Read the human-authored acceptance checklist captured during intake.
+  const acceptanceCriteria = props.run.acceptanceCriteria?.trim() ?? '';
+  // Read the full delegation prompt separate from the short summary line.
+  const taskPrompt = props.run.taskPrompt?.trim() ?? '';
+  // Read the execution mode label for policy-aligned agent routing context.
+  const executionModeLabel = formatExecutionModeLabel(props.run.executionMode ?? 'implement');
+  // Prefer the repository URL from integration data before falling back to PR-derived links.
+  const repositoryBrowseUrl = repositoryContext?.url?.trim()
+    ? repositoryContext.url.trim()
+    : resolveRunRepositoryUrl(props.run);
+  // Prefer the catalog full name when present so reviewers see owner/repo formatting.
+  const repositoryDisplayName = repositoryContext?.fullName?.trim()
+    || repositoryContext?.name?.trim()
+    || props.run.repo;
+  // Read the default branch hint when the backend supplied repository context.
+  const defaultBranchLabel = repositoryContext?.defaultBranch?.trim() || '—';
+  // Build the attached document list for provenance consistent with integrations.md.
+  const documentItems: ReactNode[] = [];
+
+  // Render each attached document as a compact list row when snapshots exist.
+  for (const document of props.run.documents ?? []) {
+    documentItems.push(
+      <li className="delegation-doc-row" key={document.id}>
+        <strong>{document.title}</strong>
+        <span className="subtle-copy">{document.path}</span>
+      </li>,
+    );
+  }
+
+  // Return the structured delegation brief expected by tech leads reviewing agent work.
+  return (
+    <div className="delegation-brief">
+      <p className="subtle-copy" id="sig16-delegation-traceability">
+        Product delivery ticket SIG-16: this panel keeps delegation inputs visible for reviewers and ties runs back to
+        issue-tracker context per the MVP workflow (see docs/mvp-definition.md and docs/integrations.md).
+      </p>
+
+      <div className="delegation-brief-grid">
+        <div className="delegation-brief-block">
+          <p className="eyebrow">Repository context</p>
+          <dl className="delegation-dl">
+            <div>
+              <dt>Repository</dt>
+              <dd>{repositoryDisplayName}</dd>
+            </div>
+            <div>
+              <dt>Agent branch</dt>
+              <dd>{props.run.branch}</dd>
+            </div>
+            <div>
+              <dt>Default branch</dt>
+              <dd>{defaultBranchLabel}</dd>
+            </div>
+            <div>
+              <dt>Remote</dt>
+              <dd>
+                {repositoryBrowseUrl ? (
+                  <a className="external-link" href={repositoryBrowseUrl} rel="noreferrer" target="_blank">
+                    Open repository
+                  </a>
+                ) : (
+                  <span className="muted-copy">Connect GitHub to show a live repository link.</span>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="delegation-brief-block">
+          <p className="eyebrow">Linked issue</p>
+          {issue ? (
+            <div className="stacked-copy">
+              <p>
+                <strong>{issue.ticket}</strong>
+                {' '}
+                —
+                {issue.url ? (
+                  <a className="external-link" href={issue.url} rel="noreferrer" target="_blank">
+                    {' '}
+                    Open in
+                    {issue.provider ? ` ${issue.provider}` : ' issue tracker'}
+                  </a>
+                ) : null}
+              </p>
+              <p className="muted-copy">{issue.title}</p>
+              {issue.description?.trim() ? (
+                <pre className="delegation-issue-body">{issue.description.trim()}</pre>
+              ) : (
+                <p className="muted-copy">No issue description was synced for this task.</p>
+              )}
+            </div>
+          ) : (
+            <p className="muted-copy">This run was created without a linked issue-tracker ticket.</p>
+          )}
+        </div>
+
+        <div className="delegation-brief-block delegation-brief-block-wide">
+          <p className="eyebrow">Acceptance criteria</p>
+          {acceptanceCriteria ? (
+            <pre className="delegation-criteria" id="delegation-acceptance-criteria">
+              {acceptanceCriteria}
+            </pre>
+          ) : (
+            <p className="muted-copy" id="delegation-acceptance-criteria">
+              No explicit acceptance criteria were stored for this run. Use the linked issue and repository context, or
+              re-scope the task from intake.
+            </p>
+          )}
+        </div>
+
+        <div className="delegation-brief-block delegation-brief-block-wide">
+          <p className="eyebrow">Agent instructions</p>
+          <p className="subtle-copy">{executionModeLabel}</p>
+          {taskPrompt ? (
+            <pre className="delegation-prompt">{taskPrompt}</pre>
+          ) : (
+            <pre className="delegation-prompt">{props.run.summary}</pre>
+          )}
+        </div>
+
+        <div className="delegation-brief-block delegation-brief-block-wide">
+          <p className="eyebrow">Attached knowledge</p>
+          {documentItems.length > 0 ? <ul className="delegation-doc-list">{documentItems}</ul> : (
+            <p className="muted-copy">No document snapshots were attached to this delegation.</p>
+          )}
+        </div>
+      </div>
+
+      <p className="subtle-copy" id="delegation-agent-policy-note">
+        Agents execute under the active policy pack for this repository, require human approval before merge, and must
+        stay within allowed commands and paths described in Settings — matching the control pane agent interaction
+        guidelines.
+      </p>
+    </div>
+  );
+}
+
+/**
  * Shows the full evidence package for a single task.
  */
 function TaskDetailPage() {
@@ -2706,6 +2890,11 @@ function TaskDetailPage() {
           </div>
         </div>
       </section>
+
+      <Panel
+        body={<TaskAgentDelegationBriefPanelBody run={activeRun} />}
+        title="Agent delegation brief"
+      />
 
       <section className="task-grid run-room-status-grid">
         <Panel
@@ -3776,8 +3965,8 @@ function buildShellPageTitle(pathname: string): string {
   }
 
   if (pathname === '/intake') {
-    // Match the intake route to the new-work navigation label.
-    return 'New Work';
+    // Match the intake route to the sidebar channel label for agent delegation (SIG-16).
+    return 'Delegate to agent';
   }
 
   if (pathname === '/settings' || pathname === '/integrations') {
@@ -4753,6 +4942,7 @@ export {
   SignInPage,
   StandaloneStatePanel,
   StatusBadge,
+  TaskAgentDelegationBriefPanelBody,
   TaskDecisionPanelBody,
   TaskDetailPage,
   TaskImplementationPackagePanelBody,
@@ -4792,6 +4982,7 @@ export {
   findIntegrationStatus,
   findIssueById,
   formatEventTime,
+  formatExecutionModeLabel,
   formatReviewEffortValue,
   getConnectionValue,
   getDocumentsForRepository,

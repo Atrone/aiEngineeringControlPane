@@ -47,6 +47,7 @@ import {
   buildRunTeamGroups,
   buildRunTeamKey,
   buildShellPageTitle,
+  formatExecutionModeLabel,
   buildTeamHoverLabel,
   buildTeamInitials,
   buildTraceabilityNodeClassName,
@@ -240,6 +241,18 @@ function createRunFixture(overrides: Partial<RunSummary> = {}): RunSummary {
       },
     },
     liveView,
+    acceptanceCriteria: '- [ ] Delivers scoped work with review evidence',
+    taskPrompt: 'Implement the linked issue with tests and reviewer-ready notes.',
+    executionMode: 'implement',
+    repositoryContext: {
+      id: 'control-pane',
+      name: 'control-pane',
+      fullName: 'acme/control-pane',
+      defaultBranch: 'main',
+      url: 'https://github.com/acme/control-pane',
+      provider: 'github',
+      private: false,
+    },
     ...overrides,
   };
 }
@@ -354,7 +367,10 @@ describe('App pure helper functions', () => {
     expect(getNavLinkClassName('/integrations', '/settings')).toBe('nav-link active');
     expect(getNavLinkClassName('/dashboard', '/settings')).toBe('nav-link');
     expect(buildShellPageTitle('/tasks/run-1')).toBe('Run Room');
-    expect(buildShellPageTitle('/intake')).toBe('New Work');
+    expect(buildShellPageTitle('/intake')).toBe('Delegate to agent');
+    expect(formatExecutionModeLabel('implement')).toContain('Implement');
+    expect(formatExecutionModeLabel('research')).toContain('Research');
+    expect(formatExecutionModeLabel('unknown-mode')).toBe('unknown-mode');
     expect(canAccessRole('admin', ['admin'])).toBe(true);
     expect(buildRoleLabel('admin')).toBe('Admin');
     expect(buildRoleCapabilityItems()).toHaveLength(3);
@@ -830,6 +846,29 @@ describe('App route and page component functions', () => {
     );
 
     expect(screen.getByText('Loading task detail...')).toBeInTheDocument();
+  });
+
+  it('renders the agent delegation brief with intake fields on task detail', async () => {
+    const run = createRunFixture({
+      acceptanceCriteria: '- [ ] Custom criterion',
+      taskPrompt: 'Custom prompt body.',
+      executionMode: 'test',
+    });
+    mockedUseApiQuery().mockReturnValue({ data: run, error: null, isLoading: false });
+
+    render(
+      <MemoryRouter initialEntries={['/tasks/run-1']}>
+        <Routes>
+          <Route element={<TaskDetailPage />} path="/tasks/:runId" />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Agent delegation brief' })).toBeInTheDocument();
+    expect(screen.getByText('- [ ] Custom criterion')).toBeInTheDocument();
+    expect(screen.getByText('Custom prompt body.')).toBeInTheDocument();
+    expect(screen.getByText(/Test — focus on validation/i)).toBeInTheDocument();
+    expect(screen.getByText('acme/control-pane')).toBeInTheDocument();
   });
 
   it('submits selected repository docs from the intake page by default', async () => {

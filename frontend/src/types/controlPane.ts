@@ -46,6 +46,17 @@ export type RepositoryRecord = {
   url: string;
 };
 
+/** Repository metadata surfaced on task detail for delegation and audit context (SIG-16). */
+export type RepositoryContext = {
+  id: string;
+  name: string;
+  fullName: string;
+  defaultBranch: string;
+  url: string;
+  provider: string;
+  private: boolean;
+};
+
 export type IssueRecord = {
   id: string;
   ticket: string;
@@ -218,6 +229,14 @@ export type RunSummary = {
   approvalHistory?: ApprovalHistoryEntry[];
   cloudAgent?: CloudAgentRecord;
   liveView?: RunLiveView;
+  /** Acceptance criteria captured at intake for reviewer and agent alignment. */
+  acceptanceCriteria?: string;
+  /** Full delegation prompt/instructions sent with the agent run. */
+  taskPrompt?: string;
+  /** Intake execution mode: implement, research, review, or test. */
+  executionMode?: string;
+  /** Repository catalog metadata matched to this run's repo. */
+  repositoryContext?: RepositoryContext | null;
   traceability?: {
     ticket: string;
     issueProvider: string;
