@@ -74,6 +74,10 @@ class StateRunMutationTests(unittest.TestCase):
             self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["id"], "upload-doc-1")
             self.assertEqual(state.RUN_STORE[0]["_documentSnapshots"][0]["path"], "uploads/architecture.md")
             self.assertEqual(state.RUN_STORE[0]["_requestedBySnapshot"]["name"], "Maya")
+            self.assertIn(
+                "Traceability: launched from linear ticket ACP-500",
+                state.RUN_STORE[0]["evidence"]["rationale"][0],
+            )
             mock_create_run.assert_called_once()
 
     def test_create_run_covers_simulated_live_launch_and_cursor_live_launch_paths(self) -> None:

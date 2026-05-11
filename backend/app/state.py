@@ -967,6 +967,24 @@ def _build_cursor_prompt(
     return "\n\n".join(prompt_sections)
 
 
+def _build_issue_traceability_rationale(issue: Optional[Dict[str, Any]]) -> str:
+    """Builds a review-focused rationale line that preserves issue traceability context."""
+
+    if not issue:
+        # Fall back to a generic rationale when the task was created without an issue selection.
+        return "No issue selected; run launched from direct prompt context."
+
+    ticket = str(issue.get("ticket", "Unknown ticket")).strip() or "Unknown ticket"
+    provider = str(issue.get("provider", "unknown")).strip().lower() or "unknown"
+    status_name = str(issue.get("status", "Unknown")).strip() or "Unknown"
+
+    # Include provider, ticket, and status so review evidence maps to the originating tracker state.
+    return (
+        f"Traceability: launched from {provider} ticket {ticket} while status was "
+        f"'{status_name}'."
+    )
+
+
 def _clear_issue_tracker_sync_state(run: Dict[str, Any]) -> None:
     """Clears any cached issue-tracker sync markers from a run record."""
 
@@ -2024,7 +2042,10 @@ def create_task(
             "diff": ["Waiting for the run to produce code changes."],
             "tests": ["Waiting for the run to report validation results."],
             "commands": ["Run requested from task intake"],
-            "rationale": ["The run was created from issue, repo, and docs context selected in the intake flow."],
+            "rationale": [
+                _build_issue_traceability_rationale(issue),
+                "The run was created from issue, repo, and docs context selected in the intake flow.",
+            ],
         },
         "blockers": ["Starting run"],
         "approvalHistory": [],
