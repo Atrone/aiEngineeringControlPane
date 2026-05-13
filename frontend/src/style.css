@@ -537,7 +537,7 @@ ul {
 }
 
 .subtle-copy {
-  color: rgba(225, 238, 249, 0.68);
+  color: #405a7a;
   line-height: 1.45;
 }
 
@@ -1158,7 +1158,7 @@ ul {
 }
 
 .intake-card-option-body small {
-  color: rgba(16, 35, 63, 0.62);
+  color: #405a7a;
   font-size: 0.78rem;
 }
 
@@ -1308,7 +1308,7 @@ ul {
 }
 
 .selection-subtitle {
-  color: rgba(16, 35, 63, 0.66);
+  color: #405a7a;
   font-size: 0.85rem;
 }
 
