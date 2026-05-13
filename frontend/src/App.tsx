@@ -887,7 +887,6 @@ function LandingPage() {
     <main className="landing-shell">
       <nav aria-label="Landing page" className="landing-nav">
         <Link className="landing-brand" to="/">
-          <img alt="Discord" className="brand-logo landing-brand-mark" src="/discord-logo.svg" />
           <span>
             <strong>Engineering Command Center</strong>
           </span>
@@ -1030,7 +1029,6 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
 
       <aside aria-label="Workspace navigation" className="sidebar">
         <div className="brand-card discord-brand-card">
-          <img alt="Discord" className="brand-logo sidebar-brand-logo" src="/discord-logo.svg" />
           <h1>Engineering</h1>
           <p className="muted-copy">
             Servers, channels, runs, and reviews stay connected in one Engineering Command Center.

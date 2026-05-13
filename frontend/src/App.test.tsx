@@ -584,10 +584,10 @@ describe('App route and page component functions', () => {
   it('renders the public landing page before sign-in', () => {
     renderWithRouter(<LandingPage />, '/');
 
-    expect(screen.getByText('Coordinate AI work across Discord-style team servers.')).toBeInTheDocument();
+    expect(screen.getByText('Coordinate AI work across team servers.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Enter command center' })).toHaveAttribute('href', '/sign-in');
     expect(screen.getByRole('link', { name: 'See how it works' })).toHaveAttribute('href', '#landing-workflow');
-    expect(screen.getByRole('heading', { name: 'From request to reviewed pull request in one Discord-style command center.' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'From request to reviewed pull request in one command center.' })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Run Channels lobby showing servers, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
 
     fireEvent.click(screen.getByRole('button', { name: 'Enlarge Run lobby screenshot' }));
@@ -601,7 +601,7 @@ describe('App route and page component functions', () => {
   it('renders App signed-out flow and SignInPage submit behavior', async () => {
     renderWithRouter(<App />, '/');
 
-    expect(screen.getByText('Coordinate AI work across Discord-style team servers.')).toBeInTheDocument();
+    expect(screen.getByText('Coordinate AI work across team servers.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('link', { name: 'Enter command center' }));
 
     await waitFor(() => {
