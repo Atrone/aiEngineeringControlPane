@@ -795,13 +795,13 @@ function App() {
 function LandingPage() {
   const [selectedWorkflowScreenshotSrc, setSelectedWorkflowScreenshotSrc] = useState<string | null>(null);
   const highlights = [
-    'Route intake from GitHub, Linear, Jira, and docs into one review lane.',
-    'Watch agent runs move through evidence, blockers, approval, and merge.',
-    'Give reviewers a Discord-inspired workspace for every automation handoff.',
+    'Route intake from GitHub, Linear, Jira, and docs into one Bell-branded review lane.',
+    'Watch agent runs move through evidence, blockers, approval, and merge with network operations clarity.',
+    'Give reviewers a connected workspace for every automation handoff.',
   ];
   const workflowScreenshots = [
     {
-      alt: 'Run Channels lobby showing team servers, run metrics, and suggested next actions.',
+      alt: 'Run Channels lobby showing Bell teams, run metrics, and suggested next actions.',
       caption: 'Run lobby',
       src: '/landing-run-channels.png',
     },
@@ -826,7 +826,7 @@ function LandingPage() {
       src: '/landing-docs-task-brief.png',
     },
     {
-      alt: 'Run lobby showing an active agent run for a selected team server.',
+      alt: 'Run lobby showing an active agent run for a selected Bell team.',
       caption: 'Live run tracking',
       src: '/landing-run-lobby-active.png',
     },
@@ -887,12 +887,10 @@ function LandingPage() {
     <main className="landing-shell">
       <nav aria-label="Landing page" className="landing-nav">
         <Link className="landing-brand" to="/">
-          <span className="discord-home-mark landing-brand-mark" aria-hidden="true">
-            AI
-          </span>
+          <img alt="Bell Canada" className="bell-logo landing-brand-mark" src="/bell-canada-logo.png" />
           <span>
-            <span className="eyebrow">AI Control Plane</span>
-            <strong>Engineering Mission Control</strong>
+            <span className="eyebrow">Bell Canada</span>
+            <strong>Engineering Control Centre</strong>
           </span>
         </Link>
         <Link className="ghost-button" to="/sign-in">
@@ -902,14 +900,15 @@ function LandingPage() {
 
       <section className="landing-hero" aria-labelledby="landing-title">
         <div className="landing-hero-copy">
-          <p className="eyebrow">Agentic engineering operations</p>
-          <h1 id="landing-title">Coordinate AI work from intake to approval.</h1>
+          <p className="eyebrow">Bell engineering operations</p>
+          <h1 id="landing-title">Coordinate AI work across the Bell network.</h1>
           <p className="muted-copy">
-            AI Control Plane gives product engineering teams one place to request work, monitor agent execution, inspect evidence, and approve the next step.
+            Bell Engineering Control Centre gives product teams one place to request work, monitor agent execution,
+            inspect evidence, and approve the next step.
           </p>
           <div className="landing-actions">
             <Link className="primary-button" to="/sign-in">
-              Enter mission control
+              Enter Bell control centre
             </Link>
             <a className="ghost-button" href="#landing-workflow">
               See how it works
@@ -920,11 +919,11 @@ function LandingPage() {
         <div className="landing-preview-card" aria-label="Run room preview">
           <div className="landing-preview-header">
             <span className="status-badge status-running">Live run</span>
-            <span className="subtle-copy">platform / checkout-flow</span>
+            <span className="subtle-copy">bell.ca / checkout-flow</span>
           </div>
           <div className="landing-preview-room">
-            <p className="eyebrow">Run room</p>
-            <h2>Ship payment retry copy</h2>
+            <p className="eyebrow">Bell run room</p>
+            <h2>Ship mobility payment retry copy</h2>
             <p className="muted-copy">Evidence is ready, CI passed, and one reviewer decision is waiting.</p>
             <div className="landing-preview-grid">
               <span>Diff captured</span>
@@ -948,7 +947,7 @@ function LandingPage() {
       <section className="landing-workflow-panel" id="landing-workflow" aria-labelledby="landing-workflow-title">
         <div className="landing-workflow-copy">
           <p className="eyebrow">How it works</p>
-          <h2 id="landing-workflow-title">From request to reviewed pull request in one control plane.</h2>
+          <h2 id="landing-workflow-title">From request to reviewed pull request in one Bell control centre.</h2>
         </div>
         <ol className="landing-workflow-list">
           <li>
@@ -1023,7 +1022,7 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
     }
   }
 
-  // Keep the shell visible so the app feels like a real Discord-inspired team workspace.
+  // Keep the shell visible so the app feels like a Bell-branded team workspace.
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -1032,13 +1031,11 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
 
       <aside aria-label="Workspace navigation" className="sidebar">
         <div className="brand-card discord-brand-card">
-          <div className="discord-home-mark" aria-hidden="true">
-            AI
-          </div>
-          <p className="eyebrow">AI Control Plane</p>
+          <img alt="Bell Canada" className="bell-logo sidebar-brand-logo" src="/bell-canada-logo.png" />
+          <p className="eyebrow">Bell Canada</p>
           <h1>Engineering</h1>
           <p className="muted-copy">
-            Teams are servers, runs are channels, and every run opens into a focused review room.
+            Teams, runs, and reviews stay connected in one Bell Engineering Control Centre.
           </p>
         </div>
 
@@ -1194,7 +1191,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
     <div className="auth-shell">
       <section className="auth-panel auth-panel-hero">
         <p className="eyebrow">{googleSsoEnabled ? 'Google SSO' : 'Guided sign-in'}</p>
-        <h1>{googleSsoEnabled ? 'Sign in with Google to enter mission control.' : 'Sign in to enter mission control.'}</h1>
+        <h1>{googleSsoEnabled ? 'Sign in with Google to enter the Bell control centre.' : 'Sign in to enter the Bell control centre.'}</h1>
         <p className="muted-copy">
           {googleSsoEnabled
             ? 'Your Google account will be validated by the backend before the session is created, and every successful sign-in is treated as an admin session.'
@@ -1269,7 +1266,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
 
             <div className="form-actions">
               <button className="primary-button" disabled={isSubmitting || !name || !email || !teamId} type="submit">
-                {isSubmitting ? 'Signing in...' : 'Enter mission control'}
+                {isSubmitting ? 'Signing in...' : 'Enter Bell control centre'}
               </button>
             </div>
           </form>
@@ -1546,7 +1543,7 @@ function DashboardPage() {
 
   if (query.isLoading) {
     // Render a lightweight loading state while dashboard data is fetched.
-    return <LoadingState message="Loading mission control data..." />;
+    return <LoadingState message="Loading Bell control centre data..." />;
   }
 
   if (query.error || !query.data) {
@@ -1785,7 +1782,7 @@ function DashboardPage() {
 
 
   const channelListEmptyCopy = selectedTeamRuns.length > 0 && filteredTeamRuns.length === 0
-    ? 'No runs match the current mission control filters. Clear or adjust filters to see channels again.'
+    ? 'No runs match the current Bell control filters. Clear or adjust filters to see channels again.'
     : 'No run channels are available for this team.';
 
   // Surface the operational view as a Discord-style server, channel, and run room.
@@ -1794,7 +1791,7 @@ function DashboardPage() {
       <section className="hero-panel discord-hero-panel">
         <div>
           <p className="eyebrow">Live operations</p>
-          <h3>Pick a team server, use mission control filters to narrow channels, then open the run room for evidence and review.</h3>
+          <h3>Pick a Bell team, use control centre filters to narrow channels, then open the run room for evidence and review.</h3>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
@@ -1807,7 +1804,7 @@ function DashboardPage() {
       <section aria-labelledby={`${missionFilterFormId}-legend`} className="mission-control-filter-bar">
         <div className="mission-control-filter-bar-header">
           <p className="eyebrow" id={`${missionFilterFormId}-legend`}>
-            Mission control filters
+            Bell control filters
           </p>
           <div className="mission-control-filter-bar-actions">
             <Link className="primary-button link-button" to="/intake">
@@ -1867,14 +1864,14 @@ function DashboardPage() {
         </div>
       </section>
 
-      <section className="discord-workspace" aria-label="Team run workspace">
-        <div className="server-rail" aria-label="Team servers">
-          {teamServerButtons.length > 0 ? teamServerButtons : <span className="server-empty-state">AI</span>}
+      <section className="discord-workspace" aria-label="Bell team run workspace">
+        <div className="server-rail" aria-label="Bell teams">
+          {teamServerButtons.length > 0 ? teamServerButtons : <span className="server-empty-state">B</span>}
         </div>
 
         <div className="channel-panel" aria-label="Run channels">
           <div className="channel-panel-header">
-            <p className="eyebrow">Team server</p>
+            <p className="eyebrow">Bell team</p>
             <h3>{selectedTeam?.label ?? 'No team selected'}</h3>
             <p className="subtle-copy" role="status">
               Showing {filteredTeamRuns.length} of {selectedTeamRuns.length} run channels
@@ -1917,8 +1914,8 @@ function DashboardPage() {
           ) : selectedTeamRuns.length > 0 ? (
             <div className="run-room-card">
               <p className="eyebrow">No match</p>
-              <h3>No runs match the current mission control filters.</h3>
-              <p className="muted-copy">Clear filters or pick another team server to restore the preview card.</p>
+              <h3>No runs match the current Bell control filters.</h3>
+              <p className="muted-copy">Clear filters or pick another Bell team to restore the preview card.</p>
               {hasActiveMissionFilters ? (
                 <button className="primary-button" onClick={handleClearMissionFilters} type="button">
                   Clear filters
