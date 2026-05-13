@@ -1776,15 +1776,6 @@ function DashboardPage() {
     );
   }
 
-  let blockerReasonsBody: ReactNode;
-
-  if (blockedReasonListItems.length === 0) {
-    // Keep the moderation panel present even when no visible runs are stalled.
-    blockerReasonsBody = <p className="muted-copy">No blocked run reasons are active in this server.</p>;
-  } else {
-    // Surface blocked reasons as Discord-style moderation notes beside suggestions.
-    blockerReasonsBody = <ul className="rail-list">{blockedReasonListItems}</ul>;
-  }
 
 
   const channelListEmptyCopy = selectedTeamRuns.length > 0 && filteredTeamRuns.length === 0
@@ -1867,7 +1858,6 @@ function DashboardPage() {
       <section className="content-grid discord-support-grid">
         <div className="rail-stack">
           <Panel body={suggestionsBody} title="Suggested next actions" />
-          <Panel body={blockerReasonsBody} title="Blocked run reasons" />
         </div>
       </section>
 
