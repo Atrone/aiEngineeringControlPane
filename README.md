@@ -1,6 +1,6 @@
 # AI Control Pane     
 
-Scaffolded product demo for an AI-assisted engineering control pane with:
+Scaffolded product demo for an AI-assisted engineering control plane with:
 - `frontend`: Vite + React + TypeScript UI
 - `backend`: FastAPI integration layer
 
