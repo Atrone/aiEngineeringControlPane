@@ -889,7 +889,6 @@ function LandingPage() {
         <Link className="landing-brand" to="/">
           <img alt="Discord" className="brand-logo landing-brand-mark" src="/discord-logo.svg" />
           <span>
-            <span className="eyebrow">Discord</span>
             <strong>Engineering Command Center</strong>
           </span>
         </Link>
@@ -901,7 +900,7 @@ function LandingPage() {
       <section className="landing-hero" aria-labelledby="landing-title">
         <div className="landing-hero-copy">
           <p className="eyebrow">engineering operations</p>
-          <h1 id="landing-title">Coordinate AI work across Discord-style team servers.</h1>
+          <h1 id="landing-title">Coordinate AI work across team servers.</h1>
           <p className="muted-copy">
             Engineering Command Center gives product teams one server-like hub to request work, monitor agent execution,
             inspect evidence, and approve the next step.
@@ -919,7 +918,7 @@ function LandingPage() {
         <div className="landing-preview-card" aria-label="Run room preview">
           <div className="landing-preview-header">
             <span className="status-badge status-running">Live run</span>
-            <span className="subtle-copy">discord.com / checkout-flow</span>
+            <span className="subtle-copy">checkout-flow</span>
           </div>
           <div className="landing-preview-room">
             <p className="eyebrow">run room</p>
@@ -947,7 +946,7 @@ function LandingPage() {
       <section className="landing-workflow-panel" id="landing-workflow" aria-labelledby="landing-workflow-title">
         <div className="landing-workflow-copy">
           <p className="eyebrow">How it works</p>
-          <h2 id="landing-workflow-title">From request to reviewed pull request in one Discord-style command center.</h2>
+          <h2 id="landing-workflow-title">From request to reviewed pull request in one command center.</h2>
         </div>
         <ol className="landing-workflow-list">
           <li>
@@ -1032,7 +1031,6 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
       <aside aria-label="Workspace navigation" className="sidebar">
         <div className="brand-card discord-brand-card">
           <img alt="Discord" className="brand-logo sidebar-brand-logo" src="/discord-logo.svg" />
-          <p className="eyebrow">Discord</p>
           <h1>Engineering</h1>
           <p className="muted-copy">
             Servers, channels, runs, and reviews stay connected in one Engineering Command Center.
