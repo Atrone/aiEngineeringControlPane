@@ -584,15 +584,15 @@ describe('App route and page component functions', () => {
   it('renders the public landing page before sign-in', () => {
     renderWithRouter(<LandingPage />, '/');
 
-    expect(screen.getByText('Coordinate AI work from intake to approval.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Enter mission control' })).toHaveAttribute('href', '/sign-in');
+    expect(screen.getByText('Coordinate AI work across Discord-style team servers.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Enter command center' })).toHaveAttribute('href', '/sign-in');
     expect(screen.getByRole('link', { name: 'See how it works' })).toHaveAttribute('href', '#landing-workflow');
-    expect(screen.getByRole('heading', { name: 'From request to reviewed pull request in one control plane.' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Run Channels lobby showing team servers, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
+    expect(screen.getByRole('heading', { name: 'From request to reviewed pull request in one Discord-style command center.' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Run Channels lobby showing servers, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
 
     fireEvent.click(screen.getByRole('button', { name: 'Enlarge Run lobby screenshot' }));
     expect(screen.getByRole('dialog', { name: 'Run lobby screenshot preview' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Expanded Run Channels lobby showing team servers, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
+    expect(screen.getByRole('img', { name: 'Expanded Run Channels lobby showing servers, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: 'Run lobby screenshot preview' })).not.toBeInTheDocument();
@@ -601,14 +601,14 @@ describe('App route and page component functions', () => {
   it('renders App signed-out flow and SignInPage submit behavior', async () => {
     renderWithRouter(<App />, '/');
 
-    expect(screen.getByText('Coordinate AI work from intake to approval.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('link', { name: 'Enter mission control' }));
+    expect(screen.getByText('Coordinate AI work across Discord-style team servers.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'Enter command center' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Sign in to enter mission control.')).toBeInTheDocument();
+      expect(screen.getByText('Sign in to enter the command center.')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Enter mission control' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enter command center' }));
 
     await waitFor(() => {
       expect(api.signIn).toHaveBeenCalledWith({ name: 'Maya Chen', email: 'maya.chen@example.com', role: 'admin', teamId: 'platform' });
@@ -698,7 +698,7 @@ describe('App route and page component functions', () => {
 
     renderWithRouter(<DashboardPage />, '/dashboard');
 
-    expect(screen.getByText('Pick a team server, use mission control filters to narrow channels, then open the run room for evidence and review.')).toBeInTheDocument();
+    expect(screen.getByText('Pick a server, use channel filters to narrow runs, then open the run room for evidence and review.')).toBeInTheDocument();
     expect(screen.getByLabelText('Search tasks')).toBeInTheDocument();
     expect(screen.getByText('Failing integration test')).toBeInTheDocument();
     await waitFor(() => {
@@ -709,7 +709,7 @@ describe('App route and page component functions', () => {
     });
 
     const suggestionsTitle = await screen.findByText('Suggested next actions');
-    const teamWorkspace = screen.getByRole('region', { name: 'Team run workspace' });
+    const teamWorkspace = screen.getByRole('region', { name: 'server run workspace' });
     const openRunRoomLink = screen.getByRole('link', { name: 'Open run room' });
     const pullRequestContent = screen.getByRole('region', { name: 'Open pull request content' });
 
