@@ -1016,6 +1016,7 @@ def _build_cursor_issue_block(issue: Dict[str, Any]) -> str:
         f"Provider: {issue.get('provider', 'unknown')}",
     ]
     description = str(issue.get("description", "")).strip()
+    issue_url = str(issue.get("url", "")).strip()
     assignee = issue.get("assignee", {}) or {}
     assignee_name = str(assignee.get("name", "")).strip()
 
@@ -1026,6 +1027,10 @@ def _build_cursor_issue_block(issue: Dict[str, Any]) -> str:
     if description:
         # Add the issue description when the originating issue included one.
         issue_lines.append(f"Description: {description}")
+
+    if issue_url:
+        # Add the issue-tracker URL so reviewers can confirm end-to-end ticket traceability.
+        issue_lines.append(f"Issue URL: {issue_url}")
 
     # Return the issue block as a newline-delimited prompt section.
     return "\n".join(issue_lines)
@@ -2411,6 +2416,7 @@ def create_run(
                 run["evidence"]["tests"] = ["Waiting for the live Cursor Cloud Agent to report validation results."]
                 run["evidence"]["rationale"] = [
                     f"Live launch targeted {repository.get('fullName', repository.get('name', run['repo']))} using issue {issue.get('ticket', run['ticket'])}.",
+                    "Issue-tracker metadata (provider, status, ticket, and URL when present) was embedded into the launch prompt for review traceability.",
                 ]
 
                 # Return the updated run record with the live Cursor metadata attached.

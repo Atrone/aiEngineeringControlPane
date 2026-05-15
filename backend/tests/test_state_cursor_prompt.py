@@ -39,6 +39,7 @@ class StateCursorPromptTests(unittest.TestCase):
             "status": "Todo",
             "priority": "1",
             "provider": "linear",
+            "url": "https://linear.example.com/issue/ACP-2",
             "assignee": {"name": "Maya"},
             "description": "Build a richer Cursor prompt.",
         }
@@ -49,6 +50,7 @@ class StateCursorPromptTests(unittest.TestCase):
         empty_docs_block = state._build_cursor_docs_block([])
         self.assertIn("Ticket: ACP-2", issue_block)
         self.assertIn("Assignee: Maya", issue_block)
+        self.assertIn("Issue URL: https://linear.example.com/issue/ACP-2", issue_block)
         self.assertIn("docs/testing.md", docs_block)
         self.assertIn("No repo markdown documents were attached", empty_docs_block)
 
