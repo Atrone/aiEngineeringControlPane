@@ -64,12 +64,12 @@ class ProviderJiraTests(unittest.TestCase):
             jira_project_key="ACP",
         )
 
-        with patch("app.providers._request_jira_json", return_value={"accountId": "acct-1"}):
+        with patch("app.provider_jira._request_jira_json", return_value={"accountId": "acct-1"}):
             # Confirm Jira connectivity succeeds when the auth check resolves an account id.
             self.assertTrue(providers.is_jira_connected(settings))
 
         with patch(
-            "app.providers._request_jira_json",
+            "app.provider_jira._request_jira_json",
             return_value={
                 "issues": [
                     {

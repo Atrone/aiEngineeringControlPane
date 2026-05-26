@@ -104,7 +104,7 @@ class ProviderDocsTests(unittest.TestCase):
             # Return the file payload for any discovered markdown file.
             return {"path": url.rsplit("/contents/", 1)[-1], "content": encoded_text, "encoding": "base64"}
 
-        with patch("app.providers._fetch_github_json_body", side_effect=fake_fetch_github_json_body):
+        with patch("app.provider_openai._fetch_github_json_body", side_effect=fake_fetch_github_json_body):
             # Confirm recursive markdown-path discovery finds nested docs while respecting the budget.
             markdown_paths = providers._list_github_markdown_paths(
                 "https://api.github.com/repos/acme/platform-web",
@@ -150,7 +150,7 @@ class ProviderDocsTests(unittest.TestCase):
                 # Serialize the GitHub fixture payload into the byte body providers.py expects.
                 return json.dumps({"ok": True}).encode("utf-8")
 
-        with patch("app.providers.urlopen", return_value=FakeResponse()):
+        with patch("app.provider_openai_docs.urlopen", return_value=FakeResponse()):
             # Confirm the GitHub JSON-body helper returns the parsed response body.
             self.assertEqual(providers._fetch_github_json_body("https://api.github.com/repos/acme/platform-web", {}), {"ok": True})
 

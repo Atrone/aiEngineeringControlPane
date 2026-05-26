@@ -35,7 +35,7 @@ class ProviderGitHubCopilotTests(unittest.TestCase):
             "created_at": "2026-05-11T17:00:00Z",
         }
 
-        with patch("app.providers._request_json", side_effect=[{"login": "developer"}, issue_payload]) as mock_request:
+        with patch("app.provider_github_copilot._request_json", side_effect=[{"login": "developer"}, issue_payload]) as mock_request:
             # Confirm Copilot connectivity is true when GitHub returns a user login.
             self.assertTrue(providers.is_github_copilot_connected(connected_settings))
 
@@ -75,7 +75,7 @@ class ProviderGitHubCopilotTests(unittest.TestCase):
             fp=io.BytesIO(b'{"message":"Copilot cannot be assigned"}'),
         )
 
-        with patch("app.providers._request_json", side_effect=launch_error):
+        with patch("app.provider_github_copilot._request_json", side_effect=launch_error):
             # Confirm provider HTTP failures are translated into readable Copilot errors.
             with self.assertRaises(providers.GitHubCopilotAgentError) as github_error:
                 providers.launch_github_copilot_agent(
@@ -88,7 +88,7 @@ class ProviderGitHubCopilotTests(unittest.TestCase):
                 )
             self.assertIn("Copilot cannot be assigned", str(github_error.exception))
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_github_copilot._request_json", side_effect=URLError("offline")):
             # Confirm transport failures are translated into stable Copilot error messages.
             with self.assertRaises(providers.GitHubCopilotAgentError):
                 providers.launch_github_copilot_agent(

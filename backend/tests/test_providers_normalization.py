@@ -46,12 +46,12 @@ class ProviderNormalizationTests(unittest.TestCase):
                 # Serialize the stored payload into the byte body providers.py expects.
                 return json.dumps(self.payload).encode("utf-8")
 
-        with patch("app.providers.urlopen", return_value=FakeResponse({"ok": True})):
+        with patch("app.provider_common.urlopen", return_value=FakeResponse({"ok": True})):
             # Confirm the shared JSON request helper decodes a normal JSON response body.
             self.assertEqual(providers._request_json("https://example.test"), {"ok": True})
 
         fixed_now = datetime(2026, 4, 24, 12, 0, tzinfo=timezone.utc)
-        with patch("app.providers.datetime") as mock_datetime:
+        with patch("app.provider_common.datetime") as mock_datetime:
             # Keep other datetime behaviors intact while fixing now() to a known instant.
             mock_datetime.now.return_value = fixed_now
             self.assertEqual(providers._utc_timestamp(), fixed_now.isoformat())
@@ -106,12 +106,12 @@ class ProviderNormalizationTests(unittest.TestCase):
             google_redirect_uri="http://localhost/callback",
         )
 
-        with patch("app.providers._request_json", return_value={"accountId": "acct-1"}):
+        with patch("app.provider_jira._request_json", return_value={"accountId": "acct-1"}):
             # Confirm Jira REST requests are wrapped with the normalized site URL and headers.
             jira_response = providers._request_jira_json(settings, path="/myself")
             self.assertEqual(jira_response["accountId"], "acct-1")
 
-        with patch("app.providers.urlopen", return_value=type("FakeTransitionResponse", (), {"status": 204, "__enter__": lambda self: self, "__exit__": lambda self, exc_type, exc_value, traceback: False})()):
+        with patch("app.provider_jira.urlopen", return_value=type("FakeTransitionResponse", (), {"status": 204, "__enter__": lambda self: self, "__exit__": lambda self, exc_type, exc_value, traceback: False})()):
             # Confirm Jira transition updates report success for 2xx responses.
             self.assertTrue(
                 providers._request_jira_transition_update(

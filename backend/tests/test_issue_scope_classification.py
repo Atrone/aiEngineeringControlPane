@@ -90,7 +90,7 @@ class IssueScopeClassificationTests(unittest.TestCase):
             ]
         }
 
-        with patch("app.providers._request_json", return_value=openai_payload):
+        with patch("app.provider_openai._request_json", return_value=openai_payload):
             # Run the direct provider helper so response normalization is exercised end to end.
             result = classify_intake_issues_by_scope(settings, issues=issues)
 

@@ -24,7 +24,7 @@ class ProviderCursorTests(unittest.TestCase):
 
         connected_settings = replace(get_settings(), cursor_api_key="cursor-token", cursor_model="gpt")
 
-        with patch("app.providers._request_json", return_value={"userEmail": "developer@example.com"}):
+        with patch("app.provider_cursor._request_json", return_value={"userEmail": "developer@example.com"}):
             # Confirm Cursor connectivity is true when the auth check returns a user email.
             self.assertTrue(providers.is_cursor_connected(connected_settings))
 
@@ -71,7 +71,7 @@ class ProviderCursorTests(unittest.TestCase):
             fp=io.BytesIO(b'{"message":"Invalid Cursor token"}'),
         )
 
-        with patch("app.providers._request_json", side_effect=[launch_error, lookup_error_response]):
+        with patch("app.provider_cursor._request_json", side_effect=[launch_error, lookup_error_response]):
             # Confirm provider HTTP failures are translated into readable CursorAgentError messages.
             with self.assertRaises(providers.CursorAgentError) as launch_error:
                 providers.launch_cursor_agent(
@@ -87,7 +87,7 @@ class ProviderCursorTests(unittest.TestCase):
                 providers.get_cursor_agent(connected_settings, "agent-1")
             self.assertIn("Invalid Cursor token", str(lookup_error.exception))
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_cursor._request_json", side_effect=URLError("offline")):
             # Confirm transport failures are translated into stable CursorAgentError messages.
             with self.assertRaises(providers.CursorAgentError):
                 providers.launch_cursor_agent(

@@ -47,7 +47,7 @@ class ProviderGapCoverageTests(unittest.TestCase):
                 # Serialize the stored payload into the byte body providers.py expects.
                 return json.dumps(self.payload).encode("utf-8")
 
-        with patch("app.providers.urlopen", return_value=FakeResponse({"ok": True})):
+        with patch("app.provider_common.urlopen", return_value=FakeResponse({"ok": True})):
             # Confirm JSON requests support both caller headers and JSON body payloads.
             self.assertEqual(
                 providers._request_json(
@@ -95,26 +95,26 @@ class ProviderGapCoverageTests(unittest.TestCase):
         # Confirm Linear connectivity fails fast when no API key is configured.
         self.assertFalse(providers.is_linear_connected(get_settings()))
 
-        with patch("app.providers._request_json", return_value={"data": []}):
+        with patch("app.provider_linear._request_json", return_value={"data": []}):
             # Confirm malformed Linear data payloads are rejected.
             self.assertFalse(providers.is_linear_connected(get_settings().__class__(**{**get_settings().__dict__, "linear_api_key": "lin"})))
 
-        with patch("app.providers._request_json", return_value={"data": {"viewer": []}}):
+        with patch("app.provider_linear._request_json", return_value={"data": {"viewer": []}}):
             # Confirm malformed Linear viewer payloads are rejected.
             self.assertFalse(providers.is_linear_connected(get_settings().__class__(**{**get_settings().__dict__, "linear_api_key": "lin"})))
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_linear._request_json", side_effect=URLError("offline")):
             # Confirm Linear connectivity fails safely when the provider cannot be reached.
             self.assertFalse(providers.is_linear_connected(get_settings().__class__(**{**get_settings().__dict__, "linear_api_key": "lin"})))
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_cursor._request_json", side_effect=URLError("offline")):
             # Confirm Cursor connectivity fails safely when the provider cannot be reached.
             self.assertFalse(providers.is_cursor_connected(get_settings().__class__(**{**get_settings().__dict__, "cursor_api_key": "cursor"})))
 
         # Confirm Jira JSON requests short-circuit when credentials are incomplete.
         self.assertIsNone(providers._request_jira_json(get_settings(), path="/myself"))
 
-        with patch("app.providers._request_json", side_effect=HTTPError("https://example.test", 500, "Boom", None, io.BytesIO(b"{}"))):
+        with patch("app.provider_jira._request_json", side_effect=HTTPError("https://example.test", 500, "Boom", None, io.BytesIO(b"{}"))):
             # Confirm Jira JSON requests return no payload when Jira rejects the call.
             self.assertIsNone(
                 providers._request_jira_json(
@@ -133,7 +133,7 @@ class ProviderGapCoverageTests(unittest.TestCase):
         # Confirm Jira transition requests short-circuit when credentials are incomplete.
         self.assertFalse(providers._request_jira_transition_update(get_settings(), issue_id="100", transition_id="1"))
 
-        with patch("app.providers.urlopen", side_effect=URLError("offline")):
+        with patch("app.provider_jira.urlopen", side_effect=URLError("offline")):
             # Confirm Jira transition updates fail safely when the provider request errors.
             self.assertFalse(
                 providers._request_jira_transition_update(
@@ -153,7 +153,7 @@ class ProviderGapCoverageTests(unittest.TestCase):
         # Confirm Linear GraphQL requests short-circuit when no API key is configured.
         self.assertIsNone(providers._request_linear_graphql(get_settings(), query="query Viewer { viewer { id } }"))
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_linear._request_json", side_effect=URLError("offline")):
             # Confirm Linear GraphQL requests fail safely when Linear rejects the request.
             self.assertIsNone(
                 providers._request_linear_graphql(
@@ -200,70 +200,70 @@ class ProviderGapCoverageTests(unittest.TestCase):
         # Confirm invalid Linear update requests are rejected before any provider calls.
         self.assertFalse(providers.update_linear_issue_status(settings, issue_id=" ", status_name="Done"))
 
-        with patch("app.providers._request_linear_graphql", return_value=None):
+        with patch("app.provider_linear._request_linear_graphql", return_value=None):
             # Confirm Linear updates stop when the state catalog cannot be loaded.
             self.assertFalse(providers.update_linear_issue_status(settings, issue_id="issue-1", status_name="Done"))
 
-        with patch("app.providers._request_linear_graphql", return_value={"data": {}}), patch(
-            "app.providers._extract_linear_issue_state_catalog",
+        with patch("app.provider_linear._request_linear_graphql", return_value={"data": {}}), patch(
+            "app.provider_linear._extract_linear_issue_state_catalog",
             return_value=None,
         ):
             # Confirm Linear updates stop when the state catalog cannot be normalized.
             self.assertFalse(providers.update_linear_issue_status(settings, issue_id="issue-1", status_name="Done"))
 
-        with patch("app.providers._request_linear_graphql", return_value={"data": {}}), patch(
-            "app.providers._extract_linear_issue_state_catalog",
+        with patch("app.provider_linear._request_linear_graphql", return_value={"data": {}}), patch(
+            "app.provider_linear._extract_linear_issue_state_catalog",
             return_value={"currentState": {}, "teamStates": []},
         ), patch(
-            "app.providers._find_linear_state_node",
+            "app.provider_linear._find_linear_state_node",
             return_value=None,
         ):
             # Confirm Linear updates stop when the team has no matching target state.
             self.assertFalse(providers.update_linear_issue_status(settings, issue_id="issue-1", status_name="Done"))
 
         with patch(
-            "app.providers._request_linear_graphql",
+            "app.provider_linear._request_linear_graphql",
             side_effect=[
                 {"data": {"issue": {"id": "issue-1"}}},
                 None,
             ],
         ), patch(
-            "app.providers._extract_linear_issue_state_catalog",
+            "app.provider_linear._extract_linear_issue_state_catalog",
             return_value={"currentState": {"id": "current"}, "teamStates": [{"id": "target"}]},
         ), patch(
-            "app.providers._find_linear_state_node",
+            "app.provider_linear._find_linear_state_node",
             return_value={"id": "target"},
         ):
             # Confirm Linear updates stop when the mutation response is missing.
             self.assertFalse(providers.update_linear_issue_status(settings, issue_id="issue-1", status_name="Done"))
 
         with patch(
-            "app.providers._request_linear_graphql",
+            "app.provider_linear._request_linear_graphql",
             side_effect=[
                 {"data": {"issue": {"id": "issue-1"}}},
                 {"data": []},
             ],
         ), patch(
-            "app.providers._extract_linear_issue_state_catalog",
+            "app.provider_linear._extract_linear_issue_state_catalog",
             return_value={"currentState": {"id": "current"}, "teamStates": [{"id": "target"}]},
         ), patch(
-            "app.providers._find_linear_state_node",
+            "app.provider_linear._find_linear_state_node",
             return_value={"id": "target"},
         ):
             # Confirm Linear updates stop when the mutation data envelope is malformed.
             self.assertFalse(providers.update_linear_issue_status(settings, issue_id="issue-1", status_name="Done"))
 
         with patch(
-            "app.providers._request_linear_graphql",
+            "app.provider_linear._request_linear_graphql",
             side_effect=[
                 {"data": {"issue": {"id": "issue-1"}}},
                 {"data": {"issueUpdate": []}},
             ],
         ), patch(
-            "app.providers._extract_linear_issue_state_catalog",
+            "app.provider_linear._extract_linear_issue_state_catalog",
             return_value={"currentState": {"id": "current"}, "teamStates": [{"id": "target"}]},
         ), patch(
-            "app.providers._find_linear_state_node",
+            "app.provider_linear._find_linear_state_node",
             return_value={"id": "target"},
         ):
             # Confirm Linear updates stop when the issueUpdate payload is malformed.
@@ -287,11 +287,11 @@ class ProviderGapCoverageTests(unittest.TestCase):
         )
 
         # Confirm malformed Jira issue payloads return no issues.
-        with patch("app.providers._request_jira_json", return_value={"issues": "bad"}):
+        with patch("app.provider_jira._request_jira_json", return_value={"issues": "bad"}):
             self.assertEqual(providers.list_jira_issues(jira_settings), [])
 
         with patch(
-            "app.providers._request_jira_json",
+            "app.provider_jira._request_jira_json",
             return_value={
                 "issues": [
                     "bad-row",
@@ -316,20 +316,20 @@ class ProviderGapCoverageTests(unittest.TestCase):
         # Confirm invalid Jira update requests are rejected before any provider calls.
         self.assertFalse(providers.update_jira_issue_status(jira_settings, issue_id=" ", status_name="Done"))
 
-        with patch("app.providers._request_jira_json", return_value=None):
+        with patch("app.provider_jira._request_jira_json", return_value=None):
             # Confirm Jira updates stop when the current issue state cannot be loaded.
             self.assertFalse(providers.update_jira_issue_status(jira_settings, issue_id="jira-1", status_name="Done"))
 
-        with patch("app.providers._request_jira_json", return_value={"fields": []}):
+        with patch("app.provider_jira._request_jira_json", return_value={"fields": []}):
             # Confirm Jira updates stop when the fields envelope is malformed.
             self.assertFalse(providers.update_jira_issue_status(jira_settings, issue_id="jira-1", status_name="Done"))
 
-        with patch("app.providers._request_jira_json", return_value={"fields": {"status": []}}):
+        with patch("app.provider_jira._request_jira_json", return_value={"fields": {"status": []}}):
             # Confirm Jira updates stop when the status payload is malformed.
             self.assertFalse(providers.update_jira_issue_status(jira_settings, issue_id="jira-1", status_name="Done"))
 
         with patch(
-            "app.providers._request_jira_json",
+            "app.provider_jira._request_jira_json",
             side_effect=[
                 {"fields": {"status": {"name": "In Progress"}}},
                 None,
@@ -339,7 +339,7 @@ class ProviderGapCoverageTests(unittest.TestCase):
             self.assertFalse(providers.update_jira_issue_status(jira_settings, issue_id="jira-1", status_name="Done"))
 
         with patch(
-            "app.providers._request_jira_json",
+            "app.provider_jira._request_jira_json",
             side_effect=[
                 {"fields": {"status": {"name": "In Progress"}}},
                 {"transitions": "bad"},
@@ -349,33 +349,33 @@ class ProviderGapCoverageTests(unittest.TestCase):
             self.assertFalse(providers.update_jira_issue_status(jira_settings, issue_id="jira-1", status_name="Done"))
 
         with patch(
-            "app.providers._request_jira_json",
+            "app.provider_jira._request_jira_json",
             side_effect=[
                 {"fields": {"status": {"name": "In Progress"}}},
                 {"transitions": [{"id": "1", "name": "Move"}]},
             ],
         ), patch(
-            "app.providers._find_jira_transition",
+            "app.provider_jira._find_jira_transition",
             return_value=None,
         ):
             # Confirm Jira updates stop when there is no matching transition.
             self.assertFalse(providers.update_jira_issue_status(jira_settings, issue_id="jira-1", status_name="Done"))
 
         with patch(
-            "app.providers._request_jira_json",
+            "app.provider_jira._request_jira_json",
             side_effect=[
                 {"fields": {"status": {"name": "In Progress"}}},
                 {"transitions": [{"id": "", "name": "Done"}]},
             ],
         ), patch(
-            "app.providers._find_jira_transition",
+            "app.provider_jira._find_jira_transition",
             return_value={"id": ""},
         ):
             # Confirm Jira updates stop when the matched transition lacks an ID.
             self.assertFalse(providers.update_jira_issue_status(jira_settings, issue_id="jira-1", status_name="Done"))
 
         with patch(
-            "app.providers._request_jira_json",
+            "app.provider_jira._request_jira_json",
             return_value={"fields": {"status": {"name": "Custom Done", "statusCategory": {"name": "Done"}}}},
         ):
             # Confirm Jira updates short-circuit successfully when the status category already matches.
@@ -390,14 +390,14 @@ class ProviderGapCoverageTests(unittest.TestCase):
         )
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_linear._request_json",
             side_effect=[URLError("offline"), URLError("offline"), URLError("offline")],
         ):
             # Confirm team lookup failures fall back to an empty Linear issue list.
             self.assertEqual(providers.list_linear_issues(scoped_linear_settings), [])
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_linear._request_json",
             side_effect=[
                 {"data": {"teams": {"nodes": [{"id": "team-1"}]}}},
                 URLError("offline"),
@@ -407,19 +407,19 @@ class ProviderGapCoverageTests(unittest.TestCase):
             self.assertEqual(providers.list_linear_issues(scoped_linear_settings), [])
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_linear._request_json",
             side_effect=[
                 {"data": {"teams": {"nodes": [{"id": "team-1"}]}}},
                 {"data": {"team": {}}},
             ],
         ), patch(
-            "app.providers._extract_linear_team_issue_nodes",
+            "app.provider_linear._extract_linear_team_issue_nodes",
             return_value=None,
         ):
             # Confirm malformed team-scoped issue payloads fall back to an empty Linear issue list.
             self.assertEqual(providers.list_linear_issues(scoped_linear_settings), [])
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_linear._request_json", side_effect=URLError("offline")):
             # Confirm unscoped issue fetch failures fall back to an empty Linear issue list.
             self.assertEqual(
                 providers.list_linear_issues(
@@ -450,7 +450,7 @@ class ProviderGapCoverageTests(unittest.TestCase):
         )
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_github._request_json",
             side_effect=[
                 HTTPError("https://example.test/repo-one", 404, "Not Found", None, io.BytesIO(b"{}")),
                 {"id": "2", "name": "repo-two", "full_name": "acme/repo-two", "html_url": "https://github.com/acme/repo-two"},
@@ -465,7 +465,7 @@ class ProviderGapCoverageTests(unittest.TestCase):
 
         # Confirm invalid GitHub contents payloads decode to an empty string.
         self.assertEqual(providers._decode_github_contents_body({"encoding": "plain", "content": "text"}), "")
-        with patch("app.providers.base64.b64decode", side_effect=ValueError("bad-base64")):
+        with patch("app.provider_openai.base64.b64decode", side_effect=ValueError("bad-base64")):
             # Confirm malformed base64 payloads are swallowed during GitHub content decoding.
             self.assertEqual(providers._decode_github_contents_body({"encoding": "base64", "content": "!!!"}), "")
 
@@ -475,7 +475,7 @@ class ProviderGapCoverageTests(unittest.TestCase):
             [],
         )
 
-        with patch("app.providers._fetch_github_json_body", side_effect=URLError("offline")):
+        with patch("app.provider_openai._fetch_github_json_body", side_effect=URLError("offline")):
             self.assertEqual(
                 providers._list_github_markdown_paths(
                     "https://api.github.com/repos/acme/repo",
@@ -487,7 +487,7 @@ class ProviderGapCoverageTests(unittest.TestCase):
             )
 
         with patch(
-            "app.providers._fetch_github_json_body",
+            "app.provider_openai._fetch_github_json_body",
             return_value={"path": "docs/README.md", "type": "file"},
         ):
             # Confirm single-file GitHub listings are still treated as markdown candidates.
@@ -502,7 +502,7 @@ class ProviderGapCoverageTests(unittest.TestCase):
             )
 
         with patch(
-            "app.providers._fetch_github_json_body",
+            "app.provider_openai._fetch_github_json_body",
             return_value=["bad-entry", {"type": "file", "path": ""}, {"type": "file", "path": "docs/guide.md"}],
         ):
             # Confirm malformed GitHub directory entries are ignored during traversal.
@@ -517,7 +517,7 @@ class ProviderGapCoverageTests(unittest.TestCase):
             )
 
         with patch(
-            "app.providers._fetch_github_json_body",
+            "app.provider_openai._fetch_github_json_body",
             return_value=[
                 {"type": "file", "path": "docs/one.md"},
                 {"type": "file", "path": "docs/two.md"},
@@ -546,13 +546,13 @@ class ProviderGapCoverageTests(unittest.TestCase):
         encoded_doc = base64.b64encode(b"Guide text").decode("utf-8")
 
         with patch(
-            "app.providers._fetch_github_json_body",
+            "app.provider_openai._fetch_github_json_body",
             side_effect=[
                 HTTPError("https://example.test/readme", 404, "Not Found", None, io.BytesIO(b"{}")),
                 {"encoding": "base64", "content": encoded_doc},
             ],
         ), patch(
-            "app.providers._list_github_markdown_paths",
+            "app.provider_openai._list_github_markdown_paths",
             return_value=["docs/guide.md"],
         ):
             # Confirm missing READMEs do not block remote doc context collection.
@@ -560,13 +560,13 @@ class ProviderGapCoverageTests(unittest.TestCase):
         self.assertIn("repo/docs/guide.md", remote_context)
 
         with patch(
-            "app.providers._fetch_github_json_body",
+            "app.provider_openai._fetch_github_json_body",
             side_effect=[
                 HTTPError("https://example.test/readme", 404, "Not Found", None, io.BytesIO(b"{}")),
                 {"encoding": "base64", "content": encoded_doc},
             ],
         ), patch(
-            "app.providers._list_github_markdown_paths",
+            "app.provider_openai._list_github_markdown_paths",
             return_value=["docs/guide.md", "docs/extra.md"],
         ):
             # Confirm remote doc collection stops once the requested max-doc budget has been reached.
@@ -574,12 +574,12 @@ class ProviderGapCoverageTests(unittest.TestCase):
         self.assertEqual(bounded_remote_context.count("### "), 1)
 
         with patch(
-            "app.providers._fetch_github_json_body",
+            "app.provider_openai._fetch_github_json_body",
             side_effect=[
                 {"path": "README.md", "encoding": "base64", "content": encoded_readme},
             ],
         ), patch(
-            "app.providers._list_github_markdown_paths",
+            "app.provider_openai._list_github_markdown_paths",
             return_value=["docs/one.md", "docs/two.md"],
         ):
             # Confirm the file loop respects the max-doc budget even if the listing overshoots it.
@@ -587,13 +587,13 @@ class ProviderGapCoverageTests(unittest.TestCase):
         self.assertEqual(budgeted_context.count("### "), 1)
 
         with patch(
-            "app.providers._fetch_github_json_body",
+            "app.provider_openai._fetch_github_json_body",
             side_effect=[
                 {"path": "README.md", "encoding": "base64", "content": encoded_readme},
                 HTTPError("https://example.test/docs/guide.md", 500, "Boom", None, io.BytesIO(b"{}")),
             ],
         ), patch(
-            "app.providers._list_github_markdown_paths",
+            "app.provider_openai._list_github_markdown_paths",
             return_value=["docs/guide.md"],
         ):
             # Confirm unreadable remote files are skipped without failing the whole context build.
@@ -601,13 +601,13 @@ class ProviderGapCoverageTests(unittest.TestCase):
         self.assertIn("repo/README.md", skip_error_context)
 
         with patch(
-            "app.providers._fetch_github_json_body",
+            "app.provider_openai._fetch_github_json_body",
             side_effect=[
                 {"path": "README.md", "encoding": "base64", "content": encoded_readme},
                 ["bad-payload"],
             ],
         ), patch(
-            "app.providers._list_github_markdown_paths",
+            "app.provider_openai._list_github_markdown_paths",
             return_value=["docs/guide.md"],
         ):
             # Confirm non-dict file payloads are ignored during remote doc collection.
@@ -615,13 +615,13 @@ class ProviderGapCoverageTests(unittest.TestCase):
         self.assertIn("repo/README.md", non_dict_context)
 
         with patch(
-            "app.providers._fetch_github_json_body",
+            "app.provider_openai._fetch_github_json_body",
             side_effect=[
                 {"path": "README.md", "encoding": "base64", "content": encoded_readme},
                 {"encoding": "base64", "content": base64.b64encode(b"").decode("utf-8")},
             ],
         ), patch(
-            "app.providers._list_github_markdown_paths",
+            "app.provider_openai._list_github_markdown_paths",
             return_value=["docs/empty.md"],
         ):
             # Confirm empty remote file bodies are ignored during context collection.
@@ -643,10 +643,10 @@ class ProviderGapCoverageTests(unittest.TestCase):
             guide_path.write_text("# Guide", encoding="utf-8")
 
             with patch(
-                "app.providers._read_doc_excerpt",
+                "app.provider_openai._read_doc_excerpt",
                 side_effect=["", "Guide body"],
             ), patch(
-                "app.providers.Path.relative_to",
+                "app.provider_openai.Path.relative_to",
                 side_effect=ValueError("outside docs parent"),
             ):
                 # Confirm empty local excerpts are skipped and relative-path fallbacks use the filename.

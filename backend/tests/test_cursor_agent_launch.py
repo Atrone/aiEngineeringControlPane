@@ -54,7 +54,7 @@ class CursorAgentLaunchTests(unittest.TestCase):
         session_token = self._sign_in()
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_cursor._request_json",
             return_value={"apiKeyName": "Test Key", "userEmail": "developer@example.com"},
         ):
             # Save the Cursor connection for the current session.
@@ -166,7 +166,13 @@ class CursorAgentLaunchTests(unittest.TestCase):
             # Fail fast when the backend reaches for an unexpected provider request.
             raise AssertionError(f"Unexpected provider request: {method} {url}")
 
-        with patch("app.providers._request_json", side_effect=mock_provider_request):
+        with patch("app.provider_cursor._request_json", side_effect=mock_provider_request), patch(
+            "app.provider_github._request_json",
+            side_effect=mock_provider_request,
+        ), patch(
+            "app.provider_linear._request_json",
+            side_effect=mock_provider_request,
+        ):
             # Create a task that is linked to the mocked Linear issue.
             task_response = self.client.post(
                 "/api/tasks",

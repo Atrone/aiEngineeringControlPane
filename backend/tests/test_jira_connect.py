@@ -92,7 +92,7 @@ class JiraConnectEndpointTests(unittest.TestCase):
             # Fail fast when the backend reaches for an unexpected Jira request.
             raise AssertionError(f"Unexpected Jira request: {method} {url}")
 
-        with patch("app.providers._request_json", side_effect=mock_jira_request):
+        with patch("app.provider_jira._request_json", side_effect=mock_jira_request):
             # Save the Jira connection using values copied from the Cloud UI.
             response = self.client.post(
                 "/api/integrations/jira/connect",
@@ -153,7 +153,7 @@ class JiraConnectEndpointTests(unittest.TestCase):
             # Fail fast when the backend reaches for an unexpected Jira request.
             raise AssertionError(f"Unexpected Jira request: {method} {url}")
 
-        with patch("app.providers._request_json", side_effect=mock_jira_request):
+        with patch("app.provider_jira._request_json", side_effect=mock_jira_request):
             # Save a lower-case project key so the backend must normalize it for JQL.
             response = self.client.post(
                 "/api/integrations/jira/connect",

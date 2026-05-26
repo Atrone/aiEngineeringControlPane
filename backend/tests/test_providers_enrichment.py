@@ -131,10 +131,10 @@ class ProviderEnrichmentTests(unittest.TestCase):
         )
 
         with patch(
-            "app.providers._fetch_remote_repo_doc_context",
+            "app.provider_openai._fetch_remote_repo_doc_context",
             return_value="### README.md\nDocs",
         ) as mock_remote_docs, patch(
-            "app.providers._request_json",
+            "app.provider_openai._request_json",
             return_value={"choices": [{"message": {"content": "Refined prompt"}}]},
         ):
             # Confirm intake enrichment returns the refined value and docs metadata.
@@ -160,8 +160,8 @@ class ProviderEnrichmentTests(unittest.TestCase):
             self.assertTrue(enrichment_result["docsConsidered"])
             mock_remote_docs.assert_not_called()
 
-        with patch("app.providers._collect_doc_context", return_value="### README.md\nDocs"), patch(
-            "app.providers._request_json",
+        with patch("app.provider_openai._collect_doc_context", return_value="### README.md\nDocs"), patch(
+            "app.provider_openai._request_json",
             return_value={"choices": [{"message": {"content": '{"repoName":"platform-web","confidence":0.8,"reasoning":"Best fit"}'}}]},
         ):
             # Confirm repository identification returns the chosen repo plus model metadata.
@@ -174,7 +174,7 @@ class ProviderEnrichmentTests(unittest.TestCase):
             self.assertTrue(identification_result["docsConsidered"])
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_openai._request_json",
             return_value={"choices": [{"message": {"content": '{"suggestedActions":["Review the blocked run."]}'}}]},
         ):
             # Confirm dashboard suggestions return the parsed suggestion list and run count.
@@ -183,7 +183,7 @@ class ProviderEnrichmentTests(unittest.TestCase):
             self.assertEqual(suggestions_result["runCount"], 1)
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_openai._request_json",
             return_value={"choices": [{"message": {"content": '{"reviewEfforts":[{"runId":"run-1","effortMinutes":18,"confidence":0.8,"rationale":"Small PR summary."}]}'}}]},
         ):
             # Confirm review-effort estimation returns parsed estimates and run count.
@@ -228,8 +228,8 @@ class ProviderEnrichmentTests(unittest.TestCase):
             fp=io.BytesIO(b"bad request body"),
         )
 
-        with patch("app.providers._fetch_remote_repo_doc_context", return_value=""), patch(
-            "app.providers._request_json",
+        with patch("app.provider_openai._fetch_remote_repo_doc_context", return_value=""), patch(
+            "app.provider_openai._request_json",
             side_effect=http_error,
         ):
             # Confirm upstream OpenAI HTTP failures are translated into readable enrichment errors.
@@ -245,7 +245,7 @@ class ProviderEnrichmentTests(unittest.TestCase):
                     execution_mode="implement",
                 )
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_openai._request_json", side_effect=URLError("offline")):
             # Confirm transport-level OpenAI failures are translated into readable errors.
             with self.assertRaises(providers.OpenAIEnrichmentError):
                 providers.suggest_next_actions_for_runs(settings, runs=[{"ticket": "ACP-1"}])

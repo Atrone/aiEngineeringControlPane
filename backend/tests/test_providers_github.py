@@ -22,7 +22,7 @@ class ProviderGitHubTests(unittest.TestCase):
         )
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_github._request_json",
             return_value={
                 "id": 101,
                 "name": "platform-web",
@@ -37,7 +37,7 @@ class ProviderGitHubTests(unittest.TestCase):
             self.assertEqual(repositories[0]["fullName"], "acme/platform-web")
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_github._request_json",
             return_value={"state": "open", "merged": False, "html_url": "https://github.com/acme/platform-web/pull/42"},
         ):
             # Confirm raw PR fetches return the provider payload when GitHub responds.
@@ -45,7 +45,7 @@ class ProviderGitHubTests(unittest.TestCase):
             self.assertEqual(pr_payload["state"], "open")
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_github._request_json",
             return_value=[
                 {"state": "APPROVED", "submitted_at": "2026-04-24T11:59:00Z", "user": {"login": "first"}},
                 {"state": "APPROVED", "submitted_at": "2026-04-24T12:00:00Z", "user": {"login": "latest"}},
@@ -56,7 +56,7 @@ class ProviderGitHubTests(unittest.TestCase):
             self.assertEqual(providers._extract_latest_approved_review(reviews)["user"]["login"], "latest")
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_github._request_json",
             return_value=[{"created_at": "2026-04-24T12:01:00Z", "user": {"login": "commenter"}}],
         ):
             # Confirm PR conversation comments are normalized for review activity detection.
@@ -64,7 +64,7 @@ class ProviderGitHubTests(unittest.TestCase):
             self.assertEqual(comments[0]["user"]["login"], "commenter")
 
         with patch(
-            "app.providers._fetch_github_pull_request_payload",
+            "app.provider_github._fetch_github_pull_request_payload",
             return_value={
                 "state": "open",
                 "merged": False,
@@ -73,10 +73,10 @@ class ProviderGitHubTests(unittest.TestCase):
                 "html_url": "https://github.com/acme/platform-web/pull/42",
             },
         ), patch(
-            "app.providers._fetch_github_pull_request_reviews",
+            "app.provider_github._fetch_github_pull_request_reviews",
             return_value=[{"state": "APPROVED", "submitted_at": "2026-04-24T12:00:00Z", "user": {"login": "reviewer"}}],
         ), patch(
-            "app.providers._fetch_github_pull_request_comments",
+            "app.provider_github._fetch_github_pull_request_comments",
             return_value=[],
         ):
             # Confirm PR status normalization folds merge/review data into the app's PR model.
@@ -90,7 +90,7 @@ class ProviderGitHubTests(unittest.TestCase):
             self.assertEqual(pr_status["body"], "Shows PR content in the lobby.")
 
         with patch(
-            "app.providers._fetch_github_pull_request_payload",
+            "app.provider_github._fetch_github_pull_request_payload",
             return_value={
                 "state": "open",
                 "merged": False,
@@ -99,10 +99,10 @@ class ProviderGitHubTests(unittest.TestCase):
                 "html_url": "https://github.com/acme/platform-web/pull/42",
             },
         ), patch(
-            "app.providers._fetch_github_pull_request_reviews",
+            "app.provider_github._fetch_github_pull_request_reviews",
             return_value=[],
         ), patch(
-            "app.providers._fetch_github_pull_request_comments",
+            "app.provider_github._fetch_github_pull_request_comments",
             return_value=[{"created_at": "2026-04-24T12:01:00Z", "user": {"login": "commenter"}}],
         ):
             # Confirm PR comments mark the pull request review as in progress before approval.
@@ -143,26 +143,26 @@ class ProviderGitHubTests(unittest.TestCase):
             google_redirect_uri="http://localhost/callback",
         )
 
-        with patch("app.providers.list_github_repositories", return_value=[{"name": "platform-web"}]), patch(
-            "app.providers.is_linear_connected",
+        with patch("app.provider_identity.list_github_repositories", return_value=[{"name": "platform-web"}]), patch(
+            "app.provider_identity.is_linear_connected",
             return_value=True,
         ), patch(
-            "app.providers.is_jira_connected",
+            "app.provider_identity.is_jira_connected",
             return_value=True,
         ), patch(
-            "app.providers.is_cursor_connected",
+            "app.provider_identity.is_cursor_connected",
             return_value=True,
         ), patch(
-            "app.providers.is_github_copilot_connected",
+            "app.provider_identity.is_github_copilot_connected",
             return_value=True,
         ), patch(
-            "app.providers.list_linear_issues",
+            "app.provider_identity.list_linear_issues",
             return_value=[{"id": "linear-1"}],
         ), patch(
-            "app.providers.list_jira_issues",
+            "app.provider_identity.list_jira_issues",
             return_value=[{"id": "jira-1"}],
         ), patch(
-            "app.providers._utc_timestamp",
+            "app.provider_identity._utc_timestamp",
             return_value="2026-04-24T12:00:00+00:00",
         ):
             # Confirm integration summaries reflect the current live/mocked provider state.

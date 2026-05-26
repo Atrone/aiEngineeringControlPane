@@ -1,4 +1,4 @@
-"""In-memory application state that mixes live integrations with safe fallbacks."""
+"""In-memory run store and API payload facade for state-related helpers."""
 
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -11,909 +11,133 @@ from fastapi import status
 from app.config import Settings
 from app.mock_data import POLICY_RULES
 from app.mock_data import RUN_SUMMARIES
-from app.providers import CursorAgentError
-from app.providers import fetch_github_pull_request_status
-from app.providers import get_cursor_agent
-from app.providers import get_integration_statuses
-from app.providers import GitHubCopilotAgentError
-from app.providers import launch_github_copilot_agent
-from app.providers import launch_cursor_agent
-from app.providers import list_github_repositories
-from app.providers import list_jira_issues
-from app.providers import list_linear_issues
-from app.providers import list_repo_documents
-from app.providers import parse_github_pull_request_url
-from app.providers import resolve_current_user
-from app.providers import summarize_repository_names
-from app.providers import update_jira_issue_status
-from app.providers import update_linear_issue_status
+from app.provider_cursor import CursorAgentError
+from app.provider_cursor import get_cursor_agent
+from app.provider_cursor import launch_cursor_agent
+from app.provider_docs import list_repo_documents
+from app.provider_github import fetch_github_pull_request_status
+from app.provider_github import list_github_repositories
+from app.provider_github import parse_github_pull_request_url
+from app.provider_github import summarize_repository_names
+from app.provider_github_copilot import GitHubCopilotAgentError
+from app.provider_github_copilot import launch_github_copilot_agent
+from app.provider_identity import get_integration_statuses
+from app.provider_identity import resolve_current_user
+from app.provider_jira import list_jira_issues
+from app.provider_jira import update_jira_issue_status
+from app.provider_linear import list_linear_issues
+from app.provider_linear import update_linear_issue_status
+
+from app import state_catalog
+from app.state_cloud_agents import _extract_cloud_agent_target
+from app.state_cloud_agents import _map_cursor_agent_status
+from app.state_cloud_agents import _merge_cloud_agent_update
+from app.state_live_views import _build_cursor_cloud_live_view
+from app.state_live_views import _build_evidence_entries
+from app.state_live_views import _build_github_copilot_live_view
+from app.state_live_views import _build_live_view
+from app.state_live_views import _build_static_live_view
+from app.state_live_views import _build_static_logs
+from app.state_live_views import _build_static_timeline
+from app.state_live_views import _build_stream_live_view
+from app.state_live_views import _build_stream_plan
+from app.state_prompt import _build_cursor_docs_block
+from app.state_prompt import _build_cursor_issue_block
+from app.state_prompt import _build_cursor_prompt
+from app.state_pull_requests import GITHUB_APPROVAL_ACTOR
+from app.state_pull_requests import JIRA_STATUS_DONE
+from app.state_pull_requests import JIRA_STATUS_IN_PROGRESS
+from app.state_pull_requests import LINEAR_STATUS_DONE
+from app.state_pull_requests import LINEAR_STATUS_IN_PROGRESS
+from app.state_pull_requests import SIMULATED_PR_MERGE_DELAY_SECONDS
+from app.state_pull_requests import _append_pull_request_event
+from app.state_pull_requests import _approval_history_has_entry
+from app.state_pull_requests import _build_pull_request_view
+from app.state_pull_requests import _build_traceability_snapshot
+from app.state_pull_requests import _clear_issue_tracker_sync_state
+from app.state_pull_requests import _is_real_github_pull_request_url
+from app.state_pull_requests import _resolve_pull_request_state
+from app.state_pull_requests import _resolve_pull_request_url
+from app.state_pull_requests import _simulated_pull_request_state
+from app.state_pull_requests import _sync_issue_tracker_status_from_pr
+from app.state_pull_requests import _sync_jira_issue_status_from_pr
+from app.state_pull_requests import _sync_linear_issue_status_from_pr
+from app.state_pull_requests import _sync_pull_request_status
+from app.state_run_progress import _sync_run_progress
+from app.state_run_mutations import apply_common_run_start
+from app.state_run_mutations import build_issue_snapshot
+from app.state_run_mutations import clear_previous_launch_metadata
+from app.state_run_views import enrich_run_for_catalog
+from app.state_run_views import enrich_runs_for_catalog
+from app.state_run_views import index_runs_by_id
+from app.state_time import STREAM_STEP_SECONDS
+from app.state_time import _build_static_timepoints
+from app.state_time import _build_step_timestamp
+from app.state_time import _format_cursor_agent_runtime
+from app.state_time import _format_runtime
+from app.state_time import _parse_runtime_seconds
+from app.state_time import _parse_timestamp
+from app.state_time import _utc_now
+from app.state_time import _utc_timestamp
 
 
 RUN_STORE: List[Dict[str, Any]] = deepcopy(RUN_SUMMARIES)
-STREAM_STEP_SECONDS = 4
-# Seconds between reviewer approval and the simulated GitHub PR merge event.
-SIMULATED_PR_MERGE_DELAY_SECONDS = 12
-# Actor payload used when a GitHub webhook-like event is synthesized in the approval history.
-GITHUB_APPROVAL_ACTOR: Dict[str, str] = {
-    "name": "GitHub",
-    "email": "noreply@github.com",
-    "role": "admin",
-    "provider": "github",
-}
-LINEAR_STATUS_IN_PROGRESS = "In Progress"
-LINEAR_STATUS_DONE = "Done"
-JIRA_STATUS_IN_PROGRESS = "In Progress"
-JIRA_STATUS_DONE = "Done"
 
 
 def _normalize_team_id(team_id: str) -> str:
     """Normalizes a team identifier used for run-lobby isolation."""
 
-    normalized_team_id = str(team_id or "").strip().lower()
-
-    if normalized_team_id:
-        # Return the caller-provided team id in canonical lowercase form.
-        return normalized_team_id
-
-    # Fall back to the legacy single-user team key for backwards compatibility.
-    return "default-team"
+    # Delegate team-id normalization to the catalog helper module.
+    return state_catalog.normalize_team_id(team_id)
 
 
 def _resolve_team_id_from_headers(headers: Mapping[str, str]) -> str:
     """Resolves the active team id from normalized request headers."""
 
-    # Prefer the explicit team header attached by authenticated session middleware.
-    return _normalize_team_id(str(headers.get("x-demo-team-id", "")))
+    # Delegate request header parsing to the catalog helper module.
+    return state_catalog.resolve_team_id_from_headers(headers)
 
 
 def _run_belongs_to_team(run: Mapping[str, Any], team_id: str) -> bool:
     """Reports whether the run belongs to the requested team."""
 
-    # Compare the run's stored team id with the active request team id.
-    return _normalize_team_id(str(run.get("_teamId", ""))) == _normalize_team_id(team_id)
+    # Delegate team membership checks to the catalog helper module.
+    return state_catalog.run_belongs_to_team(run, team_id)
 
 
 def _list_team_runs(team_id: str) -> List[Dict[str, Any]]:
     """Returns all in-memory runs visible to the requested team."""
 
-    visible_runs: List[Dict[str, Any]] = []
-
-    # Keep only runs whose stored team id matches the active team scope.
-    for run in RUN_STORE:
-        if _run_belongs_to_team(run, team_id):
-            visible_runs.append(run)
-
-    # Return the team-scoped run list while preserving insertion order.
-    return visible_runs
-
-
-def _utc_now() -> datetime:
-    """Returns the current UTC time used for live run simulation."""
-
-    # Use a timezone-aware clock so generated timeline timestamps stay consistent.
-    return datetime.now(timezone.utc)
-
-
-def _utc_timestamp() -> str:
-    """Builds an ISO timestamp for generated task and approval records."""
-
-    # Return a consistent UTC timestamp for in-memory audit events.
-    return _utc_now().isoformat()
-
-
-def _parse_timestamp(value: Optional[str]) -> datetime:
-    """Parses an ISO timestamp into a timezone-aware UTC datetime."""
-
-    if not value:
-        # Fall back to the current UTC time when no timestamp is present.
-        return _utc_now()
-
-    normalized_value = value.replace("Z", "+00:00")
-
-    try:
-        parsed_timestamp = datetime.fromisoformat(normalized_value)
-    except ValueError:
-        # Fall back to the current UTC time when the stored value is malformed.
-        return _utc_now()
-
-    if parsed_timestamp.tzinfo is None:
-        # Attach UTC when the stored timestamp did not preserve timezone info.
-        return parsed_timestamp.replace(tzinfo=timezone.utc)
-
-    # Normalize all parsed timestamps back into UTC.
-    return parsed_timestamp.astimezone(timezone.utc)
-
-
-def _parse_runtime_seconds(runtime_value: str) -> int:
-    """Converts an mm:ss runtime string into total seconds."""
-
-    minute_text, separator, second_text = runtime_value.partition(":")
-
-    if not separator:
-        # Fall back to zero seconds when the runtime does not follow the expected format.
-        return 0
-
-    try:
-        # Convert the minute and second fragments into a single second count.
-        return max(0, (int(minute_text) * 60) + int(second_text))
-    except ValueError:
-        # Fall back to zero seconds when the runtime fragments are not numeric.
-        return 0
-
-
-def _format_runtime(total_seconds: int) -> str:
-    """Formats a total second count as an mm:ss string."""
-
-    normalized_seconds = max(0, total_seconds)
-    minutes, seconds = divmod(normalized_seconds, 60)
-
-    # Return a consistent mm:ss runtime string for the frontend display.
-    return f"{minutes:02d}:{seconds:02d}"
-
-
-def _format_cursor_agent_runtime(agent: Mapping[str, Any], *, require_nonzero: bool) -> str:
-    """Formats the elapsed runtime for a Cursor Cloud Agent payload."""
-
-    # Parse the provider creation timestamp so Cursor-backed runs get a live runtime.
-    created_at = _parse_timestamp(str(agent.get("createdAt", "")))
-    elapsed_seconds = max(0, int((_utc_now() - created_at).total_seconds()))
-
-    if require_nonzero:
-        # Finished review handoffs should not display as a zero-second review runtime.
-        elapsed_seconds = max(1, elapsed_seconds)
-
-    # Return the shared mm:ss display string used by dashboard and run-room views.
-    return _format_runtime(elapsed_seconds)
-
-
-def _build_step_timestamp(started_at: datetime, offset_seconds: int) -> str:
-    """Builds an ISO timestamp for a simulated run step."""
-
-    # Offset the run start time so every timeline entry has a concrete timestamp.
-    return (started_at + timedelta(seconds=offset_seconds)).isoformat()
-
-
-def _build_static_timepoints(runtime_value: str, count: int) -> List[str]:
-    """Builds evenly spaced ISO timestamps for a non-streaming run view."""
-
-    total_items = max(1, count)
-    total_seconds = max(total_items - 1, _parse_runtime_seconds(runtime_value))
-    started_at = _utc_now() - timedelta(seconds=total_seconds)
-    step_span = total_seconds / max(1, total_items - 1)
-    timepoints: List[str] = []
-
-    # Spread timestamps across the recorded runtime so static views still feel chronological.
-    for index in range(total_items):
-        timepoints.append(_build_step_timestamp(started_at, int(round(index * step_span))))
-
-    # Return the generated timestamp list for the caller.
-    return timepoints
-
-
-def _build_stream_plan(run: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Builds the simulated streaming plan for a live run."""
-
-    evidence = run.get("evidence", {})
-    diff_items = list(evidence.get("diff", []))
-    test_items = list(evidence.get("tests", []))
-    rationale_items = list(evidence.get("rationale", []))
-    first_diff = diff_items[0] if diff_items else "Prepared the first implementation pass for the requested scope."
-    first_test = test_items[0] if test_items else "Queued validation after the code edit step."
-    first_rationale = rationale_items[0] if rationale_items else "The run is building a review package with evidence attached."
-    execution_mode = str(run.get("_executionMode", "implement"))
-    agent_name = str(run.get("agent", "impl-agent"))
-    repo_name = str(run.get("repo", "repo"))
-    branch_name = str(run.get("branch", "ai/generated"))
-
-    # Return the ordered step plan used to simulate a live agent run.
-    return [
-        {
-            "id": "accepted",
-            "offsetSeconds": 0,
-            "title": "Task accepted",
-            "detail": f"{agent_name} picked up {run['ticket']} in {execution_mode} mode.",
-            "currentStep": "Loading task context",
-            "logs": [
-                {"level": "info", "source": "orchestrator", "message": f"Queued {run['ticket']} for {agent_name}."},
-                {"level": "info", "source": "agent", "message": f"Loading repository context for {repo_name} on {branch_name}."},
-            ],
-            "evidence": {
-                "rationale": [
-                    {
-                        "summary": "Scoped the live run",
-                        "detail": f"Execution mode {execution_mode} was selected for {repo_name}.",
-                    },
-                ],
-            },
-        },
-        {
-            "id": "plan",
-            "offsetSeconds": STREAM_STEP_SECONDS,
-            "title": "Plan generated",
-            "detail": "Agent reviewed the task context and drafted an implementation approach.",
-            "currentStep": "Drafting plan and selecting files",
-            "logs": [
-                {"level": "info", "source": "agent", "message": "Summarized acceptance criteria and matched nearby files."},
-                {"level": "info", "source": "planner", "message": "Prepared an execution plan with diff, validation, and review milestones."},
-            ],
-            "evidence": {
-                "rationale": [
-                    {
-                        "summary": "Planning rationale captured",
-                        "detail": first_rationale,
-                    },
-                ],
-            },
-        },
-        {
-            "id": "edit",
-            "offsetSeconds": STREAM_STEP_SECONDS * 2,
-            "title": "Files edited",
-            "detail": "Implementation changes were written to the working tree.",
-            "currentStep": "Editing files and collecting diff evidence",
-            "logs": [
-                {"level": "info", "source": "agent", "message": "Applied the first code change set to the target branch."},
-                {"level": "success", "source": "git", "message": "Working tree updated without policy violations."},
-            ],
-            "evidence": {
-                "diff": [
-                    {
-                        "summary": "Working diff captured",
-                        "detail": first_diff,
-                    },
-                ],
-            },
-        },
-        {
-            "id": "tests",
-            "offsetSeconds": STREAM_STEP_SECONDS * 3,
-            "title": "Validation running",
-            "detail": "The agent started validation and is collecting proof for reviewer handoff.",
-            "currentStep": "Running validation and summarizing evidence",
-            "logs": [
-                {"level": "info", "source": "runner", "message": "Started the validation command group for the current changes."},
-                {"level": "success", "source": "runner", "message": first_test},
-            ],
-            "evidence": {
-                "tests": [
-                    {
-                        "summary": "Validation evidence captured",
-                        "detail": first_test,
-                    },
-                ],
-            },
-        },
-        {
-            "id": "handoff",
-            "offsetSeconds": STREAM_STEP_SECONDS * 4,
-            "title": "Review package ready",
-            "detail": "The run finished streaming and is ready for human review.",
-            "currentStep": "Review package ready",
-            "logs": [
-                {"level": "success", "source": "agent", "message": "Review bundle assembled with diff, tests, and rationale tabs."},
-                {"level": "info", "source": "orchestrator", "message": "Streaming paused while awaiting a reviewer decision."},
-            ],
-            "evidence": {
-                "rationale": [
-                    {
-                        "summary": "Reviewer handoff prepared",
-                        "detail": "The agent packaged the run timeline, streamed logs, and evidence for approval.",
-                    },
-                ],
-            },
-        },
-    ]
-
-
-def _build_evidence_entries(
-    items: List[str],
-    *,
-    tab_name: str,
-    runtime_value: str,
-    status: str,
-) -> List[Dict[str, str]]:
-    """Builds timestamped evidence entries for a static run."""
-
-    entries: List[Dict[str, str]] = []
-    timepoints = _build_static_timepoints(runtime_value, max(1, len(items)))
-
-    # Convert each plain evidence string into a richer entry used by the tabbed UI.
-    for index, item in enumerate(items):
-        entries.append(
-            {
-                "id": f"{tab_name}-{index}",
-                "timestamp": timepoints[index],
-                "summary": f"{tab_name.title()} evidence {index + 1}",
-                "detail": item,
-                "status": status,
-            }
-        )
-
-    # Return the evidence entry list for the requested tab.
-    return entries
-
-
-def _build_static_timeline(run: Dict[str, Any]) -> List[Dict[str, str]]:
-    """Builds a completed timeline for a non-streaming run."""
-
-    evidence = run.get("evidence", {})
-    rationale_items = list(evidence.get("rationale", []))
-    diff_items = list(evidence.get("diff", []))
-    test_items = list(evidence.get("tests", []))
-    timeline_templates = [
-        {
-            "id": "created",
-            "title": "Task created",
-            "detail": "Issue, repository, and policy context were attached to the run.",
-        },
-        {
-            "id": "plan",
-            "title": "Plan generated",
-            "detail": rationale_items[0] if rationale_items else "The agent planned the requested change.",
-        },
-        {
-            "id": "edit",
-            "title": "Files edited",
-            "detail": diff_items[0] if diff_items else "Code changes were prepared for review.",
-        },
-        {
-            "id": "validate",
-            "title": "Validation completed" if run["status"] in {"Review", "Merged"} else "Validation attempted",
-            "detail": test_items[0] if test_items else str(run["currentStep"]),
-        },
-        {
-            "id": "final",
-            "title": "Merged"
-            if run["status"] == "Merged"
-            else "Approved - awaiting merge"
-            if run["status"] == "Approved"
-            else "Run blocked"
-            if run["status"] == "Blocked"
-            else "Retry prepared"
-            if run["status"] == "Retry"
-            else "Review package ready",
-            "detail": str(run["currentStep"]),
-        },
-    ]
-    timepoints = _build_static_timepoints(str(run.get("runtime", "00:00")), len(timeline_templates))
-    timeline_entries: List[Dict[str, str]] = []
-
-    # Pair each static run step with a timestamp so the execution history still reads chronologically.
-    for index, template in enumerate(timeline_templates):
-        timeline_entries.append(
-            {
-                "id": template["id"],
-                "title": template["title"],
-                "detail": template["detail"],
-                "timestamp": timepoints[index],
-                "status": "complete",
-            }
-        )
-
-    # Return the completed timeline for the run.
-    return timeline_entries
-
-
-def _build_static_logs(run: Dict[str, Any]) -> List[Dict[str, str]]:
-    """Builds the log stream for a non-streaming run."""
-
-    log_entries: List[Dict[str, str]] = []
-    commands = list(run.get("evidence", {}).get("commands", []))
-    timepoints = _build_static_timepoints(str(run.get("runtime", "00:00")), max(2, len(commands) + 2))
-    status_level = "warning" if run["status"] in {"Blocked", "Retry"} else "success"
-
-    log_entries.append(
-        {
-            "id": "static-log-start",
-            "timestamp": timepoints[0],
-            "level": "info",
-            "source": "orchestrator",
-            "message": f"Loaded run summary for {run['ticket']} in {run['repo']}.",
-        }
-    )
-
-    # Convert recorded commands into readable log lines for the execution stream panel.
-    for index, command in enumerate(commands):
-        log_entries.append(
-            {
-                "id": f"static-log-command-{index}",
-                "timestamp": timepoints[min(index + 1, len(timepoints) - 1)],
-                "level": "info",
-                "source": "runner",
-                "message": f"Executed: {command}",
-            }
-        )
-
-    log_entries.append(
-        {
-            "id": "static-log-finish",
-            "timestamp": timepoints[-1],
-            "level": status_level,
-            "source": "agent",
-            "message": str(run["currentStep"]),
-        }
-    )
-
-    # Return the static log stream for the task detail view.
-    return log_entries
-
-
-def _build_stream_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
-    """Builds the live timeline, log stream, and evidence tabs for a streaming run."""
-
-    started_at = _parse_timestamp(str(run.get("_streamStartedAt", "")))
-    step_plan = _build_stream_plan(run)
-    elapsed_seconds = max(0, int((_utc_now() - started_at).total_seconds()))
-    final_offset = int(step_plan[-1]["offsetSeconds"])
-    is_complete = elapsed_seconds >= final_offset
-    active_index = 0
-    timeline_entries: List[Dict[str, Any]] = []
-    log_entries: List[Dict[str, Any]] = []
-    evidence_tabs: Dict[str, List[Dict[str, Any]]] = {"diff": [], "tests": [], "rationale": []}
-
-    # Resolve which step should be shown as active for the current elapsed time.
-    for index, step in enumerate(step_plan):
-        if elapsed_seconds >= int(step["offsetSeconds"]):
-            active_index = index
-
-    # Build the timeline, visible logs, and evidence tabs from the revealed stream steps.
-    for index, step in enumerate(step_plan):
-        if is_complete or index < active_index:
-            step_status = "complete"
-        elif index == active_index:
-            step_status = "complete" if is_complete else "active"
-        else:
-            step_status = "pending"
-
-        step_timestamp = _build_step_timestamp(started_at, int(step["offsetSeconds"]))
-        timeline_entries.append(
-            {
-                "id": step["id"],
-                "title": step["title"],
-                "detail": step["detail"],
-                "timestamp": step_timestamp,
-                "status": step_status,
-            }
-        )
-
-        if not is_complete and index > active_index:
-            # Keep future logs and evidence hidden until the step becomes visible.
-            continue
-
-        evidence_status = "captured" if is_complete or index < active_index else "running"
-
-        # Surface every visible step log inside the streamed execution panel.
-        for log_index, log in enumerate(step.get("logs", [])):
-            log_entries.append(
-                {
-                    "id": f"{step['id']}-log-{log_index}",
-                    "timestamp": step_timestamp,
-                    "level": log["level"],
-                    "source": log["source"],
-                    "message": log["message"],
-                }
-            )
-
-        # Group visible evidence into the diff, tests, and rationale tabs.
-        for tab_name, tab_items in step.get("evidence", {}).items():
-            for item_index, item in enumerate(tab_items):
-                evidence_tabs[tab_name].append(
-                    {
-                        "id": f"{step['id']}-{tab_name}-{item_index}",
-                        "timestamp": step_timestamp,
-                        "summary": item["summary"],
-                        "detail": item["detail"],
-                        "status": evidence_status,
-                    }
-                )
-
-    # Return the live execution snapshot consumed by the task detail page.
-    return {
-        "isLive": not is_complete and run["status"] == "Running",
-        "statusLabel": "Streaming live" if not is_complete and run["status"] == "Running" else "Stream complete",
-        "lastUpdatedAt": _utc_timestamp(),
-        "timeline": timeline_entries,
-        "logs": log_entries,
-        "evidenceTabs": evidence_tabs,
-    }
-
-
-def _build_cursor_cloud_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
-    """Builds the task detail live view for a run backed by Cursor Cloud Agents."""
-
-    cloud_agent = run.get("_cursorAgent", {}) or {}
-    target_payload = _extract_cloud_agent_target(cloud_agent if isinstance(cloud_agent, Mapping) else {})
-    created_at = str(cloud_agent.get("createdAt", "")).strip() or _utc_timestamp()
-    cursor_status = str(cloud_agent.get("status", "CREATING"))
-    timeline_status = "complete" if run["status"] != "Running" else "active"
-    review_status = "pending" if run["status"] == "Running" else "complete"
-    timeline = [
-        {
-            "id": "cursor-launch",
-            "title": "Cursor Cloud Agent launched",
-            "detail": f"{cloud_agent.get('id', 'Unknown agent')} was started for {run['repo']}.",
-            "timestamp": created_at,
-            "status": "complete",
-        },
-        {
-            "id": "cursor-progress",
-            "title": f"Cursor status: {cursor_status}",
-            "detail": run["currentStep"],
-            "timestamp": _utc_timestamp(),
-            "status": timeline_status,
-        },
-        {
-            "id": "cursor-review",
-            "title": "Review handoff",
-            "detail": "The task will move into review once the Cursor Cloud Agent finishes.",
-            "timestamp": _utc_timestamp(),
-            "status": review_status,
-        },
-    ]
-    logs = [
-        {
-            "id": "cursor-log-launch",
-            "timestamp": created_at,
-            "level": "info",
-            "source": "cursor-cloud",
-            "message": f"Launched agent {cloud_agent.get('id', 'unknown')} for repository {run['repo']}.",
-        },
-        {
-            "id": "cursor-log-status",
-            "timestamp": _utc_timestamp(),
-            "level": "warning" if run["status"] == "Blocked" else "success" if run["status"] == "Review" else "info",
-            "source": "cursor-cloud",
-            "message": run["currentStep"],
-        },
-    ]
-    rationale_entries = [
-        {
-            "id": "cursor-rationale-launch",
-            "timestamp": created_at,
-            "summary": "Live cloud agent launched",
-            "detail": str(run.get("_cursorPromptSummary", "The run was sent to Cursor Cloud Agents using the selected task context.")),
-            "status": "captured" if run["status"] != "Running" else "running",
-        },
-    ]
-
-    if str(target_payload.get("prUrl", "")).strip():
-        # Add the generated pull request URL when Cursor already created one.
-        rationale_entries.append(
-            {
-                "id": "cursor-rationale-pr",
-                "timestamp": _utc_timestamp(),
-                "summary": "Pull request link available",
-                "detail": f"Cursor attached PR {target_payload.get('prUrl')}.",
-                "status": "captured",
-            }
-        )
-
-    # Return the live execution snapshot consumed by the task detail page.
-    return {
-        "isLive": run["status"] == "Running",
-        "statusLabel": "Cursor Cloud Agent running" if run["status"] == "Running" else "Cursor Cloud Agent complete",
-        "lastUpdatedAt": _utc_timestamp(),
-        "timeline": timeline,
-        "logs": logs,
-        "evidenceTabs": {
-            "diff": [],
-            "tests": [],
-            "rationale": rationale_entries,
-        },
-    }
-
-
-def _build_github_copilot_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
-    """Builds the task detail live view for a run backed by GitHub Copilot cloud agent."""
-
-    cloud_agent = run.get("_githubCopilotAgent", {}) or {}
-    target_payload = _extract_cloud_agent_target(cloud_agent if isinstance(cloud_agent, Mapping) else {})
-    created_at = str(cloud_agent.get("createdAt", "")).strip() or _utc_timestamp()
-    copilot_status = str(cloud_agent.get("status", "ASSIGNED"))
-    timeline_status = "complete" if run["status"] != "Running" else "active"
-    review_status = "pending" if run["status"] == "Running" else "complete"
-    timeline = [
-        {
-            "id": "github-copilot-launch",
-            "title": "GitHub Copilot cloud agent assigned",
-            "detail": f"{cloud_agent.get('id', 'Unknown agent')} was assigned for {run['repo']}.",
-            "timestamp": created_at,
-            "status": "complete",
-        },
-        {
-            "id": "github-copilot-progress",
-            "title": f"GitHub Copilot status: {copilot_status}",
-            "detail": run["currentStep"],
-            "timestamp": _utc_timestamp(),
-            "status": timeline_status,
-        },
-        {
-            "id": "github-copilot-review",
-            "title": "Review handoff",
-            "detail": "The task will move into review once Copilot opens a pull request.",
-            "timestamp": _utc_timestamp(),
-            "status": review_status,
-        },
-    ]
-    logs = [
-        {
-            "id": "github-copilot-log-launch",
-            "timestamp": created_at,
-            "level": "info",
-            "source": "github-copilot-cloud",
-            "message": f"Assigned Copilot through GitHub issue {target_payload.get('issueUrl', target_payload.get('url', 'unknown'))}.",
-        },
-        {
-            "id": "github-copilot-log-status",
-            "timestamp": _utc_timestamp(),
-            "level": "warning" if run["status"] == "Blocked" else "success" if run["status"] == "Review" else "info",
-            "source": "github-copilot-cloud",
-            "message": run["currentStep"],
-        },
-    ]
-    rationale_entries = [
-        {
-            "id": "github-copilot-rationale-launch",
-            "timestamp": created_at,
-            "summary": "Live cloud agent assigned",
-            "detail": str(run.get("_githubCopilotPromptSummary", "The run was sent to GitHub Copilot cloud agent using the selected task context.")),
-            "status": "captured" if run["status"] != "Running" else "running",
-        },
-    ]
-
-    if str(target_payload.get("prUrl", "")).strip():
-        # Add the generated pull request URL when Copilot already created one.
-        rationale_entries.append(
-            {
-                "id": "github-copilot-rationale-pr",
-                "timestamp": _utc_timestamp(),
-                "summary": "Pull request link available",
-                "detail": f"GitHub Copilot attached PR {target_payload.get('prUrl')}.",
-                "status": "captured",
-            }
-        )
-
-    # Return the live execution snapshot consumed by the task detail page.
-    return {
-        "isLive": run["status"] == "Running",
-        "statusLabel": "GitHub Copilot cloud agent running" if run["status"] == "Running" else "GitHub Copilot cloud agent complete",
-        "lastUpdatedAt": _utc_timestamp(),
-        "timeline": timeline,
-        "logs": logs,
-        "evidenceTabs": {
-            "diff": [],
-            "tests": [],
-            "rationale": rationale_entries,
-        },
-    }
-
-
-def _build_static_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
-    """Builds the timeline, logs, and evidence tabs for a static run."""
-
-    evidence = run.get("evidence", {})
-    test_status = "blocked" if run["status"] == "Blocked" else "captured"
-
-    if run["status"] == "Review":
-        static_status_label = "Awaiting decision"
-    elif run["status"] == "Approved":
-        static_status_label = "Approved - awaiting PR merge"
-    elif run["status"] == "Merged":
-        static_status_label = "Pull request merged"
-    else:
-        static_status_label = "Execution complete"
-
-    # Return the completed execution view for runs that are no longer actively streaming.
-    return {
-        "isLive": False,
-        "statusLabel": static_status_label,
-        "lastUpdatedAt": _utc_timestamp(),
-        "timeline": _build_static_timeline(run),
-        "logs": _build_static_logs(run),
-        "evidenceTabs": {
-            "diff": _build_evidence_entries(list(evidence.get("diff", [])), tab_name="diff", runtime_value=str(run.get("runtime", "00:00")), status="captured"),
-            "tests": _build_evidence_entries(list(evidence.get("tests", [])), tab_name="tests", runtime_value=str(run.get("runtime", "00:00")), status=test_status),
-            "rationale": _build_evidence_entries(list(evidence.get("rationale", [])), tab_name="rationale", runtime_value=str(run.get("runtime", "00:00")), status="captured"),
-        },
-    }
-
-
-def _build_live_view(run: Dict[str, Any]) -> Dict[str, Any]:
-    """Builds the task detail live view for the requested run."""
-
-    if run.get("_cursorAgent"):
-        # Prefer the Cursor-specific live view when the run is backed by a cloud agent.
-        return _build_cursor_cloud_live_view(run)
-
-    if run.get("_githubCopilotAgent"):
-        # Prefer the Copilot-specific live view when the run is backed by a cloud agent.
-        return _build_github_copilot_live_view(run)
-
-    if run.get("_streamStartedAt"):
-        # Prefer the streaming execution view when the run was started in the live simulator.
-        return _build_stream_live_view(run)
-
-    # Fall back to a completed execution view for static seeded runs.
-    return _build_static_live_view(run)
-
-
-def _sync_run_progress(run: Dict[str, Any], settings: Settings) -> None:
-    """Updates a live run based on elapsed time inside the simulated stream."""
-
-    if run.get("_cursorAgent"):
-        current_status = str(run.get("status", ""))
-
-        if current_status in {"Approved", "Blocked", "Retry", "Merged"}:
-            # Preserve reviewer-driven or terminal states after the live agent has already finished.
-            return
-
-        # Poll the Cursor-backed run so the control pane reflects the latest agent status.
-        try:
-            latest_agent = get_cursor_agent(settings, str(run["_cursorAgent"].get("id", "")))
-        except CursorAgentError:
-            # Keep the last known state when the Cursor status lookup fails.
-            return
-
-        previous_agent = dict(run["_cursorAgent"])
-        cursor_status = str(latest_agent.get("status", "CREATING"))
-        mapped_status = _map_cursor_agent_status(cursor_status)
-        agent_runtime_payload = _merge_cloud_agent_update(previous_agent, latest_agent)
-        target_payload = _extract_cloud_agent_target(agent_runtime_payload)
-        run["_cursorAgent"] = agent_runtime_payload
-        run["status"] = mapped_status
-        run["branch"] = str(target_payload.get("branchName", "")).strip() or run["branch"]
-        run["runtime"] = _format_cursor_agent_runtime(agent_runtime_payload, require_nonzero=cursor_status == "FINISHED")
-
-        if cursor_status == "FINISHED":
-            # Move finished Cursor runs into the review-ready state.
-            run["currentStep"] = "Cursor Cloud Agent finished and prepared the review handoff"
-            run["blockers"] = ["No active blockers", "Waiting for reviewer decision"]
-        elif cursor_status in {"ERROR", "EXPIRED"}:
-            # Move failed Cursor runs into the blocked state with a readable reason.
-            run["currentStep"] = f"Cursor Cloud Agent ended with status {cursor_status}"
-            run["blockers"] = [f"Cursor status is {cursor_status}", "Review the Cursor agent log and retry after unblocking the issue"]
-        else:
-            # Keep active Cursor runs in the running state until the provider reports completion.
-            run["currentStep"] = f"Cursor Cloud Agent status: {cursor_status}"
-            run["blockers"] = ["Cursor Cloud Agent is still running", "Reviewer controls unlock after the live agent finishes"]
-
-        if str(latest_agent.get("summary", "")).strip():
-            # Replace the placeholder task summary when Cursor returns a richer summary.
-            run["summary"] = str(latest_agent["summary"])
-
-        return
-
-    if run.get("_githubCopilotAgent"):
-        current_status = str(run.get("status", ""))
-
-        if current_status in {"Approved", "Blocked", "Retry", "Merged"}:
-            # Preserve reviewer-driven or terminal states after the live agent has already finished.
-            return
-
-        cloud_agent = run.get("_githubCopilotAgent", {}) or {}
-        target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, dict) else {}
-        copilot_status = str(cloud_agent.get("status", "ASSIGNED"))
-        run["runtime"] = _format_cursor_agent_runtime(cloud_agent, require_nonzero=False)
-
-        if str(target_payload.get("prUrl", "")).strip():
-            # Move Copilot runs to review once a pull request URL is known.
-            run["status"] = "Review"
-            run["currentStep"] = "GitHub Copilot cloud agent opened a pull request for review"
-            run["blockers"] = ["No active blockers", "Waiting for reviewer decision"]
-        else:
-            # Keep Copilot runs active while GitHub works from the assigned issue.
-            run["status"] = "Running"
-            run["currentStep"] = f"GitHub Copilot cloud agent status: {copilot_status}"
-            run["blockers"] = ["GitHub Copilot cloud agent is still running", "Reviewer controls unlock after Copilot opens a pull request"]
-
-        return
-
-    if run["status"] != "Running" or not run.get("_streamStartedAt"):
-        # Skip progress updates when the run is not currently in the live streaming state.
-        return
-
-    started_at = _parse_timestamp(str(run.get("_streamStartedAt", "")))
-    step_plan = _build_stream_plan(run)
-    elapsed_seconds = max(0, int((_utc_now() - started_at).total_seconds()))
-    active_index = 0
-
-    # Resolve the active step so the summary fields stay aligned with the stream state.
-    for index, step in enumerate(step_plan):
-        if elapsed_seconds >= int(step["offsetSeconds"]):
-            active_index = index
-
-    run["runtime"] = _format_runtime(elapsed_seconds)
-    run["cost"] = f"${0.24 + (elapsed_seconds / 18):.2f}"
-    run["currentStep"] = str(step_plan[active_index]["currentStep"])
-    run["blockers"] = ["Streaming execution in progress", "Reviewer controls will unlock after the run completes"]
-
-    if elapsed_seconds >= int(step_plan[-1]["offsetSeconds"]):
-        # Promote completed live runs into the review state once the final step is visible.
-        run["status"] = "Review"
-        run["currentStep"] = "Review package ready"
-        run["blockers"] = ["No active blockers", "Waiting for reviewer decision"]
+    # Delegate run filtering to the catalog helper module.
+    return state_catalog.list_team_runs(RUN_STORE, team_id)
 
 
 def _fallback_issues() -> List[Dict[str, Any]]:
     """Builds a fallback issue catalog from the seeded run summaries."""
 
-    issues: List[Dict[str, Any]] = []
-
-    # Convert seeded runs into fallback issue records for task intake.
-    for run in RUN_STORE:
-        issues.append(
-            {
-                "id": run["id"],
-                "ticket": run["ticket"],
-                "title": run["title"],
-                "description": run["summary"],
-                "priority": "2",
-                "status": run["status"],
-                "url": "",
-                "assignee": {"name": run["owner"], "email": f"{run['owner'].lower()}@example.com"},
-                "provider": "fallback",
-            }
-        )
-
-    # Return the fallback issue catalog.
-    return issues
+    # Delegate fallback issue construction to the catalog helper module.
+    return state_catalog.fallback_issues(RUN_STORE)
 
 
 def _fallback_repositories(runs: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """Builds a fallback repository catalog from the seeded run summaries."""
 
-    source_runs = RUN_STORE if runs is None else runs
-    unique_names: List[str] = []
-
-    # Preserve the first-seen order of repository names from the seeded data.
-    for run in source_runs:
-        repo_name = str(run.get("repo", ""))
-
-        if repo_name and repo_name not in unique_names:
-            # Keep the unique repository name for the fallback catalog.
-            unique_names.append(repo_name)
-
-    repositories: List[Dict[str, Any]] = []
-
-    # Convert the unique repository names into normalized catalog records.
-    for repo_name in unique_names:
-        repositories.append(
-            {
-                "id": repo_name,
-                "name": repo_name,
-                "fullName": repo_name,
-                "defaultBranch": "main",
-                "private": False,
-                "provider": "fallback",
-                "url": "",
-            }
-        )
-
-    # Return the fallback repository catalog.
-    return repositories
+    # Delegate fallback repository construction to the catalog helper module.
+    return state_catalog.fallback_repositories(RUN_STORE, runs)
 
 
 def _fallback_documents(settings: Settings) -> List[Dict[str, Any]]:
     """Returns repo markdown docs or an empty fallback list."""
 
-    documents = list_repo_documents(settings)
-
-    if documents:
-        # Prefer real repo markdown documents whenever they are available.
-        return documents
-
-    # Return an empty list when no repo docs could be discovered.
-    return []
+    # Delegate document fallback handling while preserving the patchable list function.
+    return state_catalog.fallback_documents(settings, list_repo_documents)
 
 
 def _list_connected_issues(settings: Settings) -> List[Dict[str, Any]]:
     """Builds the combined live issue catalog across connected issue trackers."""
 
-    linear_issues = list_linear_issues(settings)
-    jira_issues = list_jira_issues(settings)
-
-    # Return the combined issue-tracker catalog while preserving provider-local ordering.
-    return [*linear_issues, *jira_issues]
+    # Delegate provider aggregation while preserving the patchable provider functions.
+    return state_catalog.list_connected_issues(settings, list_linear_issues, list_jira_issues)
 
 
 def _slugify(value: str) -> str:
@@ -1005,577 +229,6 @@ def _normalize_uploaded_documents(uploaded_documents: List[Dict[str, Any]]) -> L
     return normalized_documents
 
 
-def _build_cursor_issue_block(issue: Dict[str, Any]) -> str:
-    """Builds the issue-context section used inside the Cursor Cloud Agent prompt."""
-
-    issue_lines: List[str] = [
-        f"Ticket: {issue.get('ticket', 'Unknown ticket')}",
-        f"Title: {issue.get('title', 'Untitled task')}",
-        f"Status: {issue.get('status', 'Unknown')}",
-        f"Priority: {issue.get('priority', 'Unknown')}",
-        f"Provider: {issue.get('provider', 'unknown')}",
-    ]
-    description = str(issue.get("description", "")).strip()
-    assignee = issue.get("assignee", {}) or {}
-    assignee_name = str(assignee.get("name", "")).strip()
-
-    if assignee_name:
-        # Add the assignee when the originating issue included one.
-        issue_lines.append(f"Assignee: {assignee_name}")
-
-    if description:
-        # Add the issue description when the originating issue included one.
-        issue_lines.append(f"Description: {description}")
-
-    # Return the issue block as a newline-delimited prompt section.
-    return "\n".join(issue_lines)
-
-
-def _build_cursor_docs_block(documents: List[Dict[str, Any]]) -> str:
-    """Builds the attached-documents section used inside the Cursor Cloud Agent prompt."""
-
-    if not documents:
-        # Return a neutral docs section when the task was launched without attached docs.
-        return "Attached docs:\n- No repo markdown documents were attached."
-
-    document_lines = ["Attached docs:"]
-
-    # Add each attached document path so the launched agent knows the intended grounding set.
-    for document in documents:
-        document_lines.append(f"- {document.get('path', document.get('title', 'Unknown document'))}")
-
-    # Return the docs block as a newline-delimited prompt section.
-    return "\n".join(document_lines)
-
-
-def _build_cursor_prompt(
-    run: Dict[str, Any],
-    *,
-    issue: Dict[str, Any],
-    documents: List[Dict[str, Any]],
-    repository: Dict[str, Any],
-) -> str:
-    """Builds the Cursor Cloud Agent prompt from the task, issue, and docs context."""
-
-    task_prompt = str(run.get("_taskPrompt", run.get("summary", ""))).strip()
-    acceptance_criteria = str(run.get("_acceptanceCriteria", "")).strip()
-    repo_full_name = str(repository.get("fullName", repository.get("name", run.get("repo", "repository"))))
-    issue_block = _build_cursor_issue_block(issue)
-    docs_block = _build_cursor_docs_block(documents)
-    prompt_sections = [
-        f"You are launching work for the GitHub repository {repo_full_name}.",
-        "Use the issue context below to scope the implementation and keep the work traceable to the originating issue-tracker ticket.",
-        issue_block,
-        f"Task summary:\n{task_prompt or run.get('summary', 'No task summary was provided.')}",
-        f"Acceptance criteria:\n{acceptance_criteria or 'Use the issue details and repository context to determine completion.'}",
-        docs_block,
-        "Implementation instructions:",
-        "- Make the requested code changes in the target repository.",
-        "- Keep the branch and pull request aligned with the issue ticket.",
-        "- Run the most relevant validation before handing off the work.",
-        "- Summarize the changes and any follow-up reviewer notes in the final response.",
-        "Include a raw git diff in the final message using:\n"
-        "git diff origin/main...HEAD",
-    ]
-
-    # Return the composed task prompt that will be sent to the Cursor Cloud Agents API.
-    return "\n\n".join(prompt_sections)
-
-
-def _clear_issue_tracker_sync_state(run: Dict[str, Any]) -> None:
-    """Clears any cached issue-tracker sync markers from a run record."""
-
-    # Remove the cached Linear sync marker so the next run state can resync cleanly.
-    run.pop("_linearSyncedStatusName", None)
-
-    # Remove the cached Jira sync marker so the next run state can resync cleanly.
-    run.pop("_jiraSyncedStatusName", None)
-
-
-def _extract_cloud_agent_target(cloud_agent: Mapping[str, Any]) -> Dict[str, Any]:
-    """Returns a normalized target payload from a cloud-agent record."""
-
-    target_payload = cloud_agent.get("target", {}) if isinstance(cloud_agent, Mapping) else {}
-
-    if isinstance(target_payload, Mapping):
-        # Copy the target so callers can read it without mutating provider payloads.
-        return dict(target_payload)
-
-    # Treat null or malformed target values as missing metadata instead of crashing polling.
-    return {}
-
-
-def _merge_cloud_agent_update(previous_agent: Mapping[str, Any], latest_agent: Mapping[str, Any]) -> Dict[str, Any]:
-    """Merges a provider status update without dropping previously known PR target data."""
-
-    merged_agent = dict(previous_agent)
-    latest_agent_payload = dict(latest_agent)
-    previous_target = _extract_cloud_agent_target(previous_agent)
-    latest_target = _extract_cloud_agent_target(latest_agent_payload)
-
-    # Apply the latest provider fields while keeping a mutable copy for normalization.
-    merged_agent.update(latest_agent_payload)
-
-    if latest_target:
-        # Prefer fresh PR metadata when the provider includes a structured target payload.
-        merged_agent["target"] = latest_target
-    elif previous_target:
-        # Preserve the launch-time PR target when later status polls omit or null it.
-        merged_agent["target"] = previous_target
-    else:
-        # Remove malformed target metadata so downstream URL resolution can use its fallback.
-        merged_agent.pop("target", None)
-
-    # Return the normalized cloud-agent record stored with the run.
-    return merged_agent
-
-
-def _map_cursor_agent_status(cursor_status: str) -> str:
-    """Maps a Cursor Cloud Agent status into the control pane's run-status model."""
-
-    if cursor_status == "FINISHED":
-        # Map completed Cursor runs into the app's review-ready state.
-        return "Review"
-
-    if cursor_status in {"ERROR", "EXPIRED"}:
-        # Map failed or expired Cursor runs into the app's blocked state.
-        return "Blocked"
-
-    # Keep all remaining Cursor states inside the app's running state.
-    return "Running"
-
-
-def _resolve_pull_request_url(run: Dict[str, Any], settings: Optional[Settings] = None) -> str:
-    """Resolves the pull-request URL recorded for the given run."""
-
-    cloud_agent = run.get("_cursorAgent") or run.get("_githubCopilotAgent") or {}
-    target_payload = _extract_cloud_agent_target(cloud_agent if isinstance(cloud_agent, Mapping) else {})
-    pull_request_url = str(target_payload.get("prUrl", "") or "").strip()
-
-    if pull_request_url:
-        # Prefer the live cloud-agent-created PR URL when the run was launched against GitHub.
-        return pull_request_url
-
-    # Prefer the connected GitHub owner so task detail links mirror the active integration setup.
-    configured_owner = str(settings.github_owner if settings is not None else "").strip() or "example"
-
-    # Fall back to a deterministic GitHub URL so the demo data still links somewhere.
-    return f"https://github.com/{configured_owner}/{run['repo']}/pull/{run['ticket'].lower()}"
-
-
-def _is_real_github_pull_request_url(pull_request_url: str) -> bool:
-    """Reports whether the run is pointing at a real GitHub PR URL."""
-
-    parsed_components = parse_github_pull_request_url(pull_request_url)
-
-    if not parsed_components:
-        # Return False when the URL does not resolve to a real GitHub PR link.
-        return False
-
-    # Treat the example.com / example placeholders as fake so simulation stays in charge.
-    return parsed_components.get("owner", "").lower() != "example"
-
-
-def _simulated_pull_request_state(run: Dict[str, Any]) -> Dict[str, Any]:
-    """Computes the simulated GitHub PR state payload for a run.
-
-    The simulation advances the PR through open -> approved -> merged based on
-    the timestamps we record on the run after reviewer decisions.
-    """
-
-    simulated_state: Dict[str, Any] = {
-        "source": "simulated",
-        "state": "open",
-        "title": f"{run.get('ticket', 'Run')}: {run.get('title', 'Generated task')}",
-        "body": str(run.get("summary", "") or "").strip(),
-        "merged": False,
-        "mergedAt": None,
-        "approved": False,
-        "approvedAt": None,
-        "approvedBy": None,
-    }
-
-    approved_at_value = str(run.get("_approvedAt", "") or "").strip()
-    merged_at_value = str(run.get("_mergedAt", "") or "").strip()
-
-    if approved_at_value:
-        # Surface the reviewer-driven approval as the baseline PR state.
-        simulated_state["approved"] = True
-        simulated_state["approvedAt"] = approved_at_value
-        simulated_state["state"] = "approved"
-        simulated_state["approvedBy"] = str(run.get("_approvedBy", "") or "") or None
-
-    if merged_at_value:
-        # Promote the PR into the merged state once a recorded merge timestamp exists.
-        simulated_state["merged"] = True
-        simulated_state["mergedAt"] = merged_at_value
-        simulated_state["state"] = "merged"
-
-        # Return early; merged is terminal so no additional auto-advance is needed.
-        return simulated_state
-
-    if approved_at_value:
-        approved_at_datetime = _parse_timestamp(approved_at_value)
-        elapsed_since_approval = (_utc_now() - approved_at_datetime).total_seconds()
-
-        if elapsed_since_approval >= SIMULATED_PR_MERGE_DELAY_SECONDS:
-            # Auto-advance the simulated PR into the merged state after the configured delay.
-            simulated_merge_timestamp = (
-                approved_at_datetime + timedelta(seconds=SIMULATED_PR_MERGE_DELAY_SECONDS)
-            ).isoformat()
-            simulated_state["merged"] = True
-            simulated_state["mergedAt"] = simulated_merge_timestamp
-            simulated_state["state"] = "merged"
-
-    # Return the simulated PR state payload for the state machine.
-    return simulated_state
-
-
-def _resolve_pull_request_state(run: Dict[str, Any], settings: Settings) -> Dict[str, Any]:
-    """Resolves the PR state for a run using live GitHub data or the simulation."""
-
-    # Resolve the PR URL with the effective settings so fallback links use the active GitHub owner.
-    pull_request_url = _resolve_pull_request_url(run, settings=settings)
-
-    if _is_real_github_pull_request_url(pull_request_url):
-        # Prefer real GitHub data when the run is linked to a real repository PR.
-        live_pull_request_state = fetch_github_pull_request_status(settings, pull_request_url)
-
-        if live_pull_request_state:
-            # Return the live GitHub PR state so the state machine uses real events.
-            return live_pull_request_state
-
-    # Fall back to the simulated PR state for demo and offline runs.
-    return _simulated_pull_request_state(run)
-
-
-def _approval_history_has_entry(history: List[Dict[str, Any]], decision: str, source: str) -> bool:
-    """Reports whether the approval history already contains a matching event."""
-
-    # Scan the history for an existing entry with the same decision and source tuple.
-    for entry in history:
-        if str(entry.get("decision", "")) == decision and str(entry.get("source", "")) == source:
-            # Return True so the caller knows the event was already recorded.
-            return True
-
-    # Return False when the event has not yet been recorded in the approval history.
-    return False
-
-
-def _append_pull_request_event(
-    run: Dict[str, Any],
-    *,
-    decision: str,
-    source: str,
-    notes: str,
-    timestamp: Optional[str],
-    actor: Optional[Dict[str, str]] = None,
-) -> None:
-    """Appends a pull-request-derived approval history entry if missing."""
-
-    history = list(run.get("approvalHistory", []))
-
-    if _approval_history_has_entry(history, decision, source):
-        # Skip duplicate entries so repeated polling does not re-record the same event.
-        return
-
-    history.append(
-        {
-            "decision": decision,
-            "source": source,
-            "notes": notes,
-            "actor": deepcopy(actor) if actor else deepcopy(GITHUB_APPROVAL_ACTOR),
-            "timestamp": timestamp or _utc_timestamp(),
-        }
-    )
-
-    run["approvalHistory"] = history
-
-
-def _sync_linear_issue_status_from_pr(
-    run: Dict[str, Any],
-    *,
-    settings: Settings,
-    pr_state: Dict[str, Any],
-) -> None:
-    """Pushes the mapped PR state into Linear for runs backed by a Linear issue."""
-
-    issue_snapshot = run.get("_issueSnapshot") or {}
-
-    if not isinstance(issue_snapshot, dict):
-        # Skip sync when the run has no structured issue snapshot to target.
-        return
-
-    if str(issue_snapshot.get("provider", "")).strip().lower() != "linear":
-        # Skip sync for fallback or non-Linear issues.
-        return
-
-    issue_id = str(issue_snapshot.get("id", "")).strip()
-
-    if not issue_id:
-        # Skip sync when the issue snapshot does not carry a concrete Linear issue ID.
-        return
-
-    pr_source = str(pr_state.get("source", "")).strip().lower()
-    pr_status_name = ""
-
-    if bool(pr_state.get("merged", False)):
-        # Promote merged PRs into the requested Linear "Done" state.
-        pr_status_name = LINEAR_STATUS_DONE
-    elif pr_source == "github":
-        resolved_pr_state = str(pr_state.get("state", "")).strip().lower()
-
-        if resolved_pr_state in {"open", "approved"}:
-            # Treat any open GitHub PR state as "In Progress" for the Linear issue.
-            pr_status_name = LINEAR_STATUS_IN_PROGRESS
-
-    if not pr_status_name:
-        # Skip sync when the current PR state does not map to a Linear workflow update.
-        return
-
-    last_synced_status_name = str(run.get("_linearSyncedStatusName", "")).strip()
-
-    if last_synced_status_name == pr_status_name:
-        # Skip duplicate sync attempts when the target Linear status is already recorded.
-        return
-
-    if update_linear_issue_status(settings, issue_id=issue_id, status_name=pr_status_name):
-        # Cache the applied Linear status so repeated dashboard polls stay idempotent.
-        run["_linearSyncedStatusName"] = pr_status_name
-
-
-def _sync_jira_issue_status_from_pr(
-    run: Dict[str, Any],
-    *,
-    settings: Settings,
-    pr_state: Dict[str, Any],
-) -> None:
-    """Pushes the mapped PR state into Jira for runs backed by a Jira issue."""
-
-    issue_snapshot = run.get("_issueSnapshot") or {}
-
-    if not isinstance(issue_snapshot, dict):
-        # Skip sync when the run has no structured issue snapshot to target.
-        return
-
-    if str(issue_snapshot.get("provider", "")).strip().lower() != "jira":
-        # Skip sync for fallback or non-Jira issues.
-        return
-
-    issue_id = str(issue_snapshot.get("id", "")).strip()
-
-    if not issue_id:
-        # Skip sync when the issue snapshot does not carry a concrete Jira issue ID.
-        return
-
-    pr_source = str(pr_state.get("source", "")).strip().lower()
-    pr_status_name = ""
-
-    if bool(pr_state.get("merged", False)):
-        # Promote merged PRs into the requested Jira "Done" state.
-        pr_status_name = JIRA_STATUS_DONE
-    elif pr_source == "github":
-        resolved_pr_state = str(pr_state.get("state", "")).strip().lower()
-
-        if resolved_pr_state in {"open", "approved"}:
-            # Treat any open GitHub PR state as "In Progress" for the Jira issue.
-            pr_status_name = JIRA_STATUS_IN_PROGRESS
-
-    if not pr_status_name:
-        # Skip sync when the current PR state does not map to a Jira workflow update.
-        return
-
-    last_synced_status_name = str(run.get("_jiraSyncedStatusName", "")).strip()
-
-    if last_synced_status_name == pr_status_name:
-        # Skip duplicate sync attempts when the target Jira status is already recorded.
-        return
-
-    if update_jira_issue_status(settings, issue_id=issue_id, status_name=pr_status_name):
-        # Cache the applied Jira status so repeated dashboard polls stay idempotent.
-        run["_jiraSyncedStatusName"] = pr_status_name
-
-
-def _sync_issue_tracker_status_from_pr(
-    run: Dict[str, Any],
-    *,
-    settings: Settings,
-    pr_state: Dict[str, Any],
-) -> None:
-    """Routes PR-derived issue status sync to the matching issue tracker provider."""
-
-    # Attempt the Linear sync path when the run originated from Linear.
-    _sync_linear_issue_status_from_pr(run, settings=settings, pr_state=pr_state)
-
-    # Attempt the Jira sync path when the run originated from Jira.
-    _sync_jira_issue_status_from_pr(run, settings=settings, pr_state=pr_state)
-
-
-def _sync_pull_request_status(run: Dict[str, Any], settings: Settings) -> Dict[str, Any]:
-    """Updates the run status and approval history based on the current PR state.
-
-    The state machine only advances runs that are in Review, Approved, or Merged.
-    Runs that are still running, blocked, or in retry are returned untouched so
-    the rest of the pipeline can continue to manage them.
-    """
-
-    run_status = str(run.get("status", ""))
-
-    if run_status not in {"Running", "Review", "Approved", "Merged"}:
-        # Return an empty PR state when the run is not a review-candidate yet.
-        return {"state": "open", "merged": False, "approved": False, "source": "skipped"}
-
-    if run_status == "Running" and not _is_real_github_pull_request_url(_resolve_pull_request_url(run)):
-        # Keep simulated in-flight runs in the draft state until a real GitHub PR exists.
-        return {"state": "open", "merged": False, "approved": False, "source": "skipped"}
-
-    pr_state = _resolve_pull_request_state(run, settings)
-    _sync_issue_tracker_status_from_pr(run, settings=settings, pr_state=pr_state)
-
-    if run_status == "Running":
-        # Keep actively executing runs in the running state even if a PR already exists.
-        run["_pullRequestState"] = pr_state
-        return pr_state
-
-    if run_status == "Merged":
-        # Skip further transitions for runs already in the terminal merged state.
-        run["_pullRequestState"] = pr_state
-        return pr_state
-
-    if pr_state.get("approved") and run_status == "Review":
-        approved_by_login = str(pr_state.get("approvedBy", "") or "").strip()
-        review_note = (
-            f"GitHub review approved by {approved_by_login}"
-            if approved_by_login
-            else "GitHub review approved the pull request"
-        )
-
-        _append_pull_request_event(
-            run,
-            decision="pr_review_approved",
-            source=pr_state.get("source", "github"),
-            notes=review_note,
-            timestamp=str(pr_state.get("approvedAt") or ""),
-        )
-
-        # Promote Review runs into Approved once the PR was approved upstream.
-        run["status"] = "Approved"
-        run["currentStep"] = "Pull request approved - awaiting merge"
-        run["blockers"] = ["Awaiting pull-request merge on GitHub"]
-        run_status = "Approved"
-
-    if pr_state.get("merged"):
-        _append_pull_request_event(
-            run,
-            decision="pr_merged",
-            source=pr_state.get("source", "github"),
-            notes="Pull request merged on GitHub",
-            timestamp=str(pr_state.get("mergedAt") or ""),
-        )
-
-        # Promote Approved runs into Merged once the PR has been merged upstream.
-        run["status"] = "Merged"
-        run["currentStep"] = "Pull request merged"
-        run["blockers"] = ["No active blockers"]
-        run["_mergedAt"] = str(pr_state.get("mergedAt") or _utc_timestamp())
-
-    run["_pullRequestState"] = pr_state
-
-    # Return the PR state used to advance the run so callers can reuse it.
-    return pr_state
-
-
-def _build_pull_request_view(
-    run: Dict[str, Any],
-    pr_state: Dict[str, Any],
-    settings: Optional[Settings] = None,
-) -> Dict[str, Any]:
-    """Builds the public pull-request payload shown in the task detail UI."""
-
-    run_status = str(run.get("status", ""))
-    run_ticket = str(run.get("ticket") or run.get("id") or "")
-    run_title = str(run.get("title") or "Untitled task")
-    # Resolve the displayed PR URL with the effective settings when they are available.
-    pull_request_url = _resolve_pull_request_url(run, settings=settings)
-    resolved_state = str(pr_state.get("state", "open"))
-
-    if pr_state.get("source") == "skipped":
-        # Keep pre-review runs in the original draft/ready-for-review states.
-        display_status = "draft" if run_status == "Running" else "ready_for_review"
-    elif resolved_state == "merged":
-        display_status = "merged"
-    elif resolved_state == "approved":
-        display_status = "approved"
-    elif resolved_state == "closed":
-        display_status = "closed"
-    else:
-        display_status = "draft" if run_status == "Running" else "open"
-
-    # Return the extended pull-request payload used by the frontend.
-    return {
-        "number": pr_state.get("number") or run_ticket,
-        "title": pr_state.get("title") or f"{run_ticket}: {run_title}",
-        "body": pr_state.get("body") or run.get("summary", ""),
-        "status": display_status,
-        "state": resolved_state if pr_state.get("source") != "skipped" else display_status,
-        "url": pr_state.get("htmlUrl") or pull_request_url,
-        "merged": bool(pr_state.get("merged", False)),
-        "mergedAt": pr_state.get("mergedAt"),
-        "approved": bool(pr_state.get("approved", False)),
-        "approvedAt": pr_state.get("approvedAt"),
-        "approvedBy": pr_state.get("approvedBy"),
-        "reviewInProgress": bool(pr_state.get("reviewInProgress", False)),
-        "reviewActivityAt": pr_state.get("reviewActivityAt"),
-        "reviewActivityBy": pr_state.get("reviewActivityBy"),
-        "reviewActivityState": pr_state.get("reviewActivityState"),
-        "source": pr_state.get("source", "simulated"),
-    }
-
-
-def _build_traceability_snapshot(
-    run: Dict[str, Any],
-    *,
-    issue: Dict[str, Any],
-    pull_request: Dict[str, Any],
-    approval_history: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    """Builds a compact traceability summary for task-detail review handoff."""
-
-    evidence = run.get("evidence", {}) if isinstance(run.get("evidence"), dict) else {}
-    live_view = run.get("liveView", {}) if isinstance(run.get("liveView"), dict) else {}
-    evidence_tabs = live_view.get("evidenceTabs", {}) if isinstance(live_view, dict) else {}
-    latest_decision = ""
-
-    if approval_history:
-        # Capture the latest reviewer or provider decision for the traceability summary.
-        latest_decision = str(approval_history[-1].get("decision", "")).strip()
-
-    captured_evidence_count = 0
-
-    # Count the static evidence strings currently attached to the run payload.
-    for evidence_key in ("diff", "tests", "commands", "rationale"):
-        captured_evidence_count += len(list(evidence.get(evidence_key, [])))
-
-    # Count live evidence tab entries so streaming runs expose the same evidence metric.
-    for evidence_key in ("diff", "tests", "rationale"):
-        captured_evidence_count += len(list(evidence_tabs.get(evidence_key, [])))
-
-    issue_status_at_launch = str(issue.get("status", "")).strip()
-
-    # Return a normalized traceability snapshot for task detail rendering.
-    return {
-        "ticket": str(run.get("ticket", "")).strip(),
-        "issueProvider": str(issue.get("provider", "fallback")).strip() or "fallback",
-        "issueStatusAtLaunch": issue_status_at_launch,
-        "runStatus": str(run.get("status", "")).strip(),
-        "pullRequestStatus": str(pull_request.get("status", "draft")).strip(),
-        "pullRequestSource": str(pull_request.get("source", "simulated")).strip(),
-        "capturedEvidenceCount": captured_evidence_count,
-        "latestDecision": latest_decision,
-        "preservedFromInProgress": issue_status_at_launch.lower() == "in progress",
-    }
-
-
 def _normalize_repository_context_for_api(repository: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Maps an internal repository record into the public task-detail repository context shape.
 
@@ -1583,39 +236,8 @@ def _normalize_repository_context_for_api(repository: Optional[Dict[str, Any]]) 
     without re-querying the intake catalog on every poll.
     """
 
-    # Return nothing when the repository payload is missing or not a mapping.
-    if not repository or not isinstance(repository, dict):
-        return None
-
-    # Read the stable repository identifier used across intake and dashboard views.
-    repo_id = str(repository.get("id", "")).strip()
-    # Read the short repository name that matches task creation payloads.
-    repo_name = str(repository.get("name", "")).strip()
-    # Prefer the fully qualified owner/name value when GitHub supplies it.
-    full_name = str(repository.get("fullName", "") or repo_name).strip()
-    # Read the default branch hint so reviewers know which trunk the agent branched from.
-    default_branch = str(repository.get("defaultBranch", "")).strip()
-    # Read the browsable remote URL when the integration layer captured it.
-    repo_url = str(repository.get("url", "")).strip()
-    # Read the provider id so the UI can label GitHub versus future hosts consistently.
-    provider = str(repository.get("provider", "")).strip()
-    # Mirror the privacy flag when the catalog includes it for reviewer context.
-    is_private = bool(repository.get("private", False))
-
-    # Avoid returning an empty shell when every meaningful field was blank.
-    if not full_name and not repo_name and not repo_url:
-        return None
-
-    # Return the normalized repository context object for JSON responses.
-    return {
-        "id": repo_id,
-        "name": repo_name,
-        "fullName": full_name,
-        "defaultBranch": default_branch,
-        "url": repo_url,
-        "provider": provider,
-        "private": is_private,
-    }
+    # Delegate repository shape normalization to the catalog helper module.
+    return state_catalog.normalize_repository_context_for_api(repository)
 
 
 def _build_run_extensions(
@@ -2016,14 +638,8 @@ def get_integration_catalog(settings: Settings, headers: Mapping[str, str]) -> D
 def _catalog_team_runs(integration_catalog: Mapping[str, Any]) -> List[Dict[str, Any]]:
     """Returns team-scoped runs from an integration catalog."""
 
-    catalog_runs = integration_catalog.get("teamRuns")
-
-    if catalog_runs is None:
-        # Preserve compatibility with older mocked catalogs that predate team scoping.
-        return list(RUN_STORE)
-
-    # Materialize the catalog runs so downstream payload builders can iterate safely.
-    return list(catalog_runs)
+    # Delegate catalog run materialization to the catalog helper module.
+    return state_catalog.catalog_team_runs(integration_catalog, RUN_STORE)
 
 
 def get_dashboard_payload(settings: Settings, headers: Mapping[str, str]) -> Dict[str, Any]:
@@ -2032,21 +648,13 @@ def get_dashboard_payload(settings: Settings, headers: Mapping[str, str]) -> Dic
     integration_catalog = get_integration_catalog(settings, headers)
     team_runs = _catalog_team_runs(integration_catalog)
     repository_names = summarize_repository_names(integration_catalog["repositories"])
-    runs: List[Dict[str, Any]] = []
-
-    # Enrich each run with integration context for the task detail view.
-    for run in team_runs:
-        _sync_run_progress(run, settings)
-        documents = integration_catalog["documents"][:2]
-        runs.append(
-            _build_run_extensions(
-                run,
-                documents=documents,
-                current_user=integration_catalog["currentUser"],
-                settings=settings,
-                repositories=integration_catalog["repositories"],
-            )
-        )
+    runs = enrich_runs_for_catalog(
+        team_runs,
+        integration_catalog=integration_catalog,
+        settings=settings,
+        build_run_extensions=_build_run_extensions,
+        sync_run_progress=_sync_run_progress,
+    )
 
     blocked_reasons = _build_dashboard_blocked_reasons()
     suggested_actions = _build_dashboard_suggested_actions(
@@ -2075,16 +683,13 @@ def get_run_detail(run_id: str, settings: Settings, headers: Mapping[str, str]) 
     # Search the in-memory run store for the requested record.
     for run in team_runs:
         if run["id"] == run_id:
-            _sync_run_progress(run, settings)
-            documents = integration_catalog["documents"][:2]
-
             # Return the matching run with integration context attached.
-            return _build_run_extensions(
+            return enrich_run_for_catalog(
                 run,
-                documents=documents,
-                current_user=integration_catalog["currentUser"],
+                integration_catalog=integration_catalog,
                 settings=settings,
-                repositories=integration_catalog["repositories"],
+                build_run_extensions=_build_run_extensions,
+                sync_run_progress=_sync_run_progress,
             )
 
     # Raise a key error when the requested run does not exist.
@@ -2110,13 +715,7 @@ def get_runs_by_ids(
 
     integration_catalog = get_integration_catalog(settings, headers)
     team_runs = _catalog_team_runs(integration_catalog)
-    runs_by_id: Dict[str, Dict[str, Any]] = {}
-
-    # Index the current run store by ID so lookups stay O(n) instead of O(n*m).
-    for run in team_runs:
-        run_id_value = str(run.get("id") or "")
-        if run_id_value:
-            runs_by_id[run_id_value] = run
+    runs_by_id = index_runs_by_id(team_runs)
 
     resolved_runs: List[Dict[str, Any]] = []
 
@@ -2128,15 +727,13 @@ def get_runs_by_ids(
             # Skip IDs that no longer exist in the run store.
             continue
 
-        _sync_run_progress(run, settings)
-        documents = integration_catalog["documents"][:2]
         resolved_runs.append(
-            _build_run_extensions(
+            enrich_run_for_catalog(
                 run,
-                documents=documents,
-                current_user=integration_catalog["currentUser"],
+                integration_catalog=integration_catalog,
                 settings=settings,
-                repositories=integration_catalog["repositories"],
+                build_run_extensions=_build_run_extensions,
+                sync_run_progress=_sync_run_progress,
             )
         )
 
@@ -2157,14 +754,13 @@ def get_approval_payload(settings: Settings, headers: Mapping[str, str]) -> Dict
 
     # Build the review queue and queue summary from the current run store.
     for run in team_runs:
-        _sync_run_progress(run, settings)
         enriched_runs.append(
-            _build_run_extensions(
+            enrich_run_for_catalog(
                 run,
-                documents=integration_catalog["documents"][:2],
-                current_user=integration_catalog["currentUser"],
+                integration_catalog=integration_catalog,
                 settings=settings,
-                repositories=integration_catalog["repositories"],
+                build_run_extensions=_build_run_extensions,
+                sync_run_progress=_sync_run_progress,
             )
         )
 
@@ -2345,16 +941,7 @@ def create_run(
     # Search the in-memory run store for the task being started.
     for run in team_runs:
         if run["id"] == payload["taskId"]:
-            issue = deepcopy(run.get("_issueSnapshot")) or {
-                "id": run["id"],
-                "ticket": run["ticket"],
-                "title": run["title"],
-                "description": run["summary"],
-                "status": run["status"],
-                "priority": "2",
-                "provider": "fallback",
-                "assignee": {},
-            }
+            issue = build_issue_snapshot(run)
             documents = deepcopy(run.get("_documentSnapshots", []))
             current_user = deepcopy(run.get("_requestedBySnapshot")) or integration_catalog["currentUser"]
 
@@ -2388,23 +975,18 @@ def create_run(
                     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 
                 target_payload = _extract_cloud_agent_target(launched_agent if isinstance(launched_agent, Mapping) else {})
-                run["status"] = "Running"
-                run["agent"] = "cursor-cloud-agent"
-                run["currentStep"] = "Cursor Cloud Agent launched against the connected GitHub repository"
-                run["runtime"] = "00:00"
-                run["cost"] = "$0.00"
+                apply_common_run_start(
+                    run,
+                    agent_name="cursor-cloud-agent",
+                    current_step="Cursor Cloud Agent launched against the connected GitHub repository",
+                    cost="$0.00",
+                    blockers=["Cursor Cloud Agent is still running", "Reviewer controls unlock after the live agent finishes"],
+                    execution_mode=str(payload.get("executionMode", "implement")),
+                    stream_started_at="",
+                )
                 run["branch"] = str(target_payload.get("branchName", "")).strip() or run["branch"]
-                run["blockers"] = ["Cursor Cloud Agent is still running", "Reviewer controls unlock after the live agent finishes"]
-                run["_streamStartedAt"] = ""
-                run["_executionMode"] = str(payload.get("executionMode", "implement"))
                 run["_cursorAgent"] = launched_agent
                 run["_cursorPromptSummary"] = f"Launched Cursor Cloud Agent {launched_agent.get('id', 'unknown')} for {issue.get('ticket', run['ticket'])}."
-                run.pop("_githubCopilotAgent", None)
-                run.pop("_githubCopilotPromptSummary", None)
-                run.pop("_approvedAt", None)
-                run.pop("_approvedBy", None)
-                run.pop("_mergedAt", None)
-                run.pop("_pullRequestState", None)
                 _clear_issue_tracker_sync_state(run)
                 run["evidence"]["commands"] = [f"POST /v0/agents -> {launched_agent.get('id', 'unknown')}"]
                 run["evidence"]["diff"] = ["Waiting for the live Cursor Cloud Agent to produce changes."]
@@ -2454,22 +1036,17 @@ def create_run(
                     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 
                 target_payload = _extract_cloud_agent_target(launched_agent if isinstance(launched_agent, Mapping) else {})
-                run["status"] = "Running"
-                run["agent"] = "github-copilot-cloud-agent"
-                run["currentStep"] = "GitHub Copilot cloud agent assigned through the connected GitHub repository"
-                run["runtime"] = "00:00"
-                run["cost"] = "$0.00"
-                run["blockers"] = ["GitHub Copilot cloud agent is still running", "Reviewer controls unlock after Copilot opens a pull request"]
-                run["_streamStartedAt"] = ""
-                run["_executionMode"] = str(payload.get("executionMode", "implement"))
+                apply_common_run_start(
+                    run,
+                    agent_name="github-copilot-cloud-agent",
+                    current_step="GitHub Copilot cloud agent assigned through the connected GitHub repository",
+                    cost="$0.00",
+                    blockers=["GitHub Copilot cloud agent is still running", "Reviewer controls unlock after Copilot opens a pull request"],
+                    execution_mode=str(payload.get("executionMode", "implement")),
+                    stream_started_at="",
+                )
                 run["_githubCopilotAgent"] = launched_agent
                 run["_githubCopilotPromptSummary"] = f"Assigned GitHub Copilot cloud agent through issue {target_payload.get('issueUrl', target_payload.get('url', 'unknown'))}."
-                run.pop("_cursorAgent", None)
-                run.pop("_cursorPromptSummary", None)
-                run.pop("_approvedAt", None)
-                run.pop("_approvedBy", None)
-                run.pop("_mergedAt", None)
-                run.pop("_pullRequestState", None)
                 _clear_issue_tracker_sync_state(run)
                 run["evidence"]["commands"] = [f"POST /repos/{repository['fullName']}/issues -> {launched_agent.get('id', 'unknown')}"]
                 run["evidence"]["diff"] = ["Waiting for GitHub Copilot cloud agent to produce a pull request."]
@@ -2488,22 +1065,15 @@ def create_run(
                     repositories=integration_catalog["repositories"],
                 )
 
-            run["status"] = "Running"
-            run["agent"] = payload.get("agentName", "impl-agent")
-            run["currentStep"] = "Loading task context"
-            run["runtime"] = "00:00"
-            run["cost"] = "$0.24"
-            run["blockers"] = ["Streaming execution in progress", "Reviewer controls will unlock after the run completes"]
-            run["_streamStartedAt"] = _utc_timestamp()
-            run["_executionMode"] = str(payload.get("executionMode", "implement"))
-            run.pop("_cursorAgent", None)
-            run.pop("_cursorPromptSummary", None)
-            run.pop("_githubCopilotAgent", None)
-            run.pop("_githubCopilotPromptSummary", None)
-            run.pop("_approvedAt", None)
-            run.pop("_approvedBy", None)
-            run.pop("_mergedAt", None)
-            run.pop("_pullRequestState", None)
+            apply_common_run_start(
+                run,
+                agent_name=payload.get("agentName", "impl-agent"),
+                current_step="Loading task context",
+                cost="$0.24",
+                blockers=["Streaming execution in progress", "Reviewer controls will unlock after the run completes"],
+                execution_mode=str(payload.get("executionMode", "implement")),
+                stream_started_at=_utc_timestamp(),
+            )
             _clear_issue_tracker_sync_state(run)
 
             # Return the updated simulated run record.

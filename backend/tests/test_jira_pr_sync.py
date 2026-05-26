@@ -28,7 +28,7 @@ class JiraIssueStatusUpdateTests(unittest.TestCase):
         """Updates the issue using the exact Jira transition whose status name matches the request."""
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_jira._request_json",
             side_effect=[
                 {
                     "fields": {
@@ -59,7 +59,7 @@ class JiraIssueStatusUpdateTests(unittest.TestCase):
                     ]
                 },
             ],
-        ), patch("app.providers._request_jira_transition_update", return_value=True) as mock_transition_update:
+        ), patch("app.provider_jira._request_jira_transition_update", return_value=True) as mock_transition_update:
             # Update the issue into the exact Jira status whose name matches the request.
             updated = update_jira_issue_status(self.settings, issue_id="10001", status_name="In Progress")
 
@@ -77,7 +77,7 @@ class JiraIssueStatusUpdateTests(unittest.TestCase):
         """Updates the issue using the Jira status category when project labels differ."""
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_jira._request_json",
             side_effect=[
                 {
                     "fields": {
@@ -108,7 +108,7 @@ class JiraIssueStatusUpdateTests(unittest.TestCase):
                     ]
                 },
             ],
-        ), patch("app.providers._request_jira_transition_update", return_value=True) as mock_transition_update:
+        ), patch("app.provider_jira._request_jira_transition_update", return_value=True) as mock_transition_update:
             # Request the public status name even though the Jira workflow labels it differently.
             updated = update_jira_issue_status(self.settings, issue_id="10002", status_name="In Progress")
 
@@ -126,7 +126,7 @@ class JiraIssueStatusUpdateTests(unittest.TestCase):
         """Avoids a redundant Jira transition when the issue already matches the requested status."""
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_jira._request_json",
             return_value={
                 "fields": {
                     "status": {
@@ -135,7 +135,7 @@ class JiraIssueStatusUpdateTests(unittest.TestCase):
                     }
                 }
             },
-        ) as mock_request_json, patch("app.providers._request_jira_transition_update") as mock_transition_update:
+        ) as mock_request_json, patch("app.provider_jira._request_jira_transition_update") as mock_transition_update:
             # Ask for the same Jira status that the issue is already in.
             updated = update_jira_issue_status(self.settings, issue_id="10003", status_name="Done")
 

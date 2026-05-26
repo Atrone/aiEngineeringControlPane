@@ -43,7 +43,7 @@ class LinearConnectEndpointTests(unittest.TestCase):
         session_token = self._sign_in()
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_linear._request_json",
             side_effect=[
                 {"data": {"issues": {"nodes": []}}},
                 {"data": {"viewer": {"id": "viewer-123"}}},
@@ -75,7 +75,7 @@ class LinearConnectEndpointTests(unittest.TestCase):
         session_token = self._sign_in()
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_linear._request_json",
             side_effect=[
                 {"data": None, "errors": [{"message": "Bad request"}]},
                 {"data": {"viewer": {"id": "viewer-123"}}},
@@ -165,7 +165,7 @@ class LinearConnectEndpointTests(unittest.TestCase):
             # Return no data for any other query shape used in the fallback chain.
             return {"data": {"teams": {"nodes": []}}}
 
-        with patch("app.providers._request_json", side_effect=mock_linear_request):
+        with patch("app.provider_linear._request_json", side_effect=mock_linear_request):
             # Save a team key so the provider must retry team lookup formats.
             response = self.client.post(
                 "/api/integrations/linear/connect",
@@ -250,7 +250,7 @@ class LinearConnectEndpointTests(unittest.TestCase):
             # Return no matches for any alternate lookup branches.
             return {"data": {"teams": {"nodes": []}}}
 
-        with patch("app.providers._request_json", side_effect=mock_linear_request):
+        with patch("app.provider_linear._request_json", side_effect=mock_linear_request):
             # Save a UUID team scope so the provider resolves the team before reading its issues.
             response = self.client.post(
                 "/api/integrations/linear/connect",

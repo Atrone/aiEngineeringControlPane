@@ -77,8 +77,8 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
 
         http_error.read = raising_read  # type: ignore[assignment]
 
-        with patch("app.providers._build_uploaded_doc_context", return_value="Uploaded context"), patch(
-            "app.providers._request_json",
+        with patch("app.provider_openai._build_uploaded_doc_context", return_value="Uploaded context"), patch(
+            "app.provider_openai._request_json",
             side_effect=http_error,
         ):
             with self.assertRaises(providers.OpenAIEnrichmentError) as http_error_result:
@@ -95,8 +95,8 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
                 )
         self.assertIn("status 502", str(http_error_result.exception))
 
-        with patch("app.providers._build_uploaded_doc_context", return_value="Uploaded context"), patch(
-            "app.providers._request_json",
+        with patch("app.provider_openai._build_uploaded_doc_context", return_value="Uploaded context"), patch(
+            "app.provider_openai._request_json",
             side_effect=URLError("offline"),
         ):
             with self.assertRaises(providers.OpenAIEnrichmentError) as url_error_result:
@@ -113,8 +113,8 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
                 )
         self.assertIn("Could not reach OpenAI for enrichment", str(url_error_result.exception))
 
-        with patch("app.providers._build_uploaded_doc_context", return_value="Uploaded context"), patch(
-            "app.providers._request_json",
+        with patch("app.provider_openai._build_uploaded_doc_context", return_value="Uploaded context"), patch(
+            "app.provider_openai._request_json",
             side_effect=json.JSONDecodeError("bad", "doc", 0),
         ):
             with self.assertRaises(providers.OpenAIEnrichmentError) as decode_error_result:
@@ -193,19 +193,19 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
 
         classification_http_error.read = raising_classification_read  # type: ignore[assignment]
 
-        with patch("app.providers._request_json", side_effect=classification_http_error):
+        with patch("app.provider_openai._request_json", side_effect=classification_http_error):
             with self.assertRaises(providers.OpenAIEnrichmentError) as classification_http_error_result:
                 # Confirm unreadable HTTP errors still surface a usable scoping message.
                 providers.classify_intake_issues_by_scope(settings, issues=issues)
         self.assertIn("issue scoping request", str(classification_http_error_result.exception))
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_openai._request_json", side_effect=URLError("offline")):
             with self.assertRaises(providers.OpenAIEnrichmentError) as classification_url_error_result:
                 # Confirm transport failures are translated into scoping-specific errors.
                 providers.classify_intake_issues_by_scope(settings, issues=issues)
         self.assertIn("Could not reach OpenAI for issue scoping", str(classification_url_error_result.exception))
 
-        with patch("app.providers._request_json", side_effect=json.JSONDecodeError("bad", "doc", 0)):
+        with patch("app.provider_openai._request_json", side_effect=json.JSONDecodeError("bad", "doc", 0)):
             with self.assertRaises(providers.OpenAIEnrichmentError) as classification_decode_error_result:
                 # Confirm malformed OpenAI JSON responses are translated for issue scoping.
                 providers.classify_intake_issues_by_scope(settings, issues=issues)
@@ -269,8 +269,8 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
 
         identification_http_error.read = raising_identification_read  # type: ignore[assignment]
 
-        with patch("app.providers._collect_doc_context", return_value="Repo docs"), patch(
-            "app.providers._request_json",
+        with patch("app.provider_openai._collect_doc_context", return_value="Repo docs"), patch(
+            "app.provider_openai._request_json",
             side_effect=identification_http_error,
         ):
             with self.assertRaises(providers.OpenAIEnrichmentError) as identification_http_error_result:
@@ -278,8 +278,8 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
                 providers.identify_repository_for_issue(settings, issue={"id": "issue-1"}, repositories=repositories)
         self.assertIn("repository identification request", str(identification_http_error_result.exception))
 
-        with patch("app.providers._collect_doc_context", return_value="Repo docs"), patch(
-            "app.providers._request_json",
+        with patch("app.provider_openai._collect_doc_context", return_value="Repo docs"), patch(
+            "app.provider_openai._request_json",
             side_effect=URLError("offline"),
         ):
             with self.assertRaises(providers.OpenAIEnrichmentError) as identification_url_error_result:
@@ -287,8 +287,8 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
                 providers.identify_repository_for_issue(settings, issue={"id": "issue-1"}, repositories=repositories)
         self.assertIn("Could not reach OpenAI for repository identification", str(identification_url_error_result.exception))
 
-        with patch("app.providers._collect_doc_context", return_value="Repo docs"), patch(
-            "app.providers._request_json",
+        with patch("app.provider_openai._collect_doc_context", return_value="Repo docs"), patch(
+            "app.provider_openai._request_json",
             side_effect=json.JSONDecodeError("bad", "doc", 0),
         ):
             with self.assertRaises(providers.OpenAIEnrichmentError) as identification_decode_error_result:
@@ -373,19 +373,19 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
 
         suggestion_http_error.read = raising_suggestion_read  # type: ignore[assignment]
 
-        with patch("app.providers._request_json", side_effect=suggestion_http_error):
+        with patch("app.provider_openai._request_json", side_effect=suggestion_http_error):
             with self.assertRaises(providers.OpenAIEnrichmentError) as suggestion_http_error_result:
                 # Confirm unreadable HTTP errors still surface a usable suggestions message.
                 providers.suggest_next_actions_for_runs(settings, runs=runs)
         self.assertIn("suggested actions request", str(suggestion_http_error_result.exception))
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_openai._request_json", side_effect=URLError("offline")):
             with self.assertRaises(providers.OpenAIEnrichmentError) as suggestion_url_error_result:
                 # Confirm transport failures are translated into suggestions-specific errors.
                 providers.suggest_next_actions_for_runs(settings, runs=runs)
         self.assertIn("Could not reach OpenAI for suggested actions", str(suggestion_url_error_result.exception))
 
-        with patch("app.providers._request_json", side_effect=json.JSONDecodeError("bad", "doc", 0)):
+        with patch("app.provider_openai._request_json", side_effect=json.JSONDecodeError("bad", "doc", 0)):
             with self.assertRaises(providers.OpenAIEnrichmentError) as suggestion_decode_error_result:
                 # Confirm malformed OpenAI JSON responses are translated for suggestions.
                 providers.suggest_next_actions_for_runs(settings, runs=runs)
@@ -407,19 +407,19 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
 
         effort_http_error.read = raising_effort_read  # type: ignore[assignment]
 
-        with patch("app.providers._request_json", side_effect=effort_http_error):
+        with patch("app.provider_openai._request_json", side_effect=effort_http_error):
             with self.assertRaises(providers.OpenAIEnrichmentError) as effort_http_error_result:
                 # Confirm unreadable HTTP errors still surface a usable review-effort message.
                 providers.estimate_review_effort_for_runs(settings, runs=[{"id": "run-1"}])
         self.assertIn("review-effort request", str(effort_http_error_result.exception))
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_openai._request_json", side_effect=URLError("offline")):
             with self.assertRaises(providers.OpenAIEnrichmentError) as effort_url_error_result:
                 # Confirm transport failures are translated into review-effort-specific errors.
                 providers.estimate_review_effort_for_runs(settings, runs=[{"id": "run-1"}])
         self.assertIn("Could not reach OpenAI for review effort", str(effort_url_error_result.exception))
 
-        with patch("app.providers._request_json", side_effect=json.JSONDecodeError("bad", "doc", 0)):
+        with patch("app.provider_openai._request_json", side_effect=json.JSONDecodeError("bad", "doc", 0)):
             with self.assertRaises(providers.OpenAIEnrichmentError) as effort_decode_error_result:
                 # Confirm malformed OpenAI JSON responses are translated for review-effort estimation.
                 providers.estimate_review_effort_for_runs(settings, runs=[{"id": "run-1"}])
@@ -428,15 +428,15 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
         # Confirm invalid GitHub PR inputs are rejected before URL parsing.
         self.assertIsNone(providers.parse_github_pull_request_url(None))  # type: ignore[arg-type]
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_openai._request_json", side_effect=URLError("offline")):
             # Confirm GitHub PR payload fetches fail safely when the provider is offline.
             self.assertIsNone(providers._fetch_github_pull_request_payload(settings, "acme", "repo", "42"))
 
-        with patch("app.providers._request_json", side_effect=URLError("offline")):
+        with patch("app.provider_openai._request_json", side_effect=URLError("offline")):
             # Confirm GitHub PR review fetches fail safely when the provider is offline.
             self.assertEqual(providers._fetch_github_pull_request_reviews(settings, "acme", "repo", "42"), [])
 
-        with patch("app.providers._request_json", return_value={"not": "a-list"}):
+        with patch("app.provider_openai._request_json", return_value={"not": "a-list"}):
             # Confirm GitHub PR review fetches reject non-list payloads.
             self.assertEqual(providers._fetch_github_pull_request_reviews(settings, "acme", "repo", "42"), [])
 
@@ -452,7 +452,7 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
         )
 
         with patch(
-            "app.providers._fetch_github_pull_request_payload",
+            "app.provider_github._fetch_github_pull_request_payload",
             return_value=None,
         ):
             # Confirm missing GitHub payloads fall back to the simulated PR path.
@@ -464,10 +464,10 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
             )
 
         with patch(
-            "app.providers._fetch_github_pull_request_payload",
+            "app.provider_github._fetch_github_pull_request_payload",
             return_value={"state": "open", "merged": True, "merged_at": "2026-04-24T12:00:00Z", "html_url": "https://github.com/acme/platform-web/pull/42"},
         ), patch(
-            "app.providers._fetch_github_pull_request_reviews",
+            "app.provider_github._fetch_github_pull_request_reviews",
             return_value=[],
         ):
             # Confirm merged GitHub payloads resolve to the merged PR state.
@@ -478,10 +478,10 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
         self.assertEqual(merged_status["state"], "merged")
 
         with patch(
-            "app.providers._fetch_github_pull_request_payload",
+            "app.provider_github._fetch_github_pull_request_payload",
             return_value={"state": "closed", "merged": False, "html_url": "https://github.com/acme/platform-web/pull/42"},
         ), patch(
-            "app.providers._fetch_github_pull_request_reviews",
+            "app.provider_github._fetch_github_pull_request_reviews",
             return_value=[],
         ):
             # Confirm closed-but-unmerged GitHub payloads resolve to the closed PR state.
@@ -492,10 +492,10 @@ class ProviderOpenAIGapCoverageTests(unittest.TestCase):
         self.assertEqual(closed_status["state"], "closed")
 
         with patch(
-            "app.providers._fetch_github_pull_request_payload",
+            "app.provider_github._fetch_github_pull_request_payload",
             return_value={"state": "open", "merged": False, "html_url": "https://github.com/acme/platform-web/pull/42"},
         ), patch(
-            "app.providers._fetch_github_pull_request_reviews",
+            "app.provider_github._fetch_github_pull_request_reviews",
             return_value=[],
         ):
             # Confirm open GitHub payloads without approvals resolve to the open PR state.

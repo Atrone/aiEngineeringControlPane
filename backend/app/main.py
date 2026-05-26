@@ -1,7 +1,7 @@
 """FastAPI entrypoint for the AI Control Pane demo backend."""
 
 import json
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.parse import urlencode
@@ -51,12 +51,12 @@ from app.schemas import LinearConnectRequest
 from app.schemas import RunCreateRequest
 from app.schemas import SignInRequest
 from app.schemas import TaskCreateRequest
-from app.providers import classify_intake_issues_by_scope
-from app.providers import OpenAIEnrichmentError
-from app.providers import enrich_intake_field
-from app.providers import estimate_review_effort_for_runs
-from app.providers import identify_repository_for_issue
-from app.providers import suggest_next_actions_for_runs
+from app.provider_openai import classify_intake_issues_by_scope
+from app.provider_openai import OpenAIEnrichmentError
+from app.provider_openai import enrich_intake_field
+from app.provider_openai import estimate_review_effort_for_runs
+from app.provider_openai import identify_repository_for_issue
+from app.provider_openai import suggest_next_actions_for_runs
 from app.state import create_run
 from app.state import create_task
 from app.state import get_approval_payload
@@ -243,6 +243,27 @@ def _build_auth_config_payload() -> Dict[str, bool]:
     }
 
 
+def _run_openai_route(action: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
+    """Executes an OpenAI-backed route action and translates provider failures."""
+
+    try:
+        # Run the caller-supplied OpenAI action inside one shared error boundary.
+        return action()
+    except OpenAIEnrichmentError as provider_error:
+        # Translate OpenAI-side rejections into a readable upstream error response.
+        raise HTTPException(status_code=502, detail=str(provider_error)) from provider_error
+
+
+def _refresh_integrations_for_session(request: Request, session: SessionRecord) -> Dict[str, Any]:
+    """Builds a refreshed integrations payload after saving session setup."""
+
+    effective_settings = build_effective_settings(settings, session)
+    request_headers = build_request_headers(request.headers, session)
+
+    # Return the refreshed integrations payload using the updated session credentials.
+    return get_integrations_payload(effective_settings, request_headers)
+
+
 @app.get("/health")
 def health_check() -> Dict[str, str]:
     """Creates a lightweight health response for local development checks."""
@@ -374,12 +395,8 @@ def post_dashboard_suggested_actions(
     # Resolve the requested run IDs into enriched run payloads before prompting.
     visible_runs = get_runs_by_ids(payload.run_ids, effective_settings, request_headers)
 
-    try:
-        # Call OpenAI to produce suggested next actions grounded in the visible runs.
-        return suggest_next_actions_for_runs(effective_settings, runs=visible_runs)
-    except OpenAIEnrichmentError as suggestion_error:
-        # Translate OpenAI-side rejections into a readable upstream error response.
-        raise HTTPException(status_code=502, detail=str(suggestion_error)) from suggestion_error
+    # Call OpenAI inside the shared provider-error boundary.
+    return _run_openai_route(lambda: suggest_next_actions_for_runs(effective_settings, runs=visible_runs))
 
 
 @app.post("/dashboard/review-efforts")
@@ -399,12 +416,8 @@ def post_dashboard_review_efforts(
     # Resolve the requested run IDs into enriched run payloads before prompting.
     visible_runs = get_runs_by_ids(payload.run_ids, effective_settings, request_headers)
 
-    try:
-        # Call OpenAI to estimate review effort from each visible run's PR summary.
-        return estimate_review_effort_for_runs(effective_settings, runs=visible_runs)
-    except OpenAIEnrichmentError as effort_error:
-        # Translate OpenAI-side rejections into a readable upstream error response.
-        raise HTTPException(status_code=502, detail=str(effort_error)) from effort_error
+    # Call OpenAI inside the shared provider-error boundary.
+    return _run_openai_route(lambda: estimate_review_effort_for_runs(effective_settings, runs=visible_runs))
 
 
 @app.get("/runs/{run_id}")
@@ -520,12 +533,8 @@ def post_intake_issue_scoping(
         # Default to the entire intake issue catalog when no explicit subset is provided.
         issues_to_classify = issue_catalog
 
-    try:
-        # Call OpenAI to separate the visible intake issues into the two scope groups.
-        return classify_intake_issues_by_scope(effective_settings, issues=issues_to_classify)
-    except OpenAIEnrichmentError as scoping_error:
-        # Translate OpenAI-side rejections into a readable upstream error response.
-        raise HTTPException(status_code=502, detail=str(scoping_error)) from scoping_error
+    # Call OpenAI inside the shared provider-error boundary.
+    return _run_openai_route(lambda: classify_intake_issues_by_scope(effective_settings, issues=issues_to_classify))
 
 
 @app.post("/intake/enrich")
@@ -535,9 +544,9 @@ def post_intake_enrich(payload: IntakeEnrichRequest, request: Request) -> Dict[s
 
     effective_settings, _, _ = _authorized_request(request)
 
-    try:
-        # Call OpenAI to refine the requested intake field against the repo docs.
-        return enrich_intake_field(
+    # Call OpenAI inside the shared provider-error boundary.
+    return _run_openai_route(
+        lambda: enrich_intake_field(
             effective_settings,
             field=payload.field,
             value=payload.value,
@@ -548,9 +557,7 @@ def post_intake_enrich(payload: IntakeEnrichRequest, request: Request) -> Dict[s
             execution_mode=payload.execution_mode,
             uploaded_documents=payload.uploaded_documents,
         )
-    except OpenAIEnrichmentError as enrichment_error:
-        # Translate enrichment failures into a clear 4xx/5xx client response.
-        raise HTTPException(status_code=502, detail=str(enrichment_error)) from enrichment_error
+    )
 
 
 @app.post("/intake/identify-repository")
@@ -587,16 +594,14 @@ def post_intake_identify_repository(
             detail=f"Issue '{payload.issue_id}' was not found in the intake catalog.",
         )
 
-    try:
-        # Call OpenAI to pick the repository that best fits the selected issue.
-        return identify_repository_for_issue(
+    # Call OpenAI inside the shared provider-error boundary.
+    return _run_openai_route(
+        lambda: identify_repository_for_issue(
             effective_settings,
             issue=selected_issue,
             repositories=repository_catalog,
         )
-    except OpenAIEnrichmentError as identification_error:
-        # Translate OpenAI-side rejections into a readable upstream error response.
-        raise HTTPException(status_code=502, detail=str(identification_error)) from identification_error
+    )
 
 
 @app.post("/tasks")
@@ -653,11 +658,9 @@ def post_github_connect(payload: GitHubConnectRequest, request: Request) -> Dict
 
     _, _, session = _authorized_request_with_roles(request, ("admin",))
     connect_github(session, payload.owner, payload.repositories, payload.token)
-    effective_settings = build_effective_settings(settings, session)
-    request_headers = build_request_headers(request.headers, session)
 
     # Return the refreshed integrations payload after saving the GitHub setup.
-    return get_integrations_payload(effective_settings, request_headers)
+    return _refresh_integrations_for_session(request, session)
 
 
 @app.post("/integrations/linear/connect")
@@ -667,11 +670,9 @@ def post_linear_connect(payload: LinearConnectRequest, request: Request) -> Dict
 
     _, _, session = _authorized_request_with_roles(request, ("admin",))
     connect_linear(session, payload.api_key, payload.team_id)
-    effective_settings = build_effective_settings(settings, session)
-    request_headers = build_request_headers(request.headers, session)
 
     # Return the refreshed integrations payload after saving the Linear setup.
-    return get_integrations_payload(effective_settings, request_headers)
+    return _refresh_integrations_for_session(request, session)
 
 
 @app.post("/integrations/jira/connect")
@@ -681,11 +682,9 @@ def post_jira_connect(payload: JiraConnectRequest, request: Request) -> Dict[str
 
     _, _, session = _authorized_request_with_roles(request, ("admin",))
     connect_jira(session, payload.site_url, payload.email, payload.api_token, payload.project_key)
-    effective_settings = build_effective_settings(settings, session)
-    request_headers = build_request_headers(request.headers, session)
 
     # Return the refreshed integrations payload after saving the Jira setup.
-    return get_integrations_payload(effective_settings, request_headers)
+    return _refresh_integrations_for_session(request, session)
 
 
 @app.post("/integrations/docs/connect")
@@ -695,11 +694,9 @@ def post_docs_connect(payload: DocsConnectRequest, request: Request) -> Dict[str
 
     _, _, session = _authorized_request_with_roles(request, ("admin",))
     connect_docs(session, payload.docs_directory)
-    effective_settings = build_effective_settings(settings, session)
-    request_headers = build_request_headers(request.headers, session)
 
     # Return the refreshed integrations payload after saving the docs setup.
-    return get_integrations_payload(effective_settings, request_headers)
+    return _refresh_integrations_for_session(request, session)
 
 
 @app.post("/integrations/cursor/connect")
@@ -709,11 +706,9 @@ def post_cursor_connect(payload: CursorConnectRequest, request: Request) -> Dict
 
     _, _, session = _authorized_request_with_roles(request, ("admin",))
     connect_cursor(session, payload.api_key, payload.model)
-    effective_settings = build_effective_settings(settings, session)
-    request_headers = build_request_headers(request.headers, session)
 
     # Return the refreshed integrations payload after saving the Cursor setup.
-    return get_integrations_payload(effective_settings, request_headers)
+    return _refresh_integrations_for_session(request, session)
 
 
 @app.post("/integrations/github-copilot/connect")
@@ -723,8 +718,6 @@ def post_github_copilot_connect(payload: GitHubCopilotConnectRequest, request: R
 
     _, _, session = _authorized_request_with_roles(request, ("admin",))
     connect_github_copilot(session, payload.token, payload.model, payload.custom_agent)
-    effective_settings = build_effective_settings(settings, session)
-    request_headers = build_request_headers(request.headers, session)
 
     # Return the refreshed integrations payload after saving the Copilot setup.
-    return get_integrations_payload(effective_settings, request_headers)
+    return _refresh_integrations_for_session(request, session)

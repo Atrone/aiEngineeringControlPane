@@ -17,10 +17,10 @@ from fastapi import HTTPException
 from fastapi import status
 
 from app.config import Settings
-from app.providers import normalize_cursor_api_key
-from app.providers import normalize_github_copilot_token
-from app.providers import normalize_jira_site_url
-from app.providers import normalize_linear_api_key
+from app.provider_common import normalize_cursor_api_key
+from app.provider_common import normalize_github_copilot_token
+from app.provider_common import normalize_jira_site_url
+from app.provider_common import normalize_linear_api_key
 
 
 ALLOWED_ROLES: Sequence[str] = ("admin",)

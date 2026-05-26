@@ -52,14 +52,14 @@ class ProviderLinearTests(unittest.TestCase):
         # Confirm the shared Linear headers include the normalized token.
         self.assertEqual(providers._build_linear_headers(settings)["Authorization"], "lin-token")
 
-        with patch("app.providers._request_json", return_value={"data": {"viewer": {"id": "viewer-1"}}}):
+        with patch("app.provider_linear._request_json", return_value={"data": {"viewer": {"id": "viewer-1"}}}):
             # Confirm the low-level GraphQL helper wraps the shared request call.
             self.assertEqual(
                 providers._request_linear_graphql(settings, query="query Viewer { viewer { id } }")["data"]["viewer"]["id"],
                 "viewer-1",
             )
 
-        with patch("app.providers._request_json", return_value={"data": {"viewer": {"id": "viewer-1"}}}):
+        with patch("app.provider_linear._request_json", return_value={"data": {"viewer": {"id": "viewer-1"}}}):
             # Confirm connectivity succeeds when the Linear viewer auth check resolves an id.
             self.assertTrue(providers.is_linear_connected(settings))
 
@@ -69,7 +69,7 @@ class ProviderLinearTests(unittest.TestCase):
         unscoped_settings = replace(get_settings(), linear_api_key="lin-token", linear_team_id="")
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_linear._request_json",
             return_value={
                 "data": {
                     "issues": {
@@ -135,7 +135,7 @@ class ProviderLinearTests(unittest.TestCase):
             # Return an empty fallback payload for any unexpected request shape.
             return {"data": {"teams": {"nodes": []}}}
 
-        with patch("app.providers._request_json", side_effect=fake_linear_request):
+        with patch("app.provider_linear._request_json", side_effect=fake_linear_request):
             # Confirm team-scoped issue listing retries common team-scope formats.
             scoped_issues = providers.list_linear_issues(scoped_settings)
             self.assertEqual(scoped_issues[0]["ticket"], "ENG-2")

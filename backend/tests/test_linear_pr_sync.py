@@ -23,7 +23,7 @@ class LinearIssueStatusUpdateTests(unittest.TestCase):
         """Updates the issue using the exact team state whose name matches the requested status."""
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_linear._request_json",
             side_effect=[
                 {
                     "data": {
@@ -69,7 +69,7 @@ class LinearIssueStatusUpdateTests(unittest.TestCase):
         """Updates the issue using the canonical Linear state type when team labels differ."""
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_linear._request_json",
             side_effect=[
                 {
                     "data": {
@@ -115,7 +115,7 @@ class LinearIssueStatusUpdateTests(unittest.TestCase):
         """Avoids a redundant Linear mutation when the issue already matches the requested state."""
 
         with patch(
-            "app.providers._request_json",
+            "app.provider_linear._request_json",
             return_value={
                 "data": {
                     "issue": {
