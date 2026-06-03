@@ -153,6 +153,13 @@ class ProviderNormalizationTests(unittest.TestCase):
         self.assertIsNone(providers.parse_github_pull_request_url("https://example.com/not-a-pr"))
         self.assertIn("Authorization", providers._build_github_request_headers(settings))
 
+    def test_normalize_github_copilot_token_strips_bearer_prefix(self) -> None:
+        """Covers provider_common.normalize_github_copilot_token via the providers facade."""
+
+        # Confirm accidental bearer prefixes are removed before header construction.
+        self.assertEqual(providers.normalize_github_copilot_token("Bearer gh-token"), "gh-token")
+        self.assertEqual(providers.normalize_github_copilot_token(" gh-token "), "gh-token")
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

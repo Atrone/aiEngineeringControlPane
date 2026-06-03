@@ -282,6 +282,84 @@ class StateRunMutationTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             state.record_approval(settings, {}, {"runId": "missing-run", "decision": "approve"})
 
+    def test_state_run_mutations_helpers_cover_snapshot_and_restart_metadata(self) -> None:
+        """Covers state_run_mutations.build_issue_snapshot, clear_previous_launch_metadata, and apply_common_run_start."""
+
+        from app import state_run_mutations
+
+        run_with_snapshot = {
+            "id": "run-1",
+            "ticket": "ACP-800",
+            "title": "Snapshot run",
+            "summary": "Use stored snapshot",
+            "status": "Review",
+            "_issueSnapshot": {"id": "issue-1", "ticket": "ACP-800", "title": "Snapshot issue", "provider": "linear"},
+            "_cursorAgent": {"id": "agent-1"},
+            "_approvedAt": "2026-04-24T12:00:00+00:00",
+        }
+
+        # Confirm build_issue_snapshot prefers the stored issue snapshot.
+        self.assertEqual(
+            state_run_mutations.build_issue_snapshot(run_with_snapshot)["title"],
+            "Snapshot issue",
+        )
+
+        fallback_run = {
+            "id": "run-2",
+            "ticket": "ACP-801",
+            "title": "Fallback run",
+            "summary": "Fallback summary",
+            "status": "Review",
+        }
+
+        # Confirm legacy runs without snapshots still receive a fallback issue record.
+        self.assertEqual(
+            state_run_mutations.build_issue_snapshot(fallback_run),
+            {
+                "id": "run-2",
+                "ticket": "ACP-801",
+                "title": "Fallback run",
+                "description": "Fallback summary",
+                "status": "Review",
+                "priority": "2",
+                "provider": "fallback",
+                "assignee": {},
+            },
+        )
+
+        restart_run = {
+            "id": "run-3",
+            "status": "Review",
+            "_cursorAgent": {"id": "agent-1"},
+            "_githubCopilotAgent": {"id": "copilot-1"},
+            "_approvedAt": "2026-04-24T12:00:00+00:00",
+            "_pullRequestState": {"state": "open"},
+        }
+
+        # Confirm clear_previous_launch_metadata removes stale agent and approval fields.
+        state_run_mutations.clear_previous_launch_metadata(restart_run)
+        self.assertNotIn("_cursorAgent", restart_run)
+        self.assertNotIn("_githubCopilotAgent", restart_run)
+        self.assertNotIn("_approvedAt", restart_run)
+        self.assertNotIn("_pullRequestState", restart_run)
+
+        started_run = {"id": "run-4", "status": "Review", "blockers": ["old blocker"]}
+
+        # Confirm apply_common_run_start resets public run fields and clears stale metadata.
+        state_run_mutations.apply_common_run_start(
+            started_run,
+            agent_name="impl-agent",
+            current_step="Loading task context",
+            cost="$0.00",
+            blockers=[],
+            execution_mode="implement",
+            stream_started_at="2026-04-24T12:00:00+00:00",
+        )
+        self.assertEqual(started_run["status"], "Running")
+        self.assertEqual(started_run["agent"], "impl-agent")
+        self.assertEqual(started_run["_executionMode"], "implement")
+        self.assertNotIn("_cursorAgent", started_run)
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

@@ -143,6 +143,36 @@ class AuthAndMainGapCoverageTests(unittest.TestCase):
             missing_token_response = main.finish_google_sign_in(code="auth-code", state="state-token")
         self.assertIn("usable identity token", unquote(missing_token_response.headers["location"]))
 
+    def test_main_openai_route_and_integration_refresh_helpers(self) -> None:
+        """Covers main._run_openai_route and main._refresh_integrations_for_session."""
+
+        from fastapi import HTTPException
+
+        from app import providers
+
+        # Confirm OpenAI provider failures are translated into HTTP 502 responses.
+        with self.assertRaises(HTTPException) as openai_route_error:
+            main._run_openai_route(lambda: (_ for _ in ()).throw(providers.OpenAIEnrichmentError("OpenAI unavailable")))
+        self.assertEqual(openai_route_error.exception.status_code, 502)
+
+        # Confirm successful OpenAI route actions return the provider payload unchanged.
+        self.assertEqual(main._run_openai_route(lambda: {"ok": True}), {"ok": True})
+
+        session = auth.SessionRecord(
+            token="session-token",
+            name="User",
+            email="user@example.com",
+            role="admin",
+            team_id="alpha",
+        )
+        request = SimpleNamespace(headers={"x-demo-team-id": "alpha"})
+
+        with patch("app.main.get_integrations_payload", return_value={"statuses": []}) as integrations_mock:
+            # Confirm integration refresh rebuilds settings from the active session.
+            refreshed_payload = main._refresh_integrations_for_session(request, session)
+            self.assertEqual(refreshed_payload, {"statuses": []})
+            integrations_mock.assert_called_once()
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

@@ -174,6 +174,22 @@ class ProviderGitHubTests(unittest.TestCase):
             self.assertEqual(next(item for item in statuses if item["id"] == "github_copilot_cloud_agent")["connected"], True)
             self.assertEqual(next(item for item in statuses if item["id"] == "google_sso")["connected"], True)
 
+    def test_extract_latest_review_activity_prefers_most_recent_review_or_comment(self) -> None:
+        """Covers provider_github._extract_latest_review_activity via the providers facade."""
+
+        reviews = [
+            {"state": "approved", "submitted_at": "2026-04-24T11:00:00Z", "user": {"login": "reviewer-a"}},
+            {"state": "changes_requested", "submitted_at": "2026-04-24T12:00:00Z", "user": {"login": "reviewer-b"}},
+        ]
+        comments = [
+            {"created_at": "2026-04-24T12:30:00Z", "user": {"login": "commenter"}},
+        ]
+
+        # Confirm the helper returns the latest review or comment activity timestamp.
+        latest_activity = providers._extract_latest_review_activity(reviews, comments)
+        self.assertEqual(latest_activity["state"], "commented")
+        self.assertEqual(latest_activity["actor"], "commenter")
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

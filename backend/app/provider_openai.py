@@ -82,6 +82,7 @@ def _list_github_markdown_paths(
     *,
     directory_path: str,
     max_files: int,
+    fetch_github_json_body: Optional[Any] = None,
 ) -> List[str]:
     """Returns markdown file paths under ``directory_path`` inside the repo.
 
@@ -90,13 +91,16 @@ def _list_github_markdown_paths(
     markdown files have been collected to keep the OpenAI context bounded.
     """
 
+    # Prefer the caller-provided fetch helper when the docs module injects one.
+    fetch_helper = fetch_github_json_body or _fetch_github_json_body
+
     # Delegate traversal while preserving this module's patchable fetch helper.
     return provider_openai_docs.list_github_markdown_paths(
         base_api_url,
         headers,
         directory_path=directory_path,
         max_files=max_files,
-        fetch_github_json_body=_fetch_github_json_body,
+        fetch_github_json_body=fetch_helper,
     )
 
 

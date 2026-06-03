@@ -199,6 +199,7 @@ def fetch_remote_repo_doc_context(
             headers,
             directory_path="docs",
             max_files=remaining_budget,
+            fetch_github_json_body=fetch_github_json_body,
         )
 
         for markdown_path in markdown_paths:

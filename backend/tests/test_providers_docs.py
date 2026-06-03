@@ -68,6 +68,37 @@ class ProviderDocsTests(unittest.TestCase):
             self.assertIn("### README.md", context)
             self.assertIn("### docs/ai-control-pane/guide.md", selected_repo_context)
 
+    def test_repo_doc_path_helpers_cover_normalization_and_resolution(self) -> None:
+        """Covers provider_docs path-resolution helpers via the providers facade."""
+
+        # Confirm repo doc keys normalize punctuation into comparable slug values.
+        self.assertEqual(providers._normalize_repo_doc_key("AI Control Pane"), "ai-control-pane")
+
+        # Confirm candidate generation includes normalized repo slug values.
+        self.assertEqual(
+            providers._repo_doc_name_candidates("acme/platform-web"),
+            ["acme-platform-web", "platform-web"],
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs_root = Path(temp_dir) / "docs"
+            repo_docs_root = docs_root / "platform-web"
+            repo_docs_root.mkdir(parents=True)
+            guide_path = repo_docs_root / "guide.md"
+            guide_path.write_text("# Guide", encoding="utf-8")
+
+            # Confirm repo docs roots resolve to the selected repository folder.
+            self.assertEqual(
+                providers._resolve_repo_docs_root(docs_root, "acme/platform-web"),
+                repo_docs_root,
+            )
+
+            # Confirm repo names are inferred from nested docs paths.
+            self.assertEqual(
+                providers._infer_document_repo_name(guide_path, docs_root),
+                "platform-web",
+            )
+
     def test_remote_doc_helpers_cover_github_content_listing_and_fetching(self) -> None:
         """Covers GitHub content decoding, listing recursion, formatting, and remote context fetches."""
 
@@ -153,6 +184,86 @@ class ProviderDocsTests(unittest.TestCase):
         with patch("app.provider_openai_docs.urlopen", return_value=FakeResponse()):
             # Confirm the GitHub JSON-body helper returns the parsed response body.
             self.assertEqual(providers._fetch_github_json_body("https://api.github.com/repos/acme/platform-web", {}), {"ok": True})
+
+    def test_provider_openai_docs_module_helpers_are_exercised_directly(self) -> None:
+        """Covers provider_openai_docs functions directly in addition to provider facades."""
+
+        from app import provider_openai_docs
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            doc_path = Path(temp_dir) / "guide.md"
+            doc_path.write_text("# Guide\n" + ("x" * 40), encoding="utf-8")
+
+            # Confirm read_doc_excerpt truncates long markdown files.
+            self.assertIn("...[truncated]...", provider_openai_docs.read_doc_excerpt(doc_path, 10))
+
+        encoded_text = base64.b64encode(b"# Remote\nBody").decode("utf-8")
+
+        # Confirm decode_github_contents_body only accepts base64-encoded GitHub payloads.
+        self.assertEqual(
+            provider_openai_docs.decode_github_contents_body({"content": encoded_text, "encoding": "base64"}),
+            "# Remote\nBody",
+        )
+
+        # Confirm format_remote_doc_section labels and truncates remote doc bodies.
+        self.assertIn("### repo/docs/guide.md", provider_openai_docs.format_remote_doc_section("repo/docs/guide.md", "body", 3))
+
+        def fake_fetch(url, headers):
+            """Returns a minimal GitHub directory listing fixture."""
+
+            # Return the README payload when the README endpoint is requested.
+            if url.endswith("/readme"):
+                return {"path": "README.md", "content": encoded_text, "encoding": "base64"}
+
+            # Return one markdown file when listing or fetching docs content.
+            if url.endswith("/contents/docs"):
+                return [{"type": "file", "path": "docs/guide.md"}]
+            return {"type": "file", "path": "docs/guide.md", "content": encoded_text, "encoding": "base64"}
+
+        # Confirm list_github_markdown_paths discovers markdown files under a directory.
+        self.assertEqual(
+            provider_openai_docs.list_github_markdown_paths(
+                "https://api.github.com/repos/acme/platform-web",
+                {},
+                directory_path="docs",
+                max_files=2,
+                fetch_github_json_body=fake_fetch,
+            ),
+            ["docs/guide.md"],
+        )
+
+        settings = get_settings().__class__(**{**get_settings().__dict__, "github_owner": "acme"})
+
+        # Confirm fetch_remote_repo_doc_context assembles labeled README and docs sections.
+        remote_context = provider_openai_docs.fetch_remote_repo_doc_context(
+            settings,
+            repo_name="platform-web",
+            per_doc_chars=50,
+            max_docs=2,
+            build_github_request_headers=lambda settings_arg: {},
+            fetch_github_json_body=fake_fetch,
+            decode_github_contents_body=provider_openai_docs.decode_github_contents_body,
+            list_github_markdown_paths=provider_openai_docs.list_github_markdown_paths,
+            format_remote_doc_section=provider_openai_docs.format_remote_doc_section,
+        )
+        self.assertIn("platform-web/README.md", remote_context)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs_root = Path(temp_dir) / "docs"
+            docs_root.mkdir()
+            (docs_root / "architecture.md").write_text("# Architecture", encoding="utf-8")
+            local_settings = get_settings().__class__(**{**get_settings().__dict__, "docs_directory": str(docs_root)})
+
+            # Confirm collect_doc_context builds labeled local markdown sections.
+            local_context = provider_openai_docs.collect_doc_context(
+                local_settings,
+                repo_name="",
+                per_doc_chars=50,
+                max_docs=3,
+                resolve_repo_docs_root=lambda docs_root_arg, repo_name_arg: None,
+                read_doc_excerpt=provider_openai_docs.read_doc_excerpt,
+            )
+            self.assertIn("### docs/architecture.md", local_context)
 
 
 if __name__ == "__main__":

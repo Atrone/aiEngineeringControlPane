@@ -250,6 +250,15 @@ class ProviderEnrichmentTests(unittest.TestCase):
             with self.assertRaises(providers.OpenAIEnrichmentError):
                 providers.suggest_next_actions_for_runs(settings, runs=[{"ticket": "ACP-1"}])
 
+    def test_build_review_effort_label_maps_minute_buckets(self) -> None:
+        """Covers provider_openai._build_review_effort_label via the providers facade."""
+
+        # Confirm review-effort labels map OpenAI minute guesses into stable buckets.
+        self.assertEqual(providers._build_review_effort_label(5), "Quick review")
+        self.assertEqual(providers._build_review_effort_label(20), "Moderate review")
+        self.assertEqual(providers._build_review_effort_label(45), "Deep review")
+        self.assertEqual(providers._build_review_effort_label(90), "Extended review")
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

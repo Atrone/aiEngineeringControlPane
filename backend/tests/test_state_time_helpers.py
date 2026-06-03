@@ -83,6 +83,28 @@ class StateTimeHelperTests(unittest.TestCase):
         self.assertEqual(evidence_entries[1]["detail"], "Second proof")
         self.assertEqual(evidence_entries[1]["status"], "captured")
 
+    def test_format_cursor_agent_runtime_formats_elapsed_time(self) -> None:
+        """Covers state_time._format_cursor_agent_runtime via the state wrapper."""
+
+        fixed_now = datetime(2026, 4, 24, 12, 2, tzinfo=timezone.utc)
+
+        with patch("app.state._utc_now", return_value=fixed_now), patch(
+            "app.state._parse_timestamp",
+            return_value=datetime(2026, 4, 24, 12, 0, tzinfo=timezone.utc),
+        ):
+            # Confirm finished Cursor runs never display a zero-second runtime.
+            self.assertEqual(
+                state._format_cursor_agent_runtime({"createdAt": "2026-04-24T12:00:00+00:00"}, require_nonzero=True),
+                "02:00",
+            )
+
+            # Confirm in-progress Cursor runs can display zero seconds when elapsed time is tiny.
+            with patch("app.state._utc_now", return_value=datetime(2026, 4, 24, 12, 0, tzinfo=timezone.utc)):
+                self.assertEqual(
+                    state._format_cursor_agent_runtime({"createdAt": "2026-04-24T12:00:00+00:00"}, require_nonzero=False),
+                    "00:00",
+                )
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

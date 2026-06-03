@@ -160,6 +160,43 @@ class StatePullRequestSyncHelperTests(unittest.TestCase):
             self.assertEqual(public_run["liveView"], {"timeline": []})
             self.assertEqual(public_run["pullRequest"]["url"], "https://github.com/acme/platform-web/pull/acp-1")
 
+    def test_issue_tracker_dispatch_and_traceability_snapshot_helpers(self) -> None:
+        """Covers state_pull_requests._sync_issue_tracker_status_from_pr and _build_traceability_snapshot."""
+
+        from app import state_pull_requests
+
+        run = {"id": "run-1", "ticket": "ACP-1", "status": "Review"}
+        settings = get_settings()
+        pr_state = {"state": "open", "merged": False, "approved": False, "source": "simulated"}
+
+        with patch("app.state._sync_linear_issue_status_from_pr") as sync_linear_mock, patch(
+            "app.state._sync_jira_issue_status_from_pr"
+        ) as sync_jira_mock:
+            # Confirm the dispatcher invokes both Linear and Jira sync helpers.
+            state._sync_issue_tracker_status_from_pr(run, settings=settings, pr_state=pr_state)
+            sync_linear_mock.assert_called_once_with(run, settings=settings, pr_state=pr_state)
+            sync_jira_mock.assert_called_once_with(run, settings=settings, pr_state=pr_state)
+            state_pull_requests._sync_issue_tracker_status_from_pr(run, settings=settings, pr_state=pr_state)
+
+        traceability_run = {
+            "ticket": "ACP-2",
+            "status": "Review",
+            "evidence": {"diff": ["change"], "tests": ["pass"], "commands": [], "rationale": ["why"]},
+            "liveView": {"evidenceTabs": {"diff": ["live diff"], "tests": [], "rationale": []}},
+        }
+
+        # Confirm traceability snapshots count evidence and preserve review metadata.
+        snapshot = state._build_traceability_snapshot(
+            traceability_run,
+            issue={"provider": "linear", "status": "In Progress"},
+            pull_request={"status": "open", "source": "simulated"},
+            approval_history=[{"decision": "approve"}],
+        )
+        self.assertEqual(snapshot["ticket"], "ACP-2")
+        self.assertEqual(snapshot["capturedEvidenceCount"], 4)
+        self.assertEqual(snapshot["latestDecision"], "approve")
+        self.assertTrue(snapshot["preservedFromInProgress"])
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

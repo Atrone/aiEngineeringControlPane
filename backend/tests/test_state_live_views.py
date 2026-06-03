@@ -177,6 +177,28 @@ class StateLiveViewTests(unittest.TestCase):
             self.assertEqual(completed_run["status"], "Review")
             self.assertEqual(completed_run["currentStep"], "Review package ready")
 
+    def test_github_copilot_live_view_builds_timeline_logs_and_pr_rationale(self) -> None:
+        """Covers state_live_views._build_github_copilot_live_view via the state wrapper."""
+
+        run = self._build_run()
+        run["_githubCopilotAgent"] = {
+            "id": "github-copilot-123",
+            "status": "ASSIGNED",
+            "createdAt": "2026-04-24T11:58:00+00:00",
+            "target": {
+                "url": "https://github.com/acme/platform-web/issues/42",
+                "prUrl": "https://github.com/acme/platform-web/pull/43",
+            },
+        }
+        run["_githubCopilotPromptSummary"] = "Sent the task to GitHub Copilot."
+
+        with patch("app.state._utc_timestamp", return_value="2026-04-24T12:00:00+00:00"):
+            # Confirm the Copilot live view exposes timeline, logs, and PR rationale entries.
+            copilot_live_view = state._build_github_copilot_live_view(run)
+            self.assertEqual(copilot_live_view["timeline"][0]["id"], "github-copilot-launch")
+            self.assertIn("issues/42", copilot_live_view["logs"][0]["message"])
+            self.assertEqual(copilot_live_view["evidenceTabs"]["rationale"][-1]["summary"], "Pull request link available")
+
 
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.

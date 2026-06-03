@@ -101,6 +101,23 @@ class ProviderGitHubCopilotTests(unittest.TestCase):
                 )
 
 
+    def test_github_copilot_header_and_issue_body_helpers_format_requests(self) -> None:
+        """Covers provider_github_copilot._build_github_copilot_headers and _build_github_copilot_issue_body."""
+
+        # Confirm Copilot headers include the normalized bearer token and GitHub API metadata.
+        headers = providers._build_github_copilot_headers("Bearer gh-token")
+        self.assertEqual(headers["Authorization"], "Bearer gh-token")
+        self.assertEqual(headers["Accept"], "application/vnd.github+json")
+
+        # Confirm issue bodies preserve the prompt and upstream tracker link.
+        issue_body = providers._build_github_copilot_issue_body(
+            "Implement the requested change.",
+            {"url": "https://linear.app/acme/issue/ACP-1"},
+        )
+        self.assertIn("Implement the requested change.", issue_body)
+        self.assertIn("Source issue: https://linear.app/acme/issue/ACP-1", issue_body)
+
+
 if __name__ == "__main__":
     # Allow the module to be executed directly during focused local checks.
     unittest.main()

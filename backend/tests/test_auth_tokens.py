@@ -45,6 +45,10 @@ class AuthTokenHelpersTests(unittest.TestCase):
         self.assertEqual(auth._normalize_role("ADMIN"), "admin")
         self.assertEqual(auth._normalize_role("viewer"), "admin")
 
+        # Confirm team ids are normalized and blank values fall back to the default team.
+        self.assertEqual(auth._normalize_team_id(" Platform Team "), "platform team")
+        self.assertEqual(auth._normalize_team_id(""), "default")
+
         # Confirm repository parsing trims whitespace and removes empty values.
         self.assertEqual(
             auth._parse_repositories(" repo-one , ,repo-two, repo-three "),
