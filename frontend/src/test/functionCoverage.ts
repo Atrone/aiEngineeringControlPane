@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-const srcDir = path.join(import.meta.dirname, '..');
+const srcDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const skipFiles = new Set([
   'main.tsx',
   'test/setup.ts',
@@ -110,8 +111,8 @@ export function loadTestSource(): string {
     .concat(
       fs
         .readdirSync(path.join(srcDir, 'test'))
-        .filter((entry) => entry.endsWith('.test.ts') || entry.endsWith('.test.tsx'))
-        .map((entry) => path.join(srcDir, 'test', entry)),
+        .filter((entry: string) => entry.endsWith('.test.ts') || entry.endsWith('.test.tsx'))
+        .map((entry: string) => path.join(srcDir, 'test', entry)),
     )
     .concat(
       fs

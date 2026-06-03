@@ -291,7 +291,7 @@ describe('App pure helper functions', () => {
 
   it('buildReviewNoteTraceSummary and collectTaskDetailReferenceLinks dedupe duplicate URLs', () => {
     const run = createRunFixture({
-      ci: { workflow: 'CI', summary: 'See https://ci.example.com/build/1 and https://ci.example.com/build/1 again.' },
+      ci: { workflow: 'CI', status: 'passed', summary: 'See https://ci.example.com/build/1 and https://ci.example.com/build/1 again.' },
     });
 
     expect(collectTaskDetailReferenceLinks(run).ciLinks).toEqual(['https://ci.example.com/build/1']);

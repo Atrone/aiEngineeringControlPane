@@ -644,15 +644,30 @@ describe('App route and page component functions', () => {
         };
       }
 
-      return { data: { wellScopedIssueIds: ['issue-1'], poorlyScopedIssueIds: [] }, error: null, isLoading: false };
+      return {
+        data: {
+          wellScopedIssueIds: ['issue-1'],
+          poorlyScopedIssueIds: [],
+          model: 'test-model',
+          issueCount: 1,
+        },
+        error: null,
+        isLoading: false,
+      };
     });
-    vi.mocked(api.enrichIntakeField).mockResolvedValue({ value: 'Refined prompt', docsConsidered: true, model: 'test-model' });
+    vi.mocked(api.enrichIntakeField).mockResolvedValue({
+      field: 'prompt',
+      value: 'Refined prompt',
+      docsConsidered: true,
+      model: 'test-model',
+    });
     vi.mocked(api.identifyRepositoryForIssue).mockResolvedValue({
       repoName: 'platform-web',
       repoFullName: 'acme/platform-web',
       confidence: 0.9,
       reasoning: 'Best match.',
       model: 'test-model',
+      docsConsidered: true,
     });
 
     renderWithRouter(<WorkIntakePage />, '/intake');
@@ -684,15 +699,16 @@ describe('App route and page component functions', () => {
 
   it('handleGitHubConnect handleLinearConnect handleJiraConnect handleCursorConnect and handleGitHubCopilotConnect save integration setup', async () => {
     mockedUseApiQuery().mockReturnValue({
-      data: { statuses: [integrationStatus] },
+      data: { statuses: [integrationStatus], currentUser },
       error: null,
       isLoading: false,
     });
-    vi.mocked(api.connectGitHub).mockResolvedValue({ statuses: [integrationStatus] });
-    vi.mocked(api.connectLinear).mockResolvedValue({ statuses: [integrationStatus] });
-    vi.mocked(api.connectJira).mockResolvedValue({ statuses: [integrationStatus] });
-    vi.mocked(api.connectCursor).mockResolvedValue({ statuses: [integrationStatus] });
-    vi.mocked(api.connectGitHubCopilot).mockResolvedValue({ statuses: [integrationStatus] });
+    const integrationsPayload = { statuses: [integrationStatus], currentUser };
+    vi.mocked(api.connectGitHub).mockResolvedValue(integrationsPayload);
+    vi.mocked(api.connectLinear).mockResolvedValue(integrationsPayload);
+    vi.mocked(api.connectJira).mockResolvedValue(integrationsPayload);
+    vi.mocked(api.connectCursor).mockResolvedValue(integrationsPayload);
+    vi.mocked(api.connectGitHubCopilot).mockResolvedValue(integrationsPayload);
 
     renderWithRouter(<IntegrationsPage currentUser={currentUser} />, '/integrations');
     expect(await screen.findByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useIntakeForm } from './useIntakeForm';
 import * as api from '../lib/api';
@@ -36,11 +36,17 @@ describe('useIntakeForm', () => {
       }
 
       capturedLoaders.push(loader as () => Promise<unknown>);
-      return { data: { wellScopedIssueIds: [issue.id], poorlyScopedIssueIds: [] }, error: null, isLoading: false };
+      return {
+        data: { wellScopedIssueIds: [issue.id], poorlyScopedIssueIds: [], model: 'test-model', issueCount: 1 },
+        error: null,
+        isLoading: false,
+      };
     });
     vi.mocked(api.classifyIntakeIssuesByScope).mockResolvedValue({
       wellScopedIssueIds: [issue.id],
       poorlyScopedIssueIds: [],
+      model: 'test-model',
+      issueCount: 1,
     });
 
     renderHook(() => useIntakeForm());
@@ -49,6 +55,8 @@ describe('useIntakeForm', () => {
     await expect(capturedLoaders[capturedLoaders.length - 1]()).resolves.toEqual({
       wellScopedIssueIds: [issue.id],
       poorlyScopedIssueIds: [],
+      model: 'test-model',
+      issueCount: 1,
     });
     expect(api.classifyIntakeIssuesByScope).toHaveBeenCalledWith({ issueIds: [issue.id] });
   });
