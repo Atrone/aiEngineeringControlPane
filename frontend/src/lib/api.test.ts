@@ -218,6 +218,17 @@ describe('auth API functions', () => {
     Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
   });
 
+  it('setPendingGoogleTeamId getPendingGoogleTeamId and clearPendingGoogleTeamId manage Google team storage', async () => {
+    window.sessionStorage.setItem('ai-control-pane.google-team-id', 'platform-team');
+    const session = { sessionToken: 'google-token', currentUser: { name: 'Maya Chen', email: 'maya@example.com', role: 'admin', teamId: 'platform-team', provider: 'google' } };
+    const fetchMock = vi.fn().mockResolvedValue(createJsonResponse(session));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(exchangeGoogleAuthCode('oauth-code')).resolves.toEqual(session);
+
+    expect(window.sessionStorage.getItem('ai-control-pane.google-team-id')).toBeNull();
+  });
+
   it('exchanges Google auth code and persists the session token', async () => {
     const session = { sessionToken: 'google-token', currentUser: { name: 'Maya Chen', email: 'maya@example.com', role: 'admin', teamId: 'platform-team', provider: 'google' } };
     const fetchMock = vi.fn().mockResolvedValue(createJsonResponse(session));

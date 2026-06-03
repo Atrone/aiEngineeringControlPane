@@ -52,6 +52,7 @@ vi.mock('./lib/api', () => ({
   clearSessionToken: vi.fn(),
   connectCursor: vi.fn(),
   connectGitHub: vi.fn(),
+  connectGitHubCopilot: vi.fn(),
   connectJira: vi.fn(),
   connectLinear: vi.fn(),
   createApprovalDecision: vi.fn(),
@@ -192,7 +193,7 @@ describe('App route and page component functions', () => {
     mockedUseApiQuery().mockReturnValue({ data: null, error: null, isLoading: true });
   });
 
-  it('renders the public landing page before sign-in', () => {
+  it('renders the public landing page before sign-in and LandingPage handleWorkflowScreenshotOpen handleWorkflowScreenshotClose manage the dialog', () => {
     renderWithRouter(<LandingPage />, '/');
 
     expect(screen.getByText('Coordinate AI work across team servers.')).toBeInTheDocument();
@@ -209,7 +210,7 @@ describe('App route and page component functions', () => {
     expect(screen.queryByRole('dialog', { name: 'Run lobby screenshot preview' })).not.toBeInTheDocument();
   });
 
-  it('renders App signed-out flow and SignInPage submit behavior', async () => {
+  it('renders App signed-out flow and SignInPage handleSubmit behavior', async () => {
     renderWithRouter(<App />, '/');
 
     expect(screen.getByText('Coordinate AI work across team servers.')).toBeInTheDocument();
@@ -226,7 +227,7 @@ describe('App route and page component functions', () => {
     });
   });
 
-  it('renders SignInPage Google flow when SSO is enabled', async () => {
+  it('SignInPage loadAuthConfig handleSubmit and handleGoogleSignInClick render the configured sign-in methods', async () => {
     vi.mocked(api.fetchAuthConfig).mockResolvedValue({ googleSsoEnabled: true, guidedSignInEnabled: false });
 
     renderWithRouter(<SignInPage onSignedIn={vi.fn()} />, '/sign-in');
@@ -238,7 +239,7 @@ describe('App route and page component functions', () => {
     expect(api.beginGoogleSignIn).toHaveBeenCalledWith('platform');
   });
 
-  it('renders RootLayout, handles sign out, and gates roles', async () => {
+  it('renders RootLayout, handleSignOutClick forwards sign out, and gates roles', async () => {
     const onSignedOut = vi.fn().mockResolvedValue(undefined);
 
     render(
@@ -260,6 +261,11 @@ describe('App route and page component functions', () => {
 
     render(<RoleGate allowedRoles={['admin']} currentUser={currentUser} title="Settings"><p>Allowed</p></RoleGate>);
     expect(screen.getByText('Allowed')).toBeInTheDocument();
+  });
+
+  it('RoleGate blocks routes when the signed-in role is not allowed', () => {
+    render(<RoleGate allowedRoles={[]} currentUser={currentUser} title="Settings"><p>Allowed</p></RoleGate>);
+    expect(screen.getByText('Settings is limited to reviewers.')).toBeInTheDocument();
   });
 
   it('renders Google callback error state without exchanging a code', async () => {
@@ -553,5 +559,175 @@ describe('App route and page component functions', () => {
 
     expect(screen.getByText('Open the current pull request to approve the work in GitHub; the run room will sync the PR review state.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Approve' })).toHaveAttribute('href', 'https://github.com/octo/repo/pull/42');
+  });
+
+  it('EvidenceTabPanel buildEvidenceTabId buildEvidencePanelId and handleEvidenceTabKeyDown support keyboard navigation', () => {
+    const onTabChange = vi.fn();
+    const run = createRunFixture();
+
+    render(<EvidenceTabPanel activeTab="diff" liveView={run.liveView!} onTabChange={onTabChange} />);
+
+    const tablist = screen.getByRole('tablist', { name: 'Evidence categories' });
+    screen.getByRole('tab', { name: 'Diff (1)' }).focus();
+    fireEvent.keyDown(tablist, { key: 'ArrowRight' });
+    expect(onTabChange).toHaveBeenCalledWith('tests');
+  });
+
+  it('restoreSession handleSignedIn and handleSignedOut rebuild the signed-in App shell', async () => {
+    vi.mocked(api.hasSessionToken).mockReturnValue(true);
+    vi.mocked(api.fetchCurrentUser).mockResolvedValue(currentUser);
+    mockedUseApiQuery().mockReturnValue({
+      data: {
+        metrics: [],
+        runs: [createRunFixture()],
+        blockedReasons: [],
+        suggestedActions: [],
+        integrationStatuses: [integrationStatus],
+        currentUser,
+      },
+      error: null,
+      isLoading: false,
+    });
+
+    renderWithRouter(<App />, '/dashboard');
+
+    await waitFor(() => {
+      expect(api.fetchCurrentUser).toHaveBeenCalled();
+    });
+    expect(await screen.findByText('Pick a server, use channel filters to narrow runs, then open the run room for evidence and review.')).toBeInTheDocument();
+  });
+
+  it('handleTeamSelect handleMissionSearchChange handleMissionStatusFilterChange handleMissionRepoFilterChange handleMissionOwnerFilterChange handleMissionRiskFilterChange and handleClearMissionFilters narrow the dashboard lobby', async () => {
+    const run = createRunFixture();
+    const blockedRun = createRunFixture({ id: 'run-2', ticket: 'ACP-2', status: 'Blocked', blockers: ['Missing token'] });
+    mockedUseApiQuery().mockReturnValue({
+      data: {
+        metrics: [],
+        runs: [run, blockedRun],
+        blockedReasons: [],
+        suggestedActions: [],
+        integrationStatuses: [integrationStatus],
+        currentUser,
+      },
+      error: null,
+      isLoading: false,
+    });
+
+    renderWithRouter(<DashboardPage />, '/dashboard');
+
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'Blocked' } });
+    fireEvent.change(screen.getByLabelText('Repository'), { target: { value: 'platform-web' } });
+    fireEvent.change(screen.getByLabelText('Owner'), { target: { value: 'Maya Chen' } });
+    fireEvent.change(screen.getByLabelText('Risk'), { target: { value: 'Medium' } });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(screen.getByLabelText('Status')).toHaveValue('');
+  });
+
+  it('handleSubmit handleEnrichField handleIdentifyRepository handleUploadedDocumentsChange and handleRemoveUploadedDocument manage intake workflows', async () => {
+    mockedUseApiQuery().mockImplementation((queryFn) => {
+      if (queryFn === api.fetchIntakeOptions) {
+        return {
+          data: {
+            repositories: [{ id: 'platform-web', name: 'platform-web', fullName: 'acme/platform-web', defaultBranch: 'main', private: false, provider: 'github', url: '' }],
+            issues: [{ ...issue, id: 'issue-1' }],
+            documents: [{ ...documentRecord, id: 'doc-platform', repoName: 'platform-web' }],
+            currentUser,
+            integrationStatuses: [integrationStatus],
+          },
+          error: null,
+          isLoading: false,
+        };
+      }
+
+      return { data: { wellScopedIssueIds: ['issue-1'], poorlyScopedIssueIds: [] }, error: null, isLoading: false };
+    });
+    vi.mocked(api.enrichIntakeField).mockResolvedValue({ value: 'Refined prompt', docsConsidered: true, model: 'test-model' });
+    vi.mocked(api.identifyRepositoryForIssue).mockResolvedValue({
+      repoName: 'platform-web',
+      repoFullName: 'acme/platform-web',
+      confidence: 0.9,
+      reasoning: 'Best match.',
+      model: 'test-model',
+    });
+
+    renderWithRouter(<WorkIntakePage />, '/intake');
+    await screen.findByRole('button', { name: 'Identify repository' });
+
+    fireEvent.click(screen.getByRole('radio', { name: /ACP-1/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Enrich prompt/i }));
+    await waitFor(() => {
+      expect(api.enrichIntakeField).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Identify repository' }));
+    await waitFor(() => {
+      expect(api.identifyRepositoryForIssue).toHaveBeenCalledWith({ issueId: 'issue-1' });
+    });
+
+    const uploadInput = screen.getByLabelText('Repo documents');
+    const uploadFile = new File(['# Notes'], 'notes.md', { type: 'text/markdown' });
+    fireEvent.change(uploadInput, { target: { files: [uploadFile] } });
+
+    await waitFor(() => {
+      expect(screen.getByText('notes')).toBeInTheDocument();
+      expect(screen.getByText('uploads/notes.md')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(screen.queryByText('uploads/notes.md')).not.toBeInTheDocument();
+  });
+
+  it('handleGitHubConnect handleLinearConnect handleJiraConnect handleCursorConnect and handleGitHubCopilotConnect save integration setup', async () => {
+    mockedUseApiQuery().mockReturnValue({
+      data: { statuses: [integrationStatus] },
+      error: null,
+      isLoading: false,
+    });
+    vi.mocked(api.connectGitHub).mockResolvedValue({ statuses: [integrationStatus] });
+    vi.mocked(api.connectLinear).mockResolvedValue({ statuses: [integrationStatus] });
+    vi.mocked(api.connectJira).mockResolvedValue({ statuses: [integrationStatus] });
+    vi.mocked(api.connectCursor).mockResolvedValue({ statuses: [integrationStatus] });
+    vi.mocked(api.connectGitHubCopilot).mockResolvedValue({ statuses: [integrationStatus] });
+
+    renderWithRouter(<IntegrationsPage currentUser={currentUser} />, '/integrations');
+    expect(await screen.findByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('GitHub owner or organization'), { target: { value: 'acme' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect GitHub' }));
+    await waitFor(() => {
+      expect(api.connectGitHub).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Linear' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Jira' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Cursor' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Copilot' }));
+
+    await waitFor(() => {
+      expect(api.connectGitHubCopilot).toHaveBeenCalled();
+    });
+  });
+
+  it('GoogleAuthCallbackPage completeGoogleSignIn exchanges a callback code for a session', async () => {
+    const onSignedIn = vi.fn();
+    vi.mocked(api.exchangeGoogleAuthCode).mockResolvedValue({ sessionToken: 'token', currentUser });
+
+    render(
+      <MemoryRouter initialEntries={['/auth/callback?code=oauth-code']}>
+        <Routes>
+          <Route element={<GoogleAuthCallbackPage onSignedIn={onSignedIn} />} path="/auth/callback" />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(api.exchangeGoogleAuthCode).toHaveBeenCalledWith('oauth-code');
+    });
+    expect(onSignedIn).toHaveBeenCalledWith(currentUser);
   });
 });

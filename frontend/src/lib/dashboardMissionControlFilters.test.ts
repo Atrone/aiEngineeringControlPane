@@ -32,7 +32,7 @@ function buildRun(overrides: Partial<RunSummary> = {}): RunSummary {
 }
 
 describe('dashboardMissionControlFilters', () => {
-  it('matches search tokens across ticket, title, repo, agent, and owner fields', () => {
+  it('normalizeMissionControlSearchText and runMatchesMissionControlSearch match search tokens across run fields', () => {
     const runs = [
       buildRun({ id: 'a', ticket: 'ACP-1', title: 'Dashboard', repo: 'frontend' }),
       buildRun({ id: 'b', ticket: 'ACP-2', title: 'API work', repo: 'api-service', owner: 'Jordan' }),
@@ -43,7 +43,7 @@ describe('dashboardMissionControlFilters', () => {
     expect(filterMissionControlRuns(runs, criteria).map((run) => run.id)).toEqual(['b']);
   });
 
-  it('applies status, repository, owner, and risk filters together', () => {
+  it('runMatchesMissionControlStatus runMatchesMissionControlRepo runMatchesMissionControlOwner and runMatchesMissionControlRisk apply together', () => {
     const runs = [
       buildRun({ id: 'keep', status: 'Blocked', repo: 'web-app', owner: 'Sam', risk: 'High' }),
       buildRun({ id: 'drop', status: 'Review', repo: 'web-app', owner: 'Sam', risk: 'High' }),

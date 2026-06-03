@@ -101,4 +101,22 @@ describe('useApiQuery', () => {
 
     expect(loader).toHaveBeenCalledTimes(1);
   });
+
+  it('useApiQuery runLoader refreshes data when polling is enabled', async () => {
+    vi.useFakeTimers();
+    const loader = vi.fn().mockResolvedValueOnce('first').mockResolvedValueOnce('second');
+
+    const { result } = renderHook(() => useApiQuery(loader, [], { pollIntervalMs: 500 }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.data).toBe('first');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(result.current.data).toBe('second');
+  });
 });

@@ -43,6 +43,10 @@ import {
   isIssueTrackerRun,
   parseRuntimeSeconds,
   resolveCurrentPullRequestUrl,
+  resolvePullRequestArtifactUrl,
+  resolveRunBranchUrl,
+  resolveRunRepositoryUrl,
+  resolveRunValidationUrl,
   shouldShowRunLobbyPullRequest,
 } from './appHelpers';
 import * as api from './api';
@@ -109,6 +113,10 @@ describe('App pure helper functions', () => {
         'Platform Web',
       ).map((document) => document.id),
     ).toEqual(['doc-platform', 'doc-shared']);
+    expect(getDocumentsForRepository(
+      [{ ...documentRecord, id: 'shared-top-level', path: 'docs/overview.md', repoName: undefined }],
+      'platform-web',
+    ).map((document) => document.id)).toEqual(['shared-top-level']);
     expect(isActionableBlocker('No active blockers')).toBe(false);
     expect(isActionableBlocker('Missing API key')).toBe(true);
     expect(parseRuntimeSeconds('02:30')).toBe(150);
@@ -157,6 +165,9 @@ describe('App pure helper functions', () => {
     expect(getNavLinkClassName('/dashboard', '/settings')).toBe('nav-link');
     expect(buildShellPageTitle('/tasks/run-1')).toBe('Run Room');
     expect(buildShellPageTitle('/intake')).toBe('Delegate to agent');
+    expect(buildShellPageTitle('/settings')).toBe('Settings');
+    expect(buildShellPageTitle('/integrations')).toBe('Settings');
+    expect(buildShellPageTitle('/dashboard')).toBe('Run Channels');
     expect(formatExecutionModeLabel('implement')).toContain('Implement');
     expect(formatExecutionModeLabel('research')).toContain('Research');
     expect(formatExecutionModeLabel('unknown-mode')).toBe('unknown-mode');
@@ -260,5 +271,30 @@ describe('App pure helper functions', () => {
     expect(links.interfaceLinks).toContain('https://github.com/octo/repo/pull/42');
     expect(links.ciLinks).toEqual(['https://ci.example.com/build/1']);
     expect(links.evidenceLinks).toContain('https://preview.example.com');
+  });
+
+  it('resolveRunRepositoryUrl resolveRunBranchUrl resolvePullRequestArtifactUrl and resolveRunValidationUrl build artifact links', () => {
+    const run = createRunFixture();
+
+    expect(resolveRunRepositoryUrl(run)).toBe('https://github.com/octo/repo');
+    expect(resolveRunBranchUrl(run)).toBe('https://github.com/octo/repo/tree/feature%2Fdashboard');
+    expect(resolvePullRequestArtifactUrl(run, 'commits')).toBe('https://github.com/octo/repo/pull/42/commits');
+    expect(resolveRunValidationUrl(run)).toBe('https://ci.example.com/build/1');
+  });
+
+  it('normalizeRepoDocKey and isSharedTopLevelDocsDocument keep shared docs visible for selected repos', () => {
+    expect(getDocumentsForRepository(
+      [{ ...documentRecord, id: 'shared-top-level', path: 'docs/overview.md', repoName: undefined }],
+      'platform-web',
+    ).map((document) => document.id)).toEqual(['shared-top-level']);
+  });
+
+  it('buildReviewNoteTraceSummary and collectTaskDetailReferenceLinks dedupe duplicate URLs', () => {
+    const run = createRunFixture({
+      ci: { workflow: 'CI', summary: 'See https://ci.example.com/build/1 and https://ci.example.com/build/1 again.' },
+    });
+
+    expect(collectTaskDetailReferenceLinks(run).ciLinks).toEqual(['https://ci.example.com/build/1']);
+    expect(buildRunTraceabilityGraph(run).find((node) => node.id === 'review')?.title).toBeTruthy();
   });
 });
