@@ -25,14 +25,14 @@ import type { AuthConfig, CurrentUser, SignInRequest, UserRole } from '../types/
 function LandingPage() {
   const [selectedWorkflowScreenshotSrc, setSelectedWorkflowScreenshotSrc] = useState<string | null>(null);
   const highlights = [
-    'Route intake from GitHub, Linear, Jira, and docs into one Discord-style review channel.',
-    'Watch agent runs move through channel updates, evidence, blockers, approval, and merge decisions.',
-    'Give reviewers a connected workspace for every automation handoff.',
+    'Route intake from GitHub, Linear, Jira, and docs into one polished shipping lane.',
+    'Watch agent runs move through status updates, evidence, blockers, approval, and merge decisions.',
+    'Give reviewers one modern cockpit for every automation handoff.',
   ];
   const workflowScreenshots = [
     {
-      alt: 'Run Channels lobby showing servers, run metrics, and suggested next actions.',
-      caption: 'Run lobby',
+      alt: 'ShipControl dashboard showing fleet lanes, run metrics, and suggested next actions.',
+      caption: 'Fleet dashboard',
       src: '/landing-run-channels.png',
     },
     {
@@ -56,7 +56,7 @@ function LandingPage() {
       src: '/landing-docs-task-brief.png',
     },
     {
-      alt: 'Run lobby showing an active agent run for a selected server.',
+      alt: 'Fleet dashboard showing an active agent run for a selected team lane.',
       caption: 'Live run tracking',
       src: '/landing-run-lobby-active.png',
     },
@@ -117,8 +117,9 @@ function LandingPage() {
     <main className="landing-shell">
       <nav aria-label="Landing page" className="landing-nav">
         <Link className="landing-brand" to="/">
+          <span className="brand-mark" aria-hidden="true">SC</span>
           <span>
-            <strong>Engineering Command Center</strong>
+            <strong>ShipControl</strong>
           </span>
         </Link>
         <Link className="ghost-button" to="/sign-in">
@@ -128,15 +129,15 @@ function LandingPage() {
 
       <section className="landing-hero" aria-labelledby="landing-title">
         <div className="landing-hero-copy">
-          <p className="eyebrow">engineering operations</p>
-          <h1 id="landing-title">Coordinate AI work across team servers.</h1>
+          <p className="eyebrow">AI delivery operations</p>
+          <h1 id="landing-title">Ship AI work from one sleek control deck.</h1>
           <p className="muted-copy">
-            Engineering Command Center gives product teams one server-like hub to request work, monitor agent execution,
-            inspect evidence, and approve the next step.
+            ShipControl gives product teams a modern cockpit to request work, monitor agent execution, inspect evidence,
+            and approve the next step.
           </p>
           <div className="landing-actions">
             <Link className="primary-button" to="/sign-in">
-              Enter command center
+              Enter ShipControl
             </Link>
             <a className="ghost-button" href="#landing-workflow">
               See how it works
@@ -144,13 +145,13 @@ function LandingPage() {
           </div>
         </div>
 
-        <div className="landing-preview-card" aria-label="Run room preview">
+        <div className="landing-preview-card" aria-label="Shipping lane preview">
           <div className="landing-preview-header">
             <span className="status-badge status-running">Live run</span>
             <span className="subtle-copy">checkout-flow</span>
           </div>
           <div className="landing-preview-room">
-            <p className="eyebrow">run room</p>
+            <p className="eyebrow">shipping lane</p>
             <h2>Ship mobility payment retry copy</h2>
             <p className="muted-copy">Evidence is ready, CI passed, and one reviewer decision is waiting.</p>
             <div className="landing-preview-grid">
@@ -175,7 +176,7 @@ function LandingPage() {
       <section className="landing-workflow-panel" id="landing-workflow" aria-labelledby="landing-workflow-title">
         <div className="landing-workflow-copy">
           <p className="eyebrow">How it works</p>
-          <h2 id="landing-workflow-title">From request to reviewed pull request in one command center.</h2>
+          <h2 id="landing-workflow-title">From request to reviewed pull request in one shipping deck.</h2>
         </div>
         <ol className="landing-workflow-list">
           <li>
@@ -250,7 +251,7 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
     }
   }
 
-  // Keep the shell visible so the app feels like a Discord-inspired team workspace.
+  // Keep the shell visible so ShipControl feels like a focused delivery workspace.
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -259,22 +260,23 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
 
       <aside aria-label="Workspace navigation" className="sidebar">
         <div className="brand-card discord-brand-card">
-          <h1>Engineering</h1>
+          <span className="brand-mark sidebar-brand-mark" aria-hidden="true">SC</span>
+          <h1>ShipControl</h1>
           <p className="muted-copy">
-            Servers, channels, runs, and reviews stay connected in one Engineering Command Center.
+            Work lanes, agent runs, evidence, and reviews stay connected in one polished delivery cockpit.
           </p>
         </div>
 
         <nav aria-label="Primary" className="nav-list">
           <Link className={getNavLinkClassName(location.pathname, '/dashboard')} to="/dashboard">
-            # run-lobby
+            Fleet dashboard
           </Link>
           <Link className={getNavLinkClassName(location.pathname, '/intake')} to="/intake">
-            # delegate-agent
+            New shipment
           </Link>
           {canReview ? (
             <Link className={getNavLinkClassName(location.pathname, '/settings')} to="/settings">
-              # settings
+              Settings
             </Link>
           ) : null}
         </nav>
@@ -291,7 +293,7 @@ function RootLayout(props: { currentUser: CurrentUser; onSignedOut: () => Promis
           <header className="topbar">
             <div className="topbar-leading">
               <div>
-                <p className="eyebrow">Product Eng</p>
+                <p className="eyebrow">ShipControl</p>
                 <h2>{pageTitle}</h2>
               </div>
             </div>
@@ -417,7 +419,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
     <div className="auth-shell">
       <section className="auth-panel auth-panel-hero">
         <p className="eyebrow">{googleSsoEnabled ? 'Google SSO' : 'Guided sign-in'}</p>
-        <h1>{googleSsoEnabled ? 'Sign in with Google to enter the command center.' : 'Sign in to enter the command center.'}</h1>
+        <h1>{googleSsoEnabled ? 'Sign in with Google to enter ShipControl.' : 'Sign in to enter ShipControl.'}</h1>
         <p className="muted-copy">
           {googleSsoEnabled
             ? 'Your Google account will be validated by the backend before the session is created, and every successful sign-in is treated as an admin session.'
@@ -448,7 +450,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
           <div className="form-grid">
             <div className="field-group field-group-wide">
               <span>Google sign-in</span>
-              <p className="muted-copy">Continue with Google to create the same app session used by the rest of the control plane.</p>
+              <p className="muted-copy">Continue with Google to create the same app session used by the rest of ShipControl.</p>
             </div>
 
             <label className="field-group">
@@ -492,7 +494,7 @@ function SignInPage(props: { onSignedIn: (user: CurrentUser) => void }) {
 
             <div className="form-actions">
               <button className="primary-button" disabled={isSubmitting || !name || !email || !teamId} type="submit">
-                {isSubmitting ? 'Signing in...' : 'Enter command center'}
+                {isSubmitting ? 'Signing in...' : 'Enter ShipControl'}
               </button>
             </div>
           </form>

@@ -164,10 +164,10 @@ describe('App pure helper functions', () => {
     expect(getNavLinkClassName('/integrations', '/settings')).toBe('nav-link active');
     expect(getNavLinkClassName('/dashboard', '/settings')).toBe('nav-link');
     expect(buildShellPageTitle('/tasks/run-1')).toBe('Run Room');
-    expect(buildShellPageTitle('/intake')).toBe('Delegate to agent');
+    expect(buildShellPageTitle('/intake')).toBe('New Shipment');
     expect(buildShellPageTitle('/settings')).toBe('Settings');
     expect(buildShellPageTitle('/integrations')).toBe('Settings');
-    expect(buildShellPageTitle('/dashboard')).toBe('Run Channels');
+    expect(buildShellPageTitle('/dashboard')).toBe('Fleet Dashboard');
     expect(formatExecutionModeLabel('implement')).toContain('Implement');
     expect(formatExecutionModeLabel('research')).toContain('Research');
     expect(formatExecutionModeLabel('unknown-mode')).toBe('unknown-mode');

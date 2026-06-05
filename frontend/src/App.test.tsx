@@ -196,31 +196,31 @@ describe('App route and page component functions', () => {
   it('renders the public landing page before sign-in and LandingPage handleWorkflowScreenshotOpen handleWorkflowScreenshotClose manage the dialog', () => {
     renderWithRouter(<LandingPage />, '/');
 
-    expect(screen.getByText('Coordinate AI work across team servers.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Enter command center' })).toHaveAttribute('href', '/sign-in');
+    expect(screen.getByText('Ship AI work from one sleek control deck.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Enter ShipControl' })).toHaveAttribute('href', '/sign-in');
     expect(screen.getByRole('link', { name: 'See how it works' })).toHaveAttribute('href', '#landing-workflow');
-    expect(screen.getByRole('heading', { name: 'From request to reviewed pull request in one command center.' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Run Channels lobby showing servers, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
+    expect(screen.getByRole('heading', { name: 'From request to reviewed pull request in one shipping deck.' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'ShipControl dashboard showing fleet lanes, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Enlarge Run lobby screenshot' }));
-    expect(screen.getByRole('dialog', { name: 'Run lobby screenshot preview' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Expanded Run Channels lobby showing servers, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
+    fireEvent.click(screen.getByRole('button', { name: 'Enlarge Fleet dashboard screenshot' }));
+    expect(screen.getByRole('dialog', { name: 'Fleet dashboard screenshot preview' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Expanded ShipControl dashboard showing fleet lanes, run metrics, and suggested next actions.' })).toHaveAttribute('src', '/landing-run-channels.png');
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.queryByRole('dialog', { name: 'Run lobby screenshot preview' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Fleet dashboard screenshot preview' })).not.toBeInTheDocument();
   });
 
   it('renders App signed-out flow and SignInPage handleSubmit behavior', async () => {
     renderWithRouter(<App />, '/');
 
-    expect(screen.getByText('Coordinate AI work across team servers.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('link', { name: 'Enter command center' }));
+    expect(screen.getByText('Ship AI work from one sleek control deck.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'Enter ShipControl' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Sign in to enter the command center.')).toBeInTheDocument();
+      expect(screen.getByText('Sign in to enter ShipControl.')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Enter command center' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enter ShipControl' }));
 
     await waitFor(() => {
       expect(api.signIn).toHaveBeenCalledWith({ name: 'Maya Chen', email: 'maya.chen@example.com', role: 'admin', teamId: 'platform' });
@@ -315,7 +315,7 @@ describe('App route and page component functions', () => {
 
     renderWithRouter(<DashboardPage />, '/dashboard');
 
-    expect(screen.getByText('Pick a server, use channel filters to narrow runs, then open the run room for evidence and review.')).toBeInTheDocument();
+    expect(screen.getByText('Pick a team lane, filter active runs, then open the run room for evidence and review.')).toBeInTheDocument();
     expect(screen.getByLabelText('Search tasks')).toBeInTheDocument();
     expect(screen.getByText('Failing integration test')).toBeInTheDocument();
     await waitFor(() => {
@@ -326,7 +326,7 @@ describe('App route and page component functions', () => {
     });
 
     const suggestionsTitle = await screen.findByText('Suggested next actions');
-    const teamWorkspace = screen.getByRole('region', { name: 'server run workspace' });
+    const teamWorkspace = screen.getByRole('region', { name: 'ShipControl run workspace' });
     const openRunRoomLink = screen.getByRole('link', { name: 'Open run room' });
     const pullRequestContent = screen.getByRole('region', { name: 'Open pull request content' });
 
@@ -594,7 +594,7 @@ describe('App route and page component functions', () => {
     await waitFor(() => {
       expect(api.fetchCurrentUser).toHaveBeenCalled();
     });
-    expect(await screen.findByText('Pick a server, use channel filters to narrow runs, then open the run room for evidence and review.')).toBeInTheDocument();
+    expect(await screen.findByText('Pick a team lane, filter active runs, then open the run room for evidence and review.')).toBeInTheDocument();
   });
 
   it('handleTeamSelect handleMissionSearchChange handleMissionStatusFilterChange handleMissionRepoFilterChange handleMissionOwnerFilterChange handleMissionRiskFilterChange and handleClearMissionFilters narrow the dashboard lobby', async () => {

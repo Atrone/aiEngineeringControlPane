@@ -51,8 +51,8 @@ function buildShellPageTitle(pathname: string): string {
   }
 
   if (pathname === '/intake') {
-    // Match the intake route to the sidebar channel label for agent delegation (SIG-16).
-    return 'Delegate to agent';
+    // Match the intake route to the ShipControl delivery flow label.
+    return 'New Shipment';
   }
 
   if (pathname === '/settings' || pathname === '/integrations') {
@@ -61,7 +61,7 @@ function buildShellPageTitle(pathname: string): string {
   }
 
   // Keep the dashboard title as the default shell landing state.
-  return 'Run Channels';
+  return 'Fleet Dashboard';
 }
 
 /**
@@ -87,9 +87,9 @@ function buildRoleLabel(role: UserRole): string {
  */
 function buildRoleCapabilityItems(): ReactNode[] {
   const capabilities: string[] = [
-    'Access every route in the control plane.',
+    'Access every route in ShipControl.',
     'Launch work, review approval-ready runs, and resolve decisions.',
-    'Manage integrations, sign-in flows, and control-pane governance.',
+    'Manage integrations, sign-in flows, and ShipControl governance.',
   ];
   const capabilityItems: ReactNode[] = [];
 

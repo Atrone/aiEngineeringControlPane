@@ -247,7 +247,7 @@ function DashboardPage() {
   } = useMissionControlDashboard();
   if (query.isLoading) {
     // Render a lightweight loading state while dashboard data is fetched.
-    return <LoadingState message="Loading command center data..." />;
+    return <LoadingState message="Loading ShipControl data..." />;
   }
 
   if (query.error || !query.data) {
@@ -489,13 +489,13 @@ function DashboardPage() {
     ? 'No runs match the current channel filters. Clear or adjust filters to see channels again.'
     : 'No run channels are available for this team.';
 
-  // Surface the operational view as a Discord-style server, channel, and run room.
+  // Surface the operational view as a delivery cockpit with team lanes and a selected run room.
   return (
     <div className="page-grid">
       <section className="hero-panel discord-hero-panel">
         <div>
-          <p className="eyebrow">Live operations</p>
-          <h3>Pick a server, use channel filters to narrow runs, then open the run room for evidence and review.</h3>
+          <p className="eyebrow">Live shipping operations</p>
+          <h3>Pick a team lane, filter active runs, then open the run room for evidence and review.</h3>
         </div>
         <div className="hero-pills">
           <span className="pill">{query.data.currentUser.name}</span>
@@ -508,11 +508,11 @@ function DashboardPage() {
       <section aria-labelledby={`${missionFilterFormId}-legend`} className="mission-control-filter-bar">
         <div className="mission-control-filter-bar-header">
           <p className="eyebrow" id={`${missionFilterFormId}-legend`}>
-            channel filters
+            lane filters
           </p>
           <div className="mission-control-filter-bar-actions">
             <Link className="primary-button link-button" to="/intake">
-              Delegate to agent
+              Launch shipment
             </Link>
             {hasActiveMissionFilters ? (
               <button className="ghost-button" onClick={handleClearMissionFilters} type="button">
@@ -569,17 +569,17 @@ function DashboardPage() {
         </div>
       </section>
 
-      <section className="discord-workspace" aria-label="server run workspace">
-        <div className="server-rail" aria-label="servers">
-          {teamServerButtons.length > 0 ? teamServerButtons : <span className="server-empty-state">B</span>}
+      <section className="discord-workspace" aria-label="ShipControl run workspace">
+        <div className="server-rail" aria-label="team lanes">
+          {teamServerButtons.length > 0 ? teamServerButtons : <span className="server-empty-state">SC</span>}
         </div>
 
         <div className="channel-panel" aria-label="Run channels">
           <div className="channel-panel-header">
-            <p className="eyebrow">server</p>
+            <p className="eyebrow">team lane</p>
             <h3>{selectedTeam?.label ?? 'No team selected'}</h3>
             <p className="subtle-copy" role="status">
-              Showing {filteredTeamRuns.length} of {selectedTeamRuns.length} run channels
+              Showing {filteredTeamRuns.length} of {selectedTeamRuns.length} active runs
               {hasActiveMissionFilters ? ' with filters applied' : ''}.
             </p>
             <p className="subtle-copy">{reviewEffortStatusCopy}</p>
@@ -620,7 +620,7 @@ function DashboardPage() {
             <div className="run-room-card">
               <p className="eyebrow">No match</p>
               <h3>No runs match the current channel filters.</h3>
-              <p className="muted-copy">Clear filters or pick another server to restore the preview card.</p>
+              <p className="muted-copy">Clear filters or pick another team lane to restore the preview card.</p>
               {hasActiveMissionFilters ? (
                 <button className="primary-button" onClick={handleClearMissionFilters} type="button">
                   Clear filters
@@ -629,9 +629,9 @@ function DashboardPage() {
             </div>
           ) : (
             <div className="run-room-card">
-              <p className="eyebrow">No channels</p>
+              <p className="eyebrow">No runs</p>
               <h3>No run channels are available yet.</h3>
-              <p className="muted-copy">New delegated runs will appear here as channels.</p>
+              <p className="muted-copy">New delegated runs will appear here as active shipping lanes.</p>
             </div>
           )}
         </div>

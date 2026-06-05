@@ -1,91 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">AI Engineering Control Plane Favicon</title>
-  <desc id="desc">A dark rounded control-plane tile with connected circuit nodes, a central chip, control sliders, and an AI sparkle.</desc>
+  <title id="title">ShipControl Favicon</title>
+  <desc id="desc">A dark rounded ShipControl tile with a cyan route line and SC monogram.</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="42" x2="0" y2="470" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0b182e"/>
-      <stop offset="1" stop-color="#142442"/>
+    <linearGradient id="bg" x1="72" y1="64" x2="440" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#071827"/>
+      <stop offset=".56" stop-color="#0b2742"/>
+      <stop offset="1" stop-color="#020617"/>
     </linearGradient>
-    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="4" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
+    <linearGradient id="route" x1="118" y1="348" x2="394" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#14b8a6"/>
+    </linearGradient>
   </defs>
-
-  <rect x="42" y="42" width="428" height="428" rx="118" fill="url(#bg)"/>
-  <rect x="42" y="42" width="428" height="428" rx="118" fill="none" stroke="#5ce1ff" stroke-opacity=".42" stroke-width="12"/>
-  <rect x="62" y="62" width="388" height="388" rx="92" fill="none" stroke="#ffffff" stroke-opacity=".1" stroke-width="4"/>
-
-  <g stroke="#49c6eb" stroke-opacity=".59" stroke-width="14" stroke-linecap="round">
-    <line x1="137" y1="139" x2="256" y2="256"/>
-    <line x1="374" y1="139" x2="256" y2="256"/>
-    <line x1="127" y1="338" x2="256" y2="256"/>
-    <line x1="383" y1="339" x2="256" y2="256"/>
-    <line x1="256" y1="107" x2="256" y2="256"/>
-    <line x1="256" y1="405" x2="256" y2="256"/>
-  </g>
-
-  <g>
-    <circle cx="137" cy="139" r="23" fill="#57e5ff"/>
-    <circle cx="137" cy="139" r="10" fill="#0a182e"/>
-    <circle cx="374" cy="139" r="23" fill="#58a6ff"/>
-    <circle cx="374" cy="139" r="10" fill="#0a182e"/>
-    <circle cx="127" cy="338" r="23" fill="#57e5ff"/>
-    <circle cx="127" cy="338" r="10" fill="#0a182e"/>
-    <circle cx="383" cy="339" r="23" fill="#58a6ff"/>
-    <circle cx="383" cy="339" r="10" fill="#0a182e"/>
-    <circle cx="256" cy="107" r="23" fill="#57e5ff"/>
-    <circle cx="256" cy="107" r="10" fill="#0a182e"/>
-    <circle cx="256" cy="405" r="23" fill="#58a6ff"/>
-    <circle cx="256" cy="405" r="10" fill="#0a182e"/>
-  </g>
-
-  <g>
-    <rect x="170" y="168" width="172" height="176" rx="42" fill="#071222" stroke="#d6f8ff" stroke-opacity=".82" stroke-width="10"/>
-
-    <g stroke="#91e8ff" stroke-opacity=".76" stroke-width="9" stroke-linecap="round">
-      <line x1="188" y1="154" x2="188" y2="171"/>
-      <line x1="222" y1="154" x2="222" y2="171"/>
-      <line x1="256" y1="154" x2="256" y2="171"/>
-      <line x1="290" y1="154" x2="290" y2="171"/>
-      <line x1="324" y1="154" x2="324" y2="171"/>
-
-      <line x1="188" y1="341" x2="188" y2="360"/>
-      <line x1="222" y1="341" x2="222" y2="360"/>
-      <line x1="256" y1="341" x2="256" y2="360"/>
-      <line x1="290" y1="341" x2="290" y2="360"/>
-      <line x1="324" y1="341" x2="324" y2="360"/>
-
-      <line x1="154" y1="188" x2="171" y2="188"/>
-      <line x1="154" y1="222" x2="171" y2="222"/>
-      <line x1="154" y1="256" x2="171" y2="256"/>
-      <line x1="154" y1="290" x2="171" y2="290"/>
-      <line x1="154" y1="324" x2="171" y2="324"/>
-
-      <line x1="341" y1="188" x2="360" y2="188"/>
-      <line x1="341" y1="222" x2="360" y2="222"/>
-      <line x1="341" y1="256" x2="360" y2="256"/>
-      <line x1="341" y1="290" x2="360" y2="290"/>
-      <line x1="341" y1="324" x2="360" y2="324"/>
-    </g>
-
-    <g stroke-linecap="round">
-      <line x1="205" y1="210" x2="310" y2="210" stroke="#6289a5" stroke-opacity=".82" stroke-width="10"/>
-      <circle cx="284" cy="210" r="14" fill="#57e5ff" stroke="#ecfaff" stroke-width="4"/>
-
-      <line x1="205" y1="256" x2="310" y2="256" stroke="#6289a5" stroke-opacity=".82" stroke-width="10"/>
-      <circle cx="232" cy="256" r="14" fill="#57e5ff" stroke="#ecfaff" stroke-width="4"/>
-
-      <line x1="205" y1="302" x2="310" y2="302" stroke="#6289a5" stroke-opacity=".82" stroke-width="10"/>
-      <circle cx="304" cy="302" r="14" fill="#57e5ff" stroke="#ecfaff" stroke-width="4"/>
-    </g>
-
-    <path d="M225 186 L234 208 L256 216 L234 224 L225 246 L216 224 L194 216 L216 208 Z" fill="#fff" fill-opacity=".93"/>
-    <path d="M225 199 L231 216 L225 233 L219 216 Z" fill="#57e5ff"/>
-  </g>
-
-  <path d="M98 349 C163 440 349 435 418 328" fill="none" stroke="#ffffff" stroke-opacity=".14" stroke-width="14" stroke-linecap="round"/>
+  <rect x="48" y="48" width="416" height="416" rx="120" fill="url(#bg)"/>
+  <rect x="70" y="70" width="372" height="372" rx="98" fill="none" stroke="#67e8f9" stroke-opacity=".28" stroke-width="8"/>
+  <path d="M126 344 C182 258 242 274 288 202 C315 160 350 142 392 138" fill="none" stroke="url(#route)" stroke-width="22" stroke-linecap="round"/>
+  <circle cx="126" cy="344" r="24" fill="#22d3ee"/>
+  <circle cx="288" cy="202" r="18" fill="#99f6e4"/>
+  <circle cx="392" cy="138" r="24" fill="#14b8a6"/>
+  <text x="256" y="328" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="142" font-weight="900" letter-spacing="-14" text-anchor="middle">SC</text>
 </svg>
