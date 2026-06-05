@@ -94,7 +94,6 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
         "cost": "$1.88",
         "status": "Blocked",
         "risk": "High",
-        "currentStep": "Waiting on test environment secret",
         "summary": "Stabilize callback retries and remove confusing redirect states during failed sign-in attempts.",
         "evidence": {
             "diff": [
@@ -123,7 +122,6 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
         "cost": "$1.12",
         "status": "Retry",
         "risk": "Medium",
-        "currentStep": "Preparing retry strategy",
         "summary": "Resolve a flaky visual test and suggest a policy-safe retry path.",
         "evidence": {
             "diff": [
