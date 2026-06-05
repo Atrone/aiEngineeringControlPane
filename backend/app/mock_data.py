@@ -109,10 +109,7 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
                 "The agent stopped instead of guessing around missing secret access, which matches policy."
             ],
         },
-        "blockers": [
-            "Missing test environment secret",
-            "High-risk auth flow requires approval before merge",
-        ],
+        "blockers": [],
     },
     {
         "id": "acp-149",
@@ -138,7 +135,7 @@ RUN_SUMMARIES: List[Dict[str, Any]] = [
                 "The next retry should reuse cached fixtures and avoid layout race conditions."
             ],
         },
-        "blockers": ["Flaky CI environment"],
+        "blockers": [],
     },
     {
         "id": "acp-138",
