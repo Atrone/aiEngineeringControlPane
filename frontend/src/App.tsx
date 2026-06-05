@@ -481,9 +481,6 @@ function DashboardPage() {
     );
   }
 
-  const blockedReasonsBody = blockedReasonListItems.length > 0
-    ? <ul className="rail-list">{blockedReasonListItems}</ul>
-    : <p className="muted-copy">No blocked reasons are active for the current filters.</p>;
 
   const channelListEmptyCopy = selectedTeamRuns.length > 0 && filteredTeamRuns.length === 0
     ? 'No runs match the current channel filters. Clear or adjust filters to see channels again.'
@@ -565,7 +562,6 @@ function DashboardPage() {
       <section className="content-grid discord-support-grid">
         <div className="rail-stack">
           <Panel body={suggestionsBody} title="Suggested next actions" />
-          <Panel body={blockedReasonsBody} title="Blocked reasons" />
         </div>
       </section>
 
