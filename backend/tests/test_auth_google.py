@@ -18,6 +18,7 @@ class AuthGoogleHelpersTests(unittest.TestCase):
         # Preserve the mutable in-memory auth stores so tests cannot leak state.
         self.original_session_store = dict(auth.SESSION_STORE)
         self.original_state_store = dict(auth.GOOGLE_STATE_STORE)
+        self.original_consumed_state_store = dict(auth.GOOGLE_CONSUMED_STATE_STORE)
         self.original_exchange_store = dict(auth.GOOGLE_EXCHANGE_CODE_STORE)
 
     def tearDown(self) -> None:
@@ -30,6 +31,10 @@ class AuthGoogleHelpersTests(unittest.TestCase):
         # Restore the in-memory Google OAuth state cache.
         auth.GOOGLE_STATE_STORE.clear()
         auth.GOOGLE_STATE_STORE.update(self.original_state_store)
+
+        # Restore the local consumed-state replay cache.
+        auth.GOOGLE_CONSUMED_STATE_STORE.clear()
+        auth.GOOGLE_CONSUMED_STATE_STORE.update(self.original_consumed_state_store)
 
         # Restore the in-memory Google exchange-code cache.
         auth.GOOGLE_EXCHANGE_CODE_STORE.clear()
@@ -74,18 +79,19 @@ class AuthGoogleHelpersTests(unittest.TestCase):
     def test_google_state_and_exchange_helpers_enforce_ttl_and_single_use(self) -> None:
         """Covers Google OAuth state creation, pruning, and exchange-code consumption."""
 
-        with patch("app.auth.token_urlsafe", side_effect=["state-token", "exchange-token"]), patch(
+        with patch("app.auth.token_urlsafe", side_effect=["state-nonce", "exchange-token"]), patch(
             "app.auth.time.time",
-            side_effect=[1000, 1000, 1000, 1001, 1001, 1001],
+            side_effect=[1000, 1000, 1000, 1000, 1001, 1001, 1001],
         ):
             # Confirm state creation persists a one-time state token.
             state_token = auth.create_google_oauth_state()
-            self.assertEqual(state_token, "state-token")
-            self.assertIn("state-token", auth.GOOGLE_STATE_STORE)
+            self.assertNotEqual(state_token, "state-nonce")
+            self.assertIn(state_token, auth.GOOGLE_STATE_STORE)
 
             # Confirm a fresh state token can be consumed exactly once.
-            auth.consume_google_oauth_state("state-token")
-            self.assertNotIn("state-token", auth.GOOGLE_STATE_STORE)
+            auth.consume_google_oauth_state(state_token)
+            self.assertNotIn(state_token, auth.GOOGLE_STATE_STORE)
+            self.assertIn(state_token, auth.GOOGLE_CONSUMED_STATE_STORE)
 
             # Confirm a short-lived exchange code can be stored with normalized identity data.
             exchange_code = auth.store_google_exchange_code(" Test User ", "USER@example.com", "viewer")
@@ -104,7 +110,7 @@ class AuthGoogleHelpersTests(unittest.TestCase):
         with patch("app.auth.time.time", return_value=1003):
             # Confirm reused state tokens are rejected.
             with self.assertRaises(HTTPException) as state_error:
-                auth.consume_google_oauth_state("state-token")
+                auth.consume_google_oauth_state(state_token)
             self.assertEqual(state_error.exception.status_code, 400)
 
             # Confirm reused exchange codes are rejected.
@@ -126,6 +132,26 @@ class AuthGoogleHelpersTests(unittest.TestCase):
             auth._prune_expired_google_records()
             self.assertNotIn("expired-state", auth.GOOGLE_STATE_STORE)
             self.assertNotIn("expired-code", auth.GOOGLE_EXCHANGE_CODE_STORE)
+
+    def test_signed_google_state_survives_missing_memory_store(self) -> None:
+        """Covers Google OAuth state validation when callbacks hit a different function instance."""
+
+        with patch("app.auth.token_urlsafe", return_value="state-nonce"), patch("app.auth.time.time", side_effect=[1000, 1000]):
+            # Create a signed state token in the start request handler.
+            state_token = auth.create_google_oauth_state()
+
+        # Simulate the callback landing on another serverless instance with no warm memory state.
+        auth.GOOGLE_STATE_STORE.clear()
+
+        with patch("app.auth.time.time", return_value=1001):
+            # Confirm the signed token can still validate without the original in-memory record.
+            auth.consume_google_oauth_state(state_token)
+            self.assertIn(state_token, auth.GOOGLE_CONSUMED_STATE_STORE)
+
+            # Confirm the current instance still blocks a replay after fallback validation.
+            with self.assertRaises(HTTPException) as state_error:
+                auth.consume_google_oauth_state(state_token)
+            self.assertEqual(state_error.exception.status_code, 400)
 
     def test_google_identity_validation_and_role_resolution_cover_success_and_failures(self) -> None:
         """Covers Google SSO enablement, role resolution, and identity validation paths."""
